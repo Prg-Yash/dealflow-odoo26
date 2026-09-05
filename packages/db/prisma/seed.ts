@@ -364,7 +364,8 @@ async function main() {
 
   // 5b. Team Invitations (Phase 1)
   console.log("\n[5b/9] Creating Sample Team Invitation...");
-  await (prisma as any).invitations.upsert({
+  const invitationModel = (prisma as any).invitation || (prisma as any).invitations;
+  await invitationModel.upsert({
     where: { token: "invite-token-rep-david" },
     update: {
       status: "PENDING",
