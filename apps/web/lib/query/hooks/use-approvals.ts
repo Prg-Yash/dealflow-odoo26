@@ -13,17 +13,25 @@ import {
 export interface DiscountApprovalRuleData {
   id: string;
   name: string;
-  minDiscount: number;
-  maxDiscount: number;
-  minRiskScore: number;
-  maxRiskScore: number;
-  escalationLevel: "SALES_MANAGER" | "FINANCE";
-  priority: number;
-  isActive: boolean;
+  minDiscount?: number;
+  maxDiscount?: number;
+  minDiscountPercent?: number;
+  maxDiscountPercent?: number;
+  minRiskScore?: number;
+  maxRiskScore?: number;
+  minBlendedRiskScore?: number;
+  maxBlendedRiskScore?: number;
+  escalationLevel?: "NONE" | "SALES_MANAGER" | "FINANCE" | "SALES_MANAGER_AND_FINANCE";
+  requiresManagerApproval?: boolean;
+  requiresFinanceApproval?: boolean;
+  priority?: number;
+  isActive?: boolean;
   description?: string | null;
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
+
+export type DiscountRuleData = DiscountApprovalRuleData;
 
 export interface DealAnomalyData {
   quotationId: string;
@@ -80,32 +88,36 @@ export function useCreateDiscountRule() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (body: {
-      name: string;
-      minDiscount: number;
-      maxDiscount: number;
-      minRiskScore: number;
-      maxRiskScore: number;
-      escalationLevel: "SALES_MANAGER" | "FINANCE";
-      priority?: number;
-      description?: string;
-    }) => api.post<DiscountApprovalRuleData>("/api/discount-approval-rules", body),
+    mutationFn: (body: Partial<DiscountApprovalRuleData> & { name: string }) =>
+      api.post<DiscountApprovalRuleData>("/api/discount-approval-rules", body),
 
     ...createOptimisticMutationOptions<
-      { name: string; minDiscount: number; maxDiscount: number; minRiskScore: number; maxRiskScore: number; escalationLevel: "SALES_MANAGER" | "FINANCE"; priority?: number; description?: string },
+      Partial<DiscountApprovalRuleData> & { name: string },
       DiscountApprovalRuleData[]
     >({
       queryClient,
       queryKey: queryKeys.approvals.rules(),
       updateFn: (oldList, variables) => {
+        const minDisc = variables.minDiscountPercent ?? variables.minDiscount ?? 0;
+        const maxDisc = variables.maxDiscountPercent ?? variables.maxDiscount ?? 15;
+        const minRisk = variables.minBlendedRiskScore ?? variables.minRiskScore ?? 0;
+        const maxRisk = variables.maxBlendedRiskScore ?? variables.maxRiskScore ?? 10;
+        const escalation = variables.escalationLevel ?? "SALES_MANAGER";
+
         const optimisticRule: DiscountApprovalRuleData = {
           id: `temp-${Date.now()}`,
           name: variables.name,
-          minDiscount: variables.minDiscount,
-          maxDiscount: variables.maxDiscount,
-          minRiskScore: variables.minRiskScore,
-          maxRiskScore: variables.maxRiskScore,
-          escalationLevel: variables.escalationLevel,
+          minDiscountPercent: minDisc,
+          maxDiscountPercent: maxDisc,
+          minDiscount: minDisc,
+          maxDiscount: maxDisc,
+          minBlendedRiskScore: minRisk,
+          maxBlendedRiskScore: maxRisk,
+          minRiskScore: minRisk,
+          maxRiskScore: maxRisk,
+          escalationLevel: escalation,
+          requiresManagerApproval: variables.requiresManagerApproval ?? (escalation !== "NONE"),
+          requiresFinanceApproval: variables.requiresFinanceApproval ?? (escalation === "SALES_MANAGER_AND_FINANCE" || escalation === "FINANCE"),
           priority: variables.priority ?? 1,
           isActive: true,
           description: variables.description ?? null,

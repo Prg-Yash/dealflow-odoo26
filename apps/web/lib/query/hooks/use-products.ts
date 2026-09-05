@@ -13,10 +13,13 @@ import {
 export interface ProductVariantData {
   id: string;
   sku: string;
-  name: string;
-  priceDelta: number;
+  name?: string;
+  attributeName?: string;
+  attributeValue?: string;
+  priceDelta?: number;
+  extraPrice?: number;
   attributes?: Record<string, any>;
-  isActive: boolean;
+  isActive?: boolean;
 }
 
 export interface ProductData {
@@ -56,6 +59,8 @@ export interface CategoryData {
   name: string;
   slug: string;
   type: "HARDWARE" | "SERVICE" | "SUBSCRIPTION";
+  discountCeiling?: number;
+  targetMargin?: number;
   description?: string | null;
   color?: string | null;
   _count?: { products: number };
@@ -193,3 +198,140 @@ export function useCreateCategory() {
     },
   });
 }
+
+/**
+ * Mutation: Update category
+ */
+export function useUpdateCategory() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Partial<CategoryData> & { discountCeiling?: number; targetMargin?: number } }) =>
+      api.patch<CategoryData>(`/api/categories/${id}`, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.categories() });
+    },
+  });
+}
+
+/**
+ * Mutation: Delete category
+ */
+export function useDeleteCategory() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/api/categories/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.categories() });
+    },
+  });
+}
+
+export interface PriceListData {
+  id: string;
+  name: string;
+  currency: string;
+  customerTierId?: string | null;
+  customerTier?: { id: string; name: string; code: string; discountCeiling: number };
+  isDefault: boolean;
+  items?: Array<{
+    id: string;
+    productId: string;
+    variantId?: string | null;
+    fixedPrice?: number | null;
+    discountPercent?: number | null;
+    product?: { id: string; name: string; sku: string; basePrice: number };
+  }>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Hook to fetch all Price Lists
+ */
+export function usePriceLists() {
+  return useQuery({
+    queryKey: ["price-lists"],
+    queryFn: () => api.get<PriceListData[]>("/api/price-lists"),
+  });
+}
+
+/**
+ * Mutation: Create a Price List
+ */
+export function useCreatePriceList() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body: { name: string; currency: string; customerTierId?: string; isDefault?: boolean }) =>
+      api.post<PriceListData>("/api/price-lists", body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["price-lists"] });
+    },
+  });
+}
+
+/**
+ * Mutation: Update a Price List
+ */
+export function useUpdatePriceList() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Partial<{ name: string; currency: string; customerTierId: string | null; isDefault: boolean }> }) =>
+      api.patch<PriceListData>(`/api/price-lists/${id}`, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["price-lists"] });
+    },
+  });
+}
+
+/**
+ * Mutation: Delete a Price List
+ */
+export function useDeletePriceList() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/api/price-lists/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["price-lists"] });
+    },
+  });
+}
+
+
+
+/**
+ * Mutation: Create Product Variant
+ */
+export function useCreateProductVariant() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ productId, body }: { productId: string; body: { attributeName: string; attributeValue: string; extraPrice?: number; sku?: string } }) =>
+      api.post<ProductVariantData>(`/api/products/${productId}/variants`, body),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.detail(variables.productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
+    },
+  });
+}
+
+/**
+ * Mutation: Delete Product Variant
+ */
+export function useDeleteProductVariant() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ productId, variantId }: { productId: string; variantId: string }) =>
+      api.delete(`/api/products/${productId}/variants/${variantId}`),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.detail(variables.productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
+    },
+  });
+}
+

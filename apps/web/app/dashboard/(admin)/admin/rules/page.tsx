@@ -53,7 +53,7 @@ export default function AdminRulesPage() {
           requiresFinanceApproval: escalation === "SALES_MANAGER_AND_FINANCE",
           escalationLevel: escalation,
           description: r.description || "",
-          isActive: r.isActive,
+          isActive: r.isActive ?? true,
           dealTriggersCount: 0,
         };
       })
