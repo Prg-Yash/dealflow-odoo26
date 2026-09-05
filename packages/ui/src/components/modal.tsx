@@ -27,11 +27,28 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
       ref={dialogRef}
       onClose={onClose}
       onClick={(e) => {
-        if (e.target === dialogRef.current) onClose();
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+        const rect = dialog.getBoundingClientRect();
+        const isInDialog =
+          rect.top <= e.clientY &&
+          e.clientY <= rect.bottom &&
+          rect.left <= e.clientX &&
+          e.clientX <= rect.right;
+        if (!isInDialog) {
+          onClose();
+        }
+      }}
+      style={{
+        position: "fixed",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        margin: 0,
       }}
       className={cn(
-        "rounded-[2rem] border border-outline-variant/50 bg-surface-container-lowest p-0 shadow-glass backdrop:bg-inverse-surface/40 backdrop:backdrop-blur-sm",
-        "max-w-lg w-full",
+        "rounded-2xl border border-slate-200 bg-white p-0 shadow-2xl backdrop:bg-slate-900/40 backdrop:backdrop-blur-xs",
+        "max-w-lg w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto z-50",
         className,
       )}
     >

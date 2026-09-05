@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Mail, CheckCircle2, ArrowLeft, Users } from "lucide-react";
 import { AuthCard } from "@repo/ui";
@@ -8,23 +8,25 @@ import { ROLES, ALL_ROLES, inferRoleFromEmail, type UserRole } from "../../../li
 import { isValidEmail } from "../../../lib/validation";
 
 export default function ForgotPasswordPage() {
-  const [selectedRole, setSelectedRole] = useState<UserRole>("sales_rep");
-  const [email, setEmail] = useState("rep.alex@dealflow360.com");
+  const [email, setEmail] = useState(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("email") || "rep.alex@dealflow360.com";
+    }
+    return "rep.alex@dealflow360.com";
+  });
+  const [selectedRole, setSelectedRole] = useState<UserRole>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const queryEmail = params.get("email");
+      if (queryEmail) return inferRoleFromEmail(queryEmail);
+    }
+    return "sales_rep";
+  });
   const [emailTouched, setEmailTouched] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const queryEmail = params.get("email");
-      if (queryEmail) {
-        setEmail(queryEmail);
-        setSelectedRole(inferRoleFromEmail(queryEmail));
-      }
-    }
-  }, []);
 
   const emailError = emailTouched && !isValidEmail(email) ? "Please enter a valid email address." : null;
   const isFormValid = isValidEmail(email);
