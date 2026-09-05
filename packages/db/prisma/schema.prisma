@@ -170,6 +170,15 @@ enum CreditNoteStatus {
   VOID
 }
 
+/// Enum: CounterProposalStatus
+/// Use Case: Lifecycle state machine for customer counter-proposals during quotation negotiation.
+enum CounterProposalStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  SUPERSEDED
+}
+
 /// Enum: JobStatus
 /// Use Case: Asynchronous compute worker job lifecycle state machine.
 enum JobStatus {
@@ -223,10 +232,14 @@ model User {
   sentInvitations       Invitation[]         @relation("user_invitations")
 
   // Infrastructure Audit & Workflows
-  createdWarehouses     Warehouse[]          @relation("warehouse_creator")
-  jobs                  Job[]
-  reviewedApprovalSteps ApprovalStep[]
-  approvalAuditLogs     ApprovalAuditLog[]
+  createdWarehouses         Warehouse[]          @relation("warehouse_creator")
+  jobs                      Job[]
+  reviewedApprovalSteps     ApprovalStep[]
+  approvalAuditLogs         ApprovalAuditLog[]
+
+  // Negotiation Portal & Counter-Proposal Governance
+  quotationComments         QuotationComment[]   @relation("comment_author")
+  respondedCounterProposals CounterProposal[]    @relation("counter_proposal_responder")
 
   @@index([organizationId])
   @@map("user")
@@ -768,6 +781,9 @@ model Quotation {
   fulfillmentOrder        FulfillmentOrder?
   subscriptions           Subscription[]
   invoices                Invoice[]
+  comments                QuotationComment[]
+  counterProposals        CounterProposal[]
+  signature               QuoteSignature?
 
   @@index([customerId])
   @@index([salesRepId])
@@ -814,6 +830,7 @@ model QuotationLine {
   backorders        Backorder[]
   subscriptionLines SubscriptionLine[]
   invoiceLines      InvoiceLine[]
+  comments          QuotationComment[]
 
   @@index([quotationId])
   @@index([productId])
@@ -1164,6 +1181,74 @@ model CreditNote {
   @@index([organizationId])
   @@index([status])
   @@map("credit_notes")
+}
+
+// =============================================================================
+// Phase 8: Customer Negotiation Portal, Interactive Comments & E-Signatures
+// =============================================================================
+
+/// Model: QuotationComment
+/// Use Case: Interactive comment thread and negotiation notes between customers and sales reps at both overall quote and individual line-item levels.
+model QuotationComment {
+  id                      String         @id @default(cuid())
+  quotationId             String
+  quotationLineId         String?
+  authorId                String
+  authorRole              UserRole       @default(CUSTOMER)
+  message                 String
+  proposedDiscountPercent Float?
+  isResolved              Boolean        @default(false)
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+
+  quotation               Quotation      @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  quotationLine           QuotationLine? @relation(fields: [quotationLineId], references: [id], onDelete: Cascade)
+  author                  User           @relation("comment_author", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([quotationId])
+  @@index([quotationLineId])
+  @@index([authorId])
+  @@map("quotation_comments")
+}
+
+/// Model: CounterProposal
+/// Use Case: Structured negotiation counter-proposal submitted by the customer with proposed commercial totals, discounts, notes, and approval routing.
+model CounterProposal {
+  id                      String                @id @default(cuid())
+  quotationId             String
+  proposedGrandTotal      Float
+  proposedDiscountPercent Float
+  customerNotes           String?
+  status                  CounterProposalStatus @default(PENDING)
+  respondedById           String?
+  respondedAt             DateTime?
+  responseNotes           String?
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+
+  quotation               Quotation             @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  respondedBy             User?                 @relation("counter_proposal_responder", fields: [respondedById], references: [id])
+
+  @@index([quotationId])
+  @@index([status])
+  @@map("counter_proposals")
+}
+
+/// Model: QuoteSignature
+/// Use Case: Legal e-signature audit record and acceptance confirmation capturing digital signature strokes, signer identity, IP, and timestamp.
+model QuoteSignature {
+  id            String    @id @default(cuid())
+  quotationId   String    @unique
+  signedByName  String
+  signedByEmail String
+  signatureData String    // SVG stroke data or base64 canvas PNG string
+  ipAddress     String?
+  userAgent     String?
+  signedAt      DateTime  @default(now())
+
+  quotation     Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@map("quote_signatures")
 }
 
 // =============================================================================

@@ -1,159 +1,158 @@
-import Image, { type ImageProps } from "next/image";
 import Link from "next/link";
-import { Button } from "@repo/ui/button";
-import styles from "./page.module.css";
-
-type Props = Omit<ImageProps, "src"> & {
-  srcLight: string;
-  srcDark: string;
-};
-
-const ThemeImage = (props: Props) => {
-  const { srcLight, srcDark, ...rest } = props;
-
-  return (
-    <>
-      <Image {...rest} src={srcLight} className="imgLight" />
-      <Image {...rest} src={srcDark} className="imgDark" />
-    </>
-  );
-};
+import { ArrowRight, Users, Sparkles, Building2, Key } from "lucide-react";
+import { BrandLogo } from "@repo/ui";
+import { ALL_ROLES } from "../lib/roles";
 
 export default function Home() {
   return (
-    <div className={styles.page}>
-      <header
-        style={{
-          width: "100%",
-          maxWidth: "960px",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "1rem 1.5rem",
-          margin: "0 auto 2rem auto",
-          background: "rgba(255, 255, 255, 0.03)",
-          border: "1px solid rgba(255, 255, 255, 0.08)",
-          borderRadius: "16px",
-          backdropFilter: "blur(12px)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <span
-            style={{
-              width: "10px",
-              height: "10px",
-              borderRadius: "50%",
-              background: "#10b981",
-              boxShadow: "0 0 10px #10b981",
-              display: "inline-block",
-            }}
-          ></span>
-          <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "#cbd5e1" }}>
-            Standalone API (Better Auth: Port 4000)
-          </span>
-        </div>
+    <div className="min-h-screen bg-[#f9f9f9] text-[#0f172a] font-sans antialiased flex flex-col justify-between">
+      {/* Pill Nav Header matching Stitch Horizon design */}
+      <header className="px-6 pt-6">
+        <nav className="mx-auto flex max-w-5xl items-center justify-between rounded-full border border-slate-200 bg-white/90 px-6 py-3 shadow-sm backdrop-blur-md">
+          <BrandLogo href="/" />
 
-        <nav style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-          <Link
-            href="/login"
-            style={{
-              padding: "0.5rem 1rem",
-              borderRadius: "8px",
-              background: "rgba(99, 102, 241, 0.15)",
-              border: "1px solid rgba(99, 102, 241, 0.3)",
-              color: "#a5b4fc",
-              fontSize: "0.85rem",
-              fontWeight: 500,
-            }}
-          >
-            Sign In
-          </Link>
-          <Link
-            href="/register"
-            style={{
-              padding: "0.5rem 1rem",
-              borderRadius: "8px",
-              background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
-              color: "#ffffff",
-              fontSize: "0.85rem",
-              fontWeight: 600,
-              boxShadow: "0 2px 10px rgba(99, 102, 241, 0.3)",
-            }}
-          >
-            Register
-          </Link>
-          <Link
-            href="/profile"
-            style={{
-              padding: "0.5rem 1rem",
-              borderRadius: "8px",
-              background: "rgba(255, 255, 255, 0.05)",
-              border: "1px solid rgba(255, 255, 255, 0.1)",
-              color: "#e2e8f0",
-              fontSize: "0.85rem",
-              fontWeight: 500,
-            }}
-          >
-            Profile
-          </Link>
+          <div className="hidden sm:flex items-center gap-6 text-sm font-medium text-slate-600">
+            <Link href="/login" className="hover:text-slate-900 transition-colors">
+              Internal Login
+            </Link>
+            <Link href="/register" className="hover:text-slate-900 transition-colors">
+              Org Sign Up
+            </Link>
+            <Link href="/portal/login" className="hover:text-slate-900 transition-colors">
+              Customer Portal
+            </Link>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-1.5 px-5 py-2 rounded-full bg-[#ff5e3a] hover:bg-[#ea4e28] text-white font-semibold text-xs transition-all shadow-sm"
+            >
+              <span>Get Started</span>
+              <ArrowRight size={14} />
+            </Link>
+          </div>
         </nav>
       </header>
 
-      <main className={styles.main}>
-        <ThemeImage
-          className={styles.logo}
-          srcLight="turborepo-dark.svg"
-          srcDark="turborepo-light.svg"
-          alt="Turborepo logo"
-          width={180}
-          height={38}
-          priority
-        />
-
-        <div
-          style={{
-            maxWidth: "600px",
-            textAlign: "center",
-            margin: "1rem 0",
-            padding: "1.25rem",
-            background: "rgba(17, 24, 39, 0.5)",
-            borderRadius: "14px",
-            border: "1px solid rgba(255, 255, 255, 0.08)",
-          }}
-        >
-          <h2 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: "0.5rem", color: "#ffffff" }}>
-            Decoupled Auth &amp; Compute Architecture
-          </h2>
-          <p style={{ fontSize: "0.875rem", color: "#94a3b8", lineHeight: 1.6 }}>
-            Frontend requests communicate cross-origin with the standalone <code>apps/api</code> service
-            (Better Auth + Prisma NeonDB), while <code>apps/worker</code> handles heavy 24/7 background compute jobs.
-          </p>
+      {/* Hero Section */}
+      <main className="max-w-5xl mx-auto px-6 py-16 flex-1 flex flex-col items-center text-center justify-center">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-semibold text-[#ff5e3a] shadow-sm mb-6">
+          <Sparkles size={14} className="text-[#ff5e3a]" />
+          <span>Phase 2 — Batch 1: Auth &amp; 5-Role Access Control</span>
         </div>
 
-        <div className={styles.ctas}>
-          <Link className={styles.primary} href="/login">
-            🔐 Try Better Auth Login
+        <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-[#0f172a] max-w-3xl leading-[1.15]">
+          Orchestrate deals, approvals &amp; revenue in{" "}
+          <span className="text-[#ff5e3a]">one unified flow</span>.
+        </h1>
+
+        <p className="mt-5 text-base sm:text-lg text-slate-600 max-w-2xl leading-relaxed">
+          DealFlow360 connects sales reps, managers, finance, admins, and buyers with automated discount tiers, quotation negotiation, and instant fulfillment.
+        </p>
+
+        {/* Primary Screen Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-12 w-full text-left">
+          {/* Card 1: Internal Login */}
+          <Link
+            href="/login"
+            className="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5"
+          >
+            <div className="w-10 h-10 rounded-2xl bg-[#ff5e3a]/10 flex items-center justify-center text-[#ff5e3a] mb-4 group-hover:bg-[#ff5e3a] group-hover:text-white transition-colors">
+              <Users size={20} />
+            </div>
+            <div className="text-xs font-mono font-semibold text-[#ff5e3a] uppercase tracking-wider mb-1">
+              Screen 01
+            </div>
+            <h2 className="text-lg font-bold text-[#0f172a] group-hover:text-[#ff5e3a] transition-colors">
+              Internal Team Login
+            </h2>
+            <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+              Sign in for Sales Reps, Managers, Finance, and Admins. Automatically routes to the Sales Dashboard.
+            </p>
+            <div className="mt-4 flex items-center gap-1.5 text-xs font-bold text-[#ff5e3a] group-hover:translate-x-1 transition-transform">
+              <span>Open Screen</span>
+              <ArrowRight size={14} />
+            </div>
           </Link>
-          <Link className={styles.secondary} href="/register">
-            ✨ Register New User
+
+          {/* Card 2: Org Sign Up */}
+          <Link
+            href="/register"
+            className="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5"
+          >
+            <div className="w-10 h-10 rounded-2xl bg-[#d6ed7a]/40 flex items-center justify-center text-[#546500] mb-4 group-hover:bg-[#546500] group-hover:text-white transition-colors">
+              <Building2 size={20} />
+            </div>
+            <div className="text-xs font-mono font-semibold text-[#546500] uppercase tracking-wider mb-1">
+              Screen 02
+            </div>
+            <h2 className="text-lg font-bold text-[#0f172a] group-hover:text-[#546500] transition-colors">
+              Organization Sign Up
+            </h2>
+            <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+              Onboard companies and assign members to any of the 5 platform roles with team access rules.
+            </p>
+            <div className="mt-4 flex items-center gap-1.5 text-xs font-bold text-[#546500] group-hover:translate-x-1 transition-transform">
+              <span>Open Screen</span>
+              <ArrowRight size={14} />
+            </div>
+          </Link>
+
+          {/* Card 3: Customer Portal */}
+          <Link
+            href="/portal/login"
+            className="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5"
+          >
+            <div className="w-10 h-10 rounded-2xl bg-[#c4e7ff]/60 flex items-center justify-center text-[#00668a] mb-4 group-hover:bg-[#00668a] group-hover:text-white transition-colors">
+              <Key size={20} />
+            </div>
+            <div className="text-xs font-mono font-semibold text-[#00668a] uppercase tracking-wider mb-1">
+              Screen 03
+            </div>
+            <h2 className="text-lg font-bold text-[#0f172a] group-hover:text-[#00668a] transition-colors">
+              Customer Quotation Portal
+            </h2>
+            <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+              Secure proposal access via quote token (e.g. DF-Q1042) or buyer email for customer negotiations.
+            </p>
+            <div className="mt-4 flex items-center gap-1.5 text-xs font-bold text-[#00668a] group-hover:translate-x-1 transition-transform">
+              <span>Open Screen</span>
+              <ArrowRight size={14} />
+            </div>
           </Link>
         </div>
 
-        <Button appName="web" className={styles.secondary}>
-          Open alert
-        </Button>
+        {/* 5 User Roles Overview Strip */}
+        <div className="mt-12 rounded-3xl border border-slate-200 bg-slate-50 p-6 w-full text-left">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+              Configured User Roles (5):
+            </span>
+            <span className="text-[11px] text-[#ff5e3a] font-semibold">
+              Live role-based routing enabled
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {ALL_ROLES.map((r) => (
+              <div key={r.id} className="rounded-xl bg-white p-3 border border-slate-200">
+                <span className="text-xs font-bold text-[#0f172a] block">{r.label}</span>
+                <span className="text-[11px] text-slate-500 line-clamp-2 mt-1 leading-snug">
+                  {r.description}
+                </span>
+                <span className="text-[10px] font-mono text-[#ff5e3a] mt-2 block">
+                  &rarr; {r.targetPath}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       </main>
 
-      <footer className={styles.footer}>
-        <Link href="/profile">Profile &amp; Session</Link>
-        <Link href="/forgot-password">Forgot Password</Link>
-        <a
-          href="https://turborepo.dev?utm_source=create-turbo"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Go to turborepo.dev →
-        </a>
+      {/* Footer */}
+      <footer className="border-t border-slate-200 py-5 text-center text-xs text-slate-400">
+        DealFlow360 Orchestration Platform &copy; 2025 &bull; Built with Next.js 16 &amp; Tailwind CSS v4
       </footer>
     </div>
   );

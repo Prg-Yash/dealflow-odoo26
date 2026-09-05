@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { LogOut, Home, Zap, AlertCircle, ArrowLeft } from "lucide-react";
 import { useSession, signOut, sendVerificationEmail } from "../../lib/auth-client";
-import styles from "../auth.module.css";
+import { BrandLogo } from "@repo/ui";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -16,17 +17,23 @@ export default function ProfilePage() {
   const [verificationAlert, setVerificationAlert] = useState<{
     type: "success" | "error";
     message: string;
-  } | null>(null);
+  } | null>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("verified") === "true") {
+        return {
+          type: "success",
+          message: "🎉 Email verified successfully! Your workspace account is now verified.",
+        };
+      }
+    }
+    return null;
+  });
 
-  // Check if returning from a successful verification link
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       if (params.get("verified") === "true") {
-        setVerificationAlert({
-          type: "success",
-          message: "🎉 Email verified successfully! Your workspace account is now verified.",
-        });
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     }
@@ -76,9 +83,7 @@ export default function ProfilePage() {
     try {
       const res = await fetch(`${apiUrl}/api/jobs/trigger`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
           taskType: "matrix-multiplication",
@@ -102,10 +107,10 @@ export default function ProfilePage() {
 
   if (isPending) {
     return (
-      <div className={styles.container}>
-        <div className={styles.authCard} style={{ textAlign: "center", padding: "4rem 2rem" }}>
-          <div className={styles.spinner} style={{ margin: "0 auto 1.5rem auto", width: "32px", height: "32px" }}></div>
-          <p style={{ color: "#94a3b8" }}>Loading authenticated session from standalone API...</p>
+      <div className="min-h-screen bg-[#f9f9f9] flex items-center justify-center p-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-10 shadow-xl max-w-md w-full text-center">
+          <div className="w-8 h-8 border-3 border-[#ff5e3a] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-sm text-slate-500">Loading session from standalone API...</p>
         </div>
       </div>
     );
@@ -113,28 +118,41 @@ export default function ProfilePage() {
 
   if (error || !session?.user) {
     return (
-      <div className={styles.container}>
-        <div className={styles.authCard}>
-          <div className={styles.header}>
-            <div className={styles.badge}>
-              <span className={styles.badgeDot} style={{ background: "#ef4444", boxShadow: "0 0 8px #ef4444" }}></span>
-              No Active Session
-            </div>
-            <h1 className={styles.title}>Access Denied</h1>
-            <p className={styles.subtitle}>
-              You are currently signed out. Please sign in or create an account to view your profile.
-            </p>
-          </div>
+      <div className="min-h-screen bg-[#f9f9f9] text-[#0f172a] font-sans antialiased flex flex-col justify-between">
+        <header className="w-full border-b border-slate-200 bg-white/95 px-6 py-4 flex items-center justify-between">
+          <BrandLogo href="/" />
+        </header>
 
-          <div style={{ display: "flex", gap: "1rem", marginTop: "1.5rem" }}>
-            <Link href="/login" className={styles.button} style={{ textDecoration: "none" }}>
-              Sign In
-            </Link>
-            <Link href="/register" className={`${styles.button} ${styles.buttonSecondary}`} style={{ textDecoration: "none" }}>
-              Register
-            </Link>
+        <main className="flex-1 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl p-8 sm:p-10 shadow-xl max-w-md w-full text-center">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-50 text-red-600 text-xs font-semibold mb-4 border border-red-200">
+              <AlertCircle size={14} />
+              <span>No Active Session</span>
+            </div>
+            <h1 className="text-2xl font-bold text-slate-900 mb-2">Access Denied</h1>
+            <p className="text-sm text-slate-500 mb-6">
+              You are currently signed out. Please sign in or create an account to view your workspace session.
+            </p>
+            <div className="flex gap-3">
+              <Link
+                href="/login"
+                className="flex-1 inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-[#ff5e3a] text-white font-semibold text-xs shadow-md shadow-[#ff5e3a]/25 hover:bg-[#ea4e28] transition"
+              >
+                Sign In
+              </Link>
+              <Link
+                href="/register"
+                className="flex-1 inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 font-semibold text-xs hover:bg-slate-50 transition"
+              >
+                Register
+              </Link>
+            </div>
           </div>
-        </div>
+        </main>
+
+        <footer className="w-full py-4 text-center border-t border-slate-200 bg-white text-xs text-slate-400">
+          DealFlow360 Orchestration Platform &copy; 2025
+        </footer>
       </div>
     );
   }
@@ -142,187 +160,133 @@ export default function ProfilePage() {
   const { user } = session;
   const initials = user.name
     ? user.name
-        .split(" ")
+        .trim()
+        .split(/\s+/)
         .map((n) => n[0])
+        .filter(Boolean)
+        .slice(0, 2)
         .join("")
         .toUpperCase()
-        .substring(0, 2)
     : "U";
 
   return (
-    <div className={styles.container}>
-      <div className={styles.profileCard}>
-        <div className={styles.avatarSection}>
-          <div className={styles.avatar}>{initials}</div>
-          <div className={styles.userDetails}>
-            <div className={styles.badge}>
-              <span className={styles.badgeDot}></span>
-              Better Auth Session Active
+    <div className="min-h-screen bg-[#f9f9f9] text-[#0f172a] font-sans antialiased flex flex-col justify-between">
+      {/* Top Header */}
+      <header className="w-full border-b border-slate-200 bg-white/95 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky top-0 z-30">
+        <BrandLogo href="/dashboard" subtitle="Profile & Session" />
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition"
+        >
+          <ArrowLeft size={14} />
+          <span>To Dashboard</span>
+        </Link>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-4xl mx-auto w-full px-4 py-8 sm:py-12 flex-1">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-10 shadow-xl shadow-slate-200/40">
+          {/* Avatar & User Details */}
+          <div className="flex items-center gap-5 pb-6 border-b border-slate-100">
+            <div className="w-16 h-16 rounded-2xl bg-[#ff5e3a] text-white font-extrabold text-xl flex items-center justify-center shadow-md shadow-[#ff5e3a]/25 shrink-0">
+              {initials}
             </div>
-            <h2>{user.name || "Workspace User"}</h2>
-            <p>{user.email}</p>
-          </div>
-        </div>
-
-        {verificationAlert && (
-          <div
-            className={`${styles.alert} ${verificationAlert.type === "error" ? styles.alertError : styles.alertSuccess}`}
-            style={{ marginBottom: "1.5rem" }}
-          >
-            <span>{verificationAlert.type === "error" ? "⚠️" : "✉️"}</span>
-            <span>{verificationAlert.message}</span>
-          </div>
-        )}
-
-        <div className={styles.infoGrid}>
-          <div className={styles.infoCard}>
-            <div className={styles.infoCardLabel}>User ID</div>
-            <div className={styles.infoCardValue} style={{ fontSize: "0.85rem", fontFamily: "monospace" }}>
-              {user.id}
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 text-[11px] font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>Better Auth Session Active</span>
+              </div>
+              <h1 className="text-2xl font-bold text-slate-900">{user.name || "Workspace User"}</h1>
+              <p className="text-sm text-slate-500">{user.email}</p>
             </div>
           </div>
 
-          <div className={styles.infoCard}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div className={styles.infoCardLabel}>Email Verified</div>
+          {/* Verification Alert */}
+          {verificationAlert && (
+            <div
+              className={`mt-6 p-4 rounded-xl text-xs border ${
+                verificationAlert.type === "error"
+                  ? "bg-red-50 border-red-200 text-red-700"
+                  : "bg-emerald-50 border-emerald-200 text-emerald-800"
+              }`}
+            >
+              {verificationAlert.message}
+            </div>
+          )}
+
+          {/* Info Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                User ID
+              </span>
+              <span className="text-xs font-mono text-slate-800 break-all">{user.id}</span>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Email Status
+                </span>
+                <span className={`text-xs font-semibold ${user.emailVerified ? "text-emerald-600" : "text-amber-600"}`}>
+                  {user.emailVerified ? "Verified ✓" : "Pending Verification"}
+                </span>
+              </div>
               {!user.emailVerified && (
                 <button
                   type="button"
                   onClick={handleSendVerificationEmail}
                   disabled={sendingVerification}
-                  style={{
-                    background: "linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.2))",
-                    border: "1px solid rgba(99, 102, 241, 0.4)",
-                    color: "#c7d2fe",
-                    borderRadius: "6px",
-                    padding: "0.25rem 0.6rem",
-                    fontSize: "0.72rem",
-                    fontWeight: 600,
-                    cursor: sendingVerification ? "not-allowed" : "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.3rem",
-                    transition: "all 0.2s ease",
-                  }}
+                  className="px-3 py-1 rounded-lg bg-[#ff5e3a] text-white text-xs font-semibold hover:bg-[#ea4e28] transition cursor-pointer disabled:opacity-50"
                 >
-                  {sendingVerification ? (
-                    <div className={styles.spinner} style={{ width: "10px", height: "10px" }}></div>
-                  ) : (
-                    "✉️ Verify"
-                  )}
+                  {sendingVerification ? "Sending..." : "Verify"}
                 </button>
               )}
             </div>
-            <div className={styles.infoCardValue} style={{ color: user.emailVerified ? "#10b981" : "#f59e0b", marginTop: "0.3rem" }}>
-              {user.emailVerified ? "Verified ✓" : "Pending Verification"}
-            </div>
           </div>
 
-          <div className={styles.infoCard}>
-            <div className={styles.infoCardLabel}>API Origin</div>
-            <div className={styles.infoCardValue} style={{ fontSize: "0.85rem", color: "#818cf8" }}>
-              {process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}
+          {/* Job trigger & actions */}
+          {jobStatus && (
+            <div className="mt-6 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700">
+              {jobStatus}
             </div>
-          </div>
+          )}
 
-          <div className={styles.infoCard}>
-            <div className={styles.infoCardLabel}>Auth Architecture</div>
-            <div className={styles.infoCardValue} style={{ fontSize: "0.85rem", color: "#ec4899" }}>
-              Direct Cross-Origin
-            </div>
-          </div>
-        </div>
-
-        {!user.emailVerified && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "1rem",
-              padding: "1rem 1.25rem",
-              marginBottom: "1rem",
-              background: "rgba(245, 158, 11, 0.08)",
-              border: "1px solid rgba(245, 158, 11, 0.25)",
-              borderRadius: "12px",
-            }}
-          >
-            <div>
-              <div style={{ fontWeight: 600, color: "#fbbf24", fontSize: "0.9rem" }}>
-                Email Verification Pending
-              </div>
-              <div style={{ color: "#94a3b8", fontSize: "0.8rem", marginTop: "0.2rem" }}>
-                Send a confirmation link to <strong style={{ color: "#e2e8f0" }}>{user.email}</strong> to verify this account.
-              </div>
-            </div>
+          <div className="flex flex-wrap items-center gap-3 mt-8 pt-6 border-t border-slate-100">
             <button
               type="button"
-              onClick={handleSendVerificationEmail}
-              disabled={sendingVerification}
-              className={styles.button}
-              style={{
-                width: "auto",
-                padding: "0.55rem 1.1rem",
-                fontSize: "0.85rem",
-                background: "linear-gradient(135deg, #4f46e5, #7c3aed)",
-                whiteSpace: "nowrap",
-                flexShrink: 0,
-              }}
+              onClick={handleTriggerComputeJob}
+              disabled={triggeringJob}
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white font-semibold text-xs shadow-md shadow-[#ff5e3a]/25 transition cursor-pointer disabled:opacity-50"
             >
-              {sendingVerification ? (
-                <div className={styles.spinner} style={{ width: "14px", height: "14px" }}></div>
-              ) : (
-                "✉️ Send Verification Email"
-              )}
+              <Zap size={14} />
+              <span>{triggeringJob ? "Triggering..." : "Trigger Background Compute"}</span>
+            </button>
+
+            <Link
+              href="/"
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 font-semibold text-xs hover:bg-slate-50 transition"
+            >
+              <Home size={14} />
+              <span>Home</span>
+            </Link>
+
+            <button
+              type="button"
+              onClick={handleSignOut}
+              disabled={loggingOut}
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 font-semibold text-xs transition cursor-pointer ml-auto"
+            >
+              <LogOut size={14} />
+              <span>{loggingOut ? "Signing out..." : "Sign Out"}</span>
             </button>
           </div>
-        )}
-
-        <div style={{ marginBottom: "1rem" }}>
-          <div className={styles.infoCardLabel} style={{ marginBottom: "0.5rem" }}>
-            Raw Session Payload (Prisma / NeonDB)
-          </div>
-          <pre className={styles.codeBlock}>{JSON.stringify(session, null, 2)}</pre>
         </div>
+      </main>
 
-        {jobStatus && (
-          <div className={`${styles.alert} ${jobStatus.startsWith("Error") || jobStatus.startsWith("Connection") ? styles.alertError : styles.alertSuccess}`}>
-            <span>{jobStatus.startsWith("Error") ? "⚠️" : "🚀"}</span>
-            <span>{jobStatus}</span>
-          </div>
-        )}
-
-        <div className={styles.actionsGroup}>
-          <button
-            type="button"
-            className={styles.button}
-            style={{ flex: "1 1 220px" }}
-            onClick={handleTriggerComputeJob}
-            disabled={triggeringJob}
-          >
-            {triggeringJob ? <div className={styles.spinner}></div> : "⚡ Trigger Background Compute"}
-          </button>
-
-          <Link
-            href="/"
-            className={`${styles.button} ${styles.buttonSecondary}`}
-            style={{ flex: "0 0 auto", textDecoration: "none" }}
-          >
-            Monorepo Home
-          </Link>
-
-          <button
-            type="button"
-            className={`${styles.button} ${styles.buttonDanger}`}
-            style={{ flex: "0 0 auto" }}
-            onClick={handleSignOut}
-            disabled={loggingOut}
-          >
-            {loggingOut ? <div className={styles.spinner}></div> : "Sign Out"}
-          </button>
-        </div>
-      </div>
+      <footer className="w-full py-4 text-center border-t border-slate-200 bg-white text-xs text-slate-400">
+        DealFlow360 Orchestration Platform &copy; 2025
+      </footer>
     </div>
   );
 }
-
