@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { LogOut, Home, Zap, AlertCircle, ArrowLeft } from "lucide-react";
 import { useSession, signOut, sendVerificationEmail } from "../../lib/auth-client";
 import { BrandLogo } from "@repo/ui";
+import { getStoredRole, ROLES } from "../../lib/roles";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -14,6 +15,8 @@ export default function ProfilePage() {
   const [triggeringJob, setTriggeringJob] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [sendingVerification, setSendingVerification] = useState(false);
+  const [demoRole, setDemoRole] = useState<string | null>(null);
+  
   const [verificationAlert, setVerificationAlert] = useState<{
     type: "success" | "error";
     message: string;
@@ -32,6 +35,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
+      setDemoRole(getStoredRole());
       const params = new URLSearchParams(window.location.search);
       if (params.get("verified") === "true") {
         window.history.replaceState({}, document.title, window.location.pathname);
@@ -42,6 +46,11 @@ export default function ProfilePage() {
   const handleSignOut = async () => {
     setLoggingOut(true);
     try {
+      // Clear demo role from localStorage & cookies
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("df360_user_role");
+        document.cookie = "demo_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      }
       await signOut();
       router.push("/login");
     } catch {
@@ -116,7 +125,8 @@ export default function ProfilePage() {
     );
   }
 
-  if (error || !session?.user) {
+  // If there's no session AND no demo role
+  if (!session?.user && !demoRole) {
     return (
       <div className="min-h-screen bg-[#f9f9f9] text-[#0f172a] font-sans antialiased flex flex-col justify-between">
         <header className="w-full border-b border-slate-200 bg-white/95 px-6 py-4 flex items-center justify-between">
@@ -157,7 +167,15 @@ export default function ProfilePage() {
     );
   }
 
-  const { user } = session;
+  const user = session?.user || {
+    id: "demo-" + Math.random().toString(36).substring(7),
+    name: ROLES[demoRole as keyof typeof ROLES]?.defaultName || "Workspace User",
+    email: ROLES[demoRole as keyof typeof ROLES]?.defaultEmail || "user@dealflow360.com",
+    emailVerified: false,
+  };
+
+  const isDemo = !session?.user;
+
   const initials = user.name
     ? user.name
         .trim()
@@ -192,9 +210,11 @@ export default function ProfilePage() {
               {initials}
             </div>
             <div className="space-y-1">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 text-[11px] font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>Better Auth Session Active</span>
+              <div className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                isDemo ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-emerald-50 border-emerald-100 text-emerald-700'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${isDemo ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+                <span>{isDemo ? 'Demo Session (Mocked Role)' : 'Better Auth Session Active'}</span>
               </div>
               <h1 className="text-2xl font-bold text-slate-900">{user.name || "Workspace User"}</h1>
               <p className="text-sm text-slate-500">{user.email}</p>
@@ -232,7 +252,7 @@ export default function ProfilePage() {
                   {user.emailVerified ? "Verified ✓" : "Pending Verification"}
                 </span>
               </div>
-              {!user.emailVerified && (
+              {!user.emailVerified && !isDemo && (
                 <button
                   type="button"
                   onClick={handleSendVerificationEmail}
@@ -264,11 +284,11 @@ export default function ProfilePage() {
             </button>
 
             <Link
-              href="/"
+              href="/dashboard"
               className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 font-semibold text-xs hover:bg-slate-50 transition"
             >
               <Home size={14} />
-              <span>Home</span>
+              <span>Dashboard</span>
             </Link>
 
             <button

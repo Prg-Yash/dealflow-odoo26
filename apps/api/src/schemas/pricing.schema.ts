@@ -9,13 +9,15 @@ export const CreatePriceListSchema = z.object({
 
 export const UpdatePriceListSchema = CreatePriceListSchema.partial();
 
-export const CreatePriceListItemSchema = z.object({
+export const CreatePriceListItemBaseSchema = z.object({
   productId: z.string().min(1, "Product ID is required"),
   variantId: z.string().optional(),
   fixedPrice: z.number().min(0).optional(),
   discountPercent: z.number().min(0).max(100).optional(),
   minQuantity: z.number().int().min(1).default(1),
-}).refine(
+});
+
+export const CreatePriceListItemSchema = CreatePriceListItemBaseSchema.refine(
   (data) => data.fixedPrice !== undefined || data.discountPercent !== undefined,
   { message: "Either fixedPrice or discountPercent must be specified" }
 );
@@ -40,19 +42,21 @@ export const CreateDiscountApprovalRuleSchema = z.object({
 
 export const UpdateDiscountApprovalRuleSchema = CreateDiscountApprovalRuleSchema.partial();
 
-export const CreateProductRecommendationSchema = z.object({
+export const CreateProductRecommendationBaseSchema = z.object({
   sourceProductId: z.string().min(1, "Source product ID is required"),
   recommendedProductId: z.string().min(1, "Recommended product ID is required"),
   coPurchaseScore: z.number().min(0).default(1.0),
   promotionalTag: z.string().optional(),
   minMarginThreshold: z.number().min(0).max(100).default(20.0),
   isActive: z.boolean().default(true),
-}).refine(
+});
+
+export const CreateProductRecommendationSchema = CreateProductRecommendationBaseSchema.refine(
   (data) => data.sourceProductId !== data.recommendedProductId,
   { message: "Source and recommended products cannot be the same" }
 );
 
-export const UpdateProductRecommendationSchema = CreateProductRecommendationSchema.partial();
+export const UpdateProductRecommendationSchema = CreateProductRecommendationBaseSchema.partial();
 
 export type CreatePriceListInput = z.infer<typeof CreatePriceListSchema>;
 export type UpdatePriceListInput = z.infer<typeof UpdatePriceListSchema>;
