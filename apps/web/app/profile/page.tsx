@@ -267,6 +267,52 @@ export default function ProfilePage() {
                 </button>
               )}
             </div>
+
+            {/* Additional User Data Fields */}
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                Primary Role
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 text-xs font-bold uppercase">
+                {demoRole || "Standard User"}
+              </span>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                Workspace
+              </span>
+              <span className="text-xs font-semibold text-slate-900">
+                Acme Corporation
+              </span>
+            </div>
+            
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 sm:col-span-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-3">
+                System Privileges
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {demoRole === "admin" ? (
+                  <>
+                    <span className="px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-100">Full System Access</span>
+                    <span className="px-2.5 py-1 rounded-md bg-purple-50 text-purple-700 text-[10px] font-bold border border-purple-100">Manage Users & Roles</span>
+                    <span className="px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-100">Edit Workflows</span>
+                    <span className="px-2.5 py-1 rounded-md bg-orange-50 text-orange-700 text-[10px] font-bold border border-orange-100">Global Settings</span>
+                  </>
+                ) : demoRole === "manager" ? (
+                  <>
+                    <span className="px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-100">Approve Quotations</span>
+                    <span className="px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-100">View Team Analytics</span>
+                    <span className="px-2.5 py-1 rounded-md bg-purple-50 text-purple-700 text-[10px] font-bold border border-purple-100">Manage Products</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-100">View Own Dashboard</span>
+                    <span className="px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-100">Create Quotations</span>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Job trigger & actions */}

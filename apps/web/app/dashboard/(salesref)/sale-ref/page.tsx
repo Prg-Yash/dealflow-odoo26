@@ -33,9 +33,11 @@ import {
   type Quotation,
 } from "../../../../lib/sales-data";
 import { useQuotations } from "../../../../lib/query";
+import { useDashboardAuth } from "../../layout";
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { signOut } = useDashboardAuth();
   const [activeRole] = useState<UserRole>(() => getStoredRole());
   const [selectedFilter, setSelectedFilter] = useState<string>("all");
 
@@ -190,6 +192,7 @@ export default function DashboardPage() {
         userInitials="SJ"
         userName={currentRole.defaultName}
         roleLabel={currentRole.label}
+        onSignOut={signOut}
         linkComponent={Link}
       />
 

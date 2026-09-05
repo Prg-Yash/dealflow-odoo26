@@ -17,7 +17,7 @@ import {
   ArrowUpRight,
   ChevronRight,
 } from "lucide-react";
-import { BrandLogo } from "@repo/ui";
+import { BrandLogo, ProfileModal } from "@repo/ui";
 import {
   INITIAL_FINANCE_APPROVALS,
   INITIAL_FULFILLMENT_RECORDS,
@@ -38,6 +38,7 @@ import {
 
 export default function FinanceDashboardPage() {
   const [activeView, setActiveView] = useState<"approvals" | "fulfillment" | "subscriptions" | "invoices">("approvals");
+  const [profileOpen, setProfileOpen] = useState(false);
 
   // Live TanStack Query Hooks
   const { data: apiInvoices } = useInvoices();
@@ -252,12 +253,12 @@ export default function FinanceDashboardPage() {
           </div>
 
           {/* Right: Isolated User Profile */}
-          <div className="flex items-center gap-3 shrink-0">
-            <Link
-              href="/profile"
+          <div className="relative flex items-center gap-3 shrink-0">
+            <button
+              onClick={() => setProfileOpen(!profileOpen)}
               className="flex items-center gap-2.5 pl-2.5 sm:border-l sm:border-slate-200 cursor-pointer"
             >
-              <div className="w-8 h-8 rounded-full bg-[#ff5e3a] text-white text-xs font-extrabold flex items-center justify-center shadow-sm">
+              <div className="w-8 h-8 rounded-full bg-[#ff5e3a] text-white text-xs font-extrabold flex items-center justify-center shadow-sm hover:scale-105 transition-transform">
                 FO
               </div>
               <div className="hidden md:flex flex-col text-left">
@@ -268,7 +269,18 @@ export default function FinanceDashboardPage() {
                   VP of Finance
                 </span>
               </div>
-            </Link>
+            </button>
+            <ProfileModal
+              open={profileOpen}
+              onClose={() => setProfileOpen(false)}
+              user={{
+                name: "Fiona Ops",
+                email: "fiona@dealflow360.com",
+                initials: "FO",
+                role: "finance",
+              }}
+              onSignOut={() => { window.location.href = "/login"; }}
+            />
           </div>
         </div>
       </header>

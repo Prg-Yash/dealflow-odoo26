@@ -23,7 +23,7 @@ import {
   Check,
   AlertTriangle,
 } from "lucide-react";
-import { BrandLogo } from "@repo/ui";
+import { BrandLogo, ProfileModal } from "@repo/ui";
 import {
   INITIAL_MANAGER_APPROVALS,
   type ManagerApprovalRequest,
@@ -33,6 +33,7 @@ import { useQuotation, useUpdateQuotationStage } from "../../../../../../lib/que
 
 export default function ManagerApprovalDetailPage() {
   const params = useParams();
+  const [profileOpen, setProfileOpen] = useState(false);
   const rawId = params.id as string;
   const quoteId = decodeURIComponent(rawId);
 
@@ -157,22 +158,35 @@ export default function ManagerApprovalDetailPage() {
               <span>Back to Exceptions</span>
             </Link>
 
-            <Link
-              href="/profile"
-              className="flex items-center gap-2.5 pl-2.5 sm:border-l sm:border-slate-200 cursor-pointer"
-            >
-              <div className="w-8 h-8 rounded-full bg-[#ff5e3a] text-white text-xs font-extrabold flex items-center justify-center shadow-sm">
-                EV
-              </div>
-              <div className="hidden md:flex flex-col text-left">
-                <span className="text-xs font-bold text-slate-900 leading-tight truncate max-w-[120px]">
-                  Elena Vance
-                </span>
-                <span className="text-[10px] text-slate-500 font-medium truncate max-w-[120px]">
-                  Sales Director
-                </span>
-              </div>
-            </Link>
+            <div className="relative flex items-center shrink-0">
+              <button
+                onClick={() => setProfileOpen(!profileOpen)}
+                className="flex items-center gap-2.5 pl-2.5 sm:border-l sm:border-slate-200 cursor-pointer"
+              >
+                <div className="w-8 h-8 rounded-full bg-[#ff5e3a] text-white text-xs font-extrabold flex items-center justify-center shadow-sm hover:scale-105 transition-transform">
+                  EV
+                </div>
+                <div className="hidden md:flex flex-col text-left">
+                  <span className="text-xs font-bold text-slate-900 leading-tight truncate max-w-[120px]">
+                    Elena Vance
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-medium truncate max-w-[120px]">
+                    Sales Director
+                  </span>
+                </div>
+              </button>
+              <ProfileModal
+                open={profileOpen}
+                onClose={() => setProfileOpen(false)}
+                user={{
+                  name: "Elena Vance",
+                  email: "elena@dealflow360.com",
+                  initials: "EV",
+                  role: "manager",
+                }}
+                onSignOut={() => { window.location.href = "/login"; }}
+              />
+            </div>
           </div>
         </div>
       </header>
