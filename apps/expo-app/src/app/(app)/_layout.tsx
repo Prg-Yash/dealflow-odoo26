@@ -4,6 +4,7 @@ export default function AppLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="dashboard" />
+      <Stack.Screen name="customer" />
       <Stack.Screen name="admin" />
     </Stack>
   );

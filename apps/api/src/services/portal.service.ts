@@ -59,10 +59,11 @@ async function resolveCustomerAuthorId(
 /**
  * 0. List Active Quotations for Portal Directory / Switcher (Database-backed)
  */
-export async function listActivePortalQuotations() {
+export async function listActivePortalQuotations(userEmail?: string) {
   const quotations = await prisma.quotation.findMany({
     where: {
       stage: { not: QuoteStage.CANCELLED },
+      ...(userEmail ? { customer: { email: { equals: userEmail, mode: "insensitive" } } } : {}),
     },
     select: {
       id: true,

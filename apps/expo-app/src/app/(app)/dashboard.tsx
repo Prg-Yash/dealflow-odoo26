@@ -1,11 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandLogo } from '@/components/brand-logo';
-import { signOut } from '@/lib/auth';
+import { signOut, getPortalQuotations } from '@/lib/auth';
 
 const ACCENT = '#ff5e3a';
 const DARK = '#0f172a';
@@ -26,6 +26,8 @@ export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const [user, setUser] = useState<{ name?: string; email?: string } | null>(null);
   const [role, setRole] = useState('sales_rep');
+  const [quotations, setQuotations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -33,7 +35,15 @@ export default function DashboardScreen() {
       AsyncStorage.getItem('auth_role'),
     ]).then(([rawUser, storedRole]) => {
       if (rawUser) setUser(JSON.parse(rawUser));
-      if (storedRole) setRole(storedRole);
+      if (storedRole) {
+        setRole(storedRole);
+        if (storedRole === 'customer') {
+          setLoading(true);
+          getPortalQuotations().then(res => {
+            if (res.data) setQuotations(res.data);
+          }).catch(console.error).finally(() => setLoading(false));
+        }
+      }
     });
   }, []);
 
@@ -82,26 +92,78 @@ export default function DashboardScreen() {
           <Text style={styles.cardTitle}>{cfg.title}</Text>
           <View style={[styles.divider]} />
           <Text style={styles.cardNote}>
-            This is your DealFlow360 mobile dashboard. Full module views coming soon.
+            {role === 'customer' 
+              ? "View and manage your active quotations and commercial documents." 
+              : "This is your DealFlow360 mobile dashboard. Full module views coming soon."}
           </Text>
         </View>
 
-        {/* Quick links — ponytail: static list, no nav infra needed yet */}
-        <Text style={styles.sectionTitle}>Quick access</Text>
-        {[
-          { label: 'Pipeline', icon: '📊', desc: 'View active deals' },
-          { label: 'Approvals', icon: '✅', desc: 'Pending discount requests' },
-          { label: 'Invoices', icon: '🧾', desc: 'Billing & revenue ops' },
-        ].map((item) => (
-          <View key={item.label} style={styles.quickRow}>
-            <Text style={styles.quickIcon}>{item.icon}</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.quickLabel}>{item.label}</Text>
-              <Text style={styles.quickDesc}>{item.desc}</Text>
-            </View>
-            <Text style={styles.quickArrow}>›</Text>
-          </View>
-        ))}
+        {/* Dynamic section based on role */}
+        {role === 'customer' ? (
+          <>
+            {/* Link to the full Customer Portal */}
+            <Pressable
+              style={[styles.quickRow, { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }]}
+              onPress={() => router.push('/(app)/customer' as never)}
+            >
+              <Text style={styles.quickIcon}>📊</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.quickLabel}>Customer Portal Dashboard</Text>
+                <Text style={styles.quickDesc}>Full sidebar with Quotations, Messages, and Profile</Text>
+              </View>
+              <Text style={styles.quickArrow}>›</Text>
+            </Pressable>
+
+            <Text style={styles.sectionTitle}>Active Quotations</Text>
+            {loading ? (
+              <ActivityIndicator color={ACCENT} style={{ marginTop: 20 }} />
+            ) : quotations.length === 0 ? (
+              <Text style={{ textAlign: 'center', color: SLATE, marginTop: 20 }}>No active quotations found.</Text>
+            ) : (
+              quotations.map((q) => (
+                <Pressable 
+                  key={q.id} 
+                  style={styles.quickRow}
+                  onPress={() => {
+                    const tokenToUse = q.portalToken || q.quoteNumber || q.id;
+                    router.push(`/(app)/quotation/${tokenToUse}` as any);
+                  }}
+                >
+                  <Text style={styles.quickIcon}>📄</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.quickLabel}>{q.title || `Quote ${q.quoteNumber}`}</Text>
+                    <Text style={styles.quickDesc}>{q.quoteNumber} • ${Number(q.grandTotal).toLocaleString()}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                    <Text style={{ fontSize: 10, color: ACCENT, fontWeight: '700', textTransform: 'uppercase' }}>
+                      {q.stage.replace(/_/g, ' ')}
+                    </Text>
+                    <Text style={styles.quickArrow}>›</Text>
+                  </View>
+                </Pressable>
+              ))
+            )}
+          </>
+        ) : (
+          <>
+            {/* Quick links — ponytail: static list, no nav infra needed yet */}
+            <Text style={styles.sectionTitle}>Quick access</Text>
+            {[
+              { label: 'Pipeline', icon: '📊', desc: 'View active deals' },
+              { label: 'Approvals', icon: '✅', desc: 'Pending discount requests' },
+              { label: 'Invoices', icon: '🧾', desc: 'Billing & revenue ops' },
+            ].map((item) => (
+              <View key={item.label} style={styles.quickRow}>
+                <Text style={styles.quickIcon}>{item.icon}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.quickLabel}>{item.label}</Text>
+                  <Text style={styles.quickDesc}>{item.desc}</Text>
+                </View>
+                <Text style={styles.quickArrow}>›</Text>
+              </View>
+            ))}
+          </>
+        )}
       </ScrollView>
     </View>
   );

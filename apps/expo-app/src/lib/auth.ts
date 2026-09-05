@@ -23,6 +23,42 @@ async function post(path: string, body: object) {
   return data;
 }
 
+async function get(path: string) {
+  const token = await AsyncStorage.getItem('auth_token');
+  const res = await fetch(`${API}${path}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message ?? 'Request failed');
+  return data;
+}
+
+export async function getPortalQuotations() {
+  return get('/api/portal/active-quotes');
+}
+
+export async function getQuotationDetails(token: string) {
+  return get(`/api/portal/quotations/${token}`);
+}
+
+export async function postQuotationComment(token: string, text: string) {
+  return post(`/api/portal/quotations/${token}/comments`, { text });
+}
+
+export async function postCounterProposal(token: string, changes: any, reason: string) {
+  return post(`/api/portal/quotations/${token}/counter-proposal`, { changes, reason });
+}
+
+export async function signQuotation(token: string, fullName: string, title?: string, company?: string) {
+  return post(`/api/portal/quotations/${token}/sign`, {
+    signature: { fullName, title, company },
+  });
+}
+
 export async function signIn(email: string, password: string) {
   const data = await post('/api/auth/sign-in/email', { email, password });
   if (data.token) await AsyncStorage.setItem('auth_token', data.token);
