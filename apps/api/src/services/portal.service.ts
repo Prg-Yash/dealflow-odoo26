@@ -112,7 +112,33 @@ export async function getPortalQuotation(portalToken: string) {
     throw new AppError(404, "NOT_FOUND", "Quotation not found for the provided portal link.");
   }
 
-  return quotation;
+  const allCustomerQuotations = await prisma.quotation.findMany({
+    where: { customerId: quotation.customerId, organizationId: quotation.organizationId },
+    select: {
+      id: true,
+      quoteNumber: true,
+      title: true,
+      stage: true,
+      approvalStatus: true,
+      subtotal: true,
+      discountTotal: true,
+      taxTotal: true,
+      grandTotal: true,
+      portalToken: true,
+      expiresAt: true,
+      createdAt: true,
+      updatedAt: true,
+      _count: {
+        select: { lines: true, comments: true, counterProposals: true },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return {
+    ...quotation,
+    customerQuotations: allCustomerQuotations,
+  };
 }
 
 /**
