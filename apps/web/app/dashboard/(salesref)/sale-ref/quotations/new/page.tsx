@@ -1,535 +1,747 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   CheckCircle2,
-  Share2,
-  Printer,
+  Plus,
+  Trash2,
+  AlertTriangle,
+  Building2,
+  User,
+  Mail,
+  Phone,
+  DollarSign,
+  Loader2,
+  Send,
+  Save,
+  Package,
+  ShieldCheck,
+  Check,
 } from "lucide-react";
-import {
-  SalesNav,
-  QuotationMarginCard,
-  QuotationBuilderSidebar,
-  QuotationBuilderCanvas,
-  ShareQuotationModal,
-  type LineItem,
-  type CatalogProduct,
-  type DocumentBlockDefinition,
-  Modal,
-  Button,
-} from "@repo/ui";
-import { CATALOG_PRODUCTS } from "../../../../../../lib/sales-data";
+import { SalesNav } from "@repo/ui";
 import { useCustomers, useProducts, useCreateQuotation } from "../../../../../../lib/query";
+import { useDashboardAuth } from "../../../../layout";
+import {
+  calculateQuotationRisk,
+  DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
+  DEFAULT_BLENDED_DISCOUNT_THRESHOLD,
+  type RiskLineItem,
+} from "../../../../../../lib/risk-engine";
 
-const DEFAULT_ACCOUNTS = [
-  { name: "Acme Corporation", contact: "David Harrison", email: "d.harrison@acme.com", tier: "Enterprise" },
-  { name: "Apex Logic Systems", contact: "Elena Vance", email: "e.vance@apexlogic.io", tier: "Gold" },
-  { name: "OmniRetail Global", contact: "Marcus Brody", email: "m.brody@omniretail.com", tier: "Enterprise" },
-  { name: "Beta Industries", contact: "Robert Thorne", email: "r.thorne@betaind.com", tier: "Silver" },
-];
+interface LineItemState {
+  id: string;
+  productId: string;
+  name: string;
+  description: string;
+  category: string;
+  categoryCeiling: number;
+  quantity: number;
+  unitPrice: number;
+  costPrice: number;
+  discountPercent: number;
+}
 
 export default function NewQuotationPage() {
   const router = useRouter();
+  const { user } = useDashboardAuth();
 
-  const { data: apiCustomers } = useCustomers();
-  const { data: apiProducts } = useProducts();
+  const { data: apiCustomers, isLoading: loadingCustomers } = useCustomers();
+  const { data: apiProducts, isLoading: loadingProducts } = useProducts();
   const createQuotationMutation = useCreateQuotation();
 
-  // Customer & Deal state
-  const accounts = apiCustomers && apiCustomers.length > 0
-    ? apiCustomers.map((c) => ({
-        id: c.id,
-        name: c.companyName || c.name,
-        contact: c.name,
-        email: c.email,
-        tier: c.tier?.name || "Enterprise",
-      }))
-    : DEFAULT_ACCOUNTS;
+  // Mode: select existing customer vs enter new customer
+  const [customerMode, setCustomerMode] = useState<"existing" | "new">("existing");
 
-  const [selectedAccount, setSelectedAccount] = useState(accounts[0]!.name);
-  const [contactName, setContactName] = useState(accounts[0]!.contact);
-  const [contactEmail, setContactEmail] = useState(accounts[0]!.email);
-  const [dealTier, setDealTier] = useState<"Standard" | "Silver" | "Gold" | "Enterprise">("Enterprise");
-  const [validUntil, setValidUntil] = useState("2026-04-15");
-  const [paymentTerms, setPaymentTerms] = useState("Net-30 with Annual Upfront billing");
+  // Existing customer selection
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
 
-  // Line items state
-  const [items, setItems] = useState<LineItem[]>([
-    {
-      id: "item-init-1",
-      name: "DealFlow360 Enterprise Seats",
-      description: "Full sales ops workspace, quoting engine & kanban deals board",
-      category: "license",
-      quantity: 25,
-      unitPrice: 720,
-      costPrice: 280,
-      discountPercent: 12,
-    },
-    {
-      id: "item-init-2",
-      name: "Dedicated Custom Integration & SSO",
-      description: "PostgreSQL enterprise sync, SAML/Okta directory connector",
-      category: "services",
-      quantity: 1,
-      unitPrice: 8500,
-      costPrice: 3500,
-      discountPercent: 5,
-    },
-  ]);
+  // New customer form state
+  const [customerEmail, setCustomerEmail] = useState<string>("");
+  const [customerName, setCustomerName] = useState<string>("");
+  const [companyName, setCompanyName] = useState<string>("");
+  const [customerPhone, setCustomerPhone] = useState<string>("");
 
-  // Modular Document Blocks (milestones, terms, signatures, notes)
-  const [activeBlocks, setActiveBlocks] = useState<Set<DocumentBlockDefinition["blockType"]>>(
-    new Set(["milestones", "terms", "signatures"])
-  );
+  // Proposal details
+  const [quoteTitle, setQuoteTitle] = useState<string>("");
+  const [paymentTerms, setPaymentTerms] = useState<string>("Net 30 Days");
+  const [validUntil, setValidUntil] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().split("T")[0]!;
+  });
 
-  // Canvas display mode (edit vs preview)
-  const [builderMode, setBuilderMode] = useState<"edit" | "preview">("edit");
+  // Dynamic Line Items - starts clean (no fake static items)
+  const [items, setItems] = useState<LineItemState[]>([]);
+
+  // Selected catalog product to add
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
 
   // Custom Item Modal state
-  const [customModalOpen, setCustomModalOpen] = useState(false);
   const [customName, setCustomName] = useState("");
-  const [customDescription, setCustomDescription] = useState("");
-  const [customCategory, setCustomCategory] = useState<"license" | "services" | "support" | "hardware">("services");
-  const [customPrice, setCustomPrice] = useState("2500");
-  const [customCost, setCustomCost] = useState("1000");
+  const [customPrice, setCustomPrice] = useState("");
+  const [customCategory, setCustomCategory] = useState("services");
 
-  // Modals & Action states
-  const [shareModalOpen, setShareModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [successModalOpen, setSuccessModalOpen] = useState(false);
-  const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const quoteId = "DF-Q1048";
-
-  // Financial calculations
-  const grossSubtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-  const totalDiscount = items.reduce(
-    (sum, item) => sum + item.unitPrice * item.quantity * (item.discountPercent / 100),
-    0
-  );
-  const netTotal = grossSubtotal - totalDiscount;
-  const totalCost = items.reduce(
-    (sum, item) => sum + (item.costPrice ?? item.unitPrice * 0.45) * item.quantity,
-    0
-  );
-  const marginAmount = netTotal - totalCost;
-  const marginPercent = netTotal > 0 ? (marginAmount / netTotal) * 100 : 0;
-
-  // Handle Account Change
-  const handleAccountChange = (orgName: string) => {
-    setSelectedAccount(orgName);
-    const found = DEFAULT_ACCOUNTS.find((a) => a.name === orgName);
-    if (found) {
-      setContactName(found.contact);
-      setContactEmail(found.email);
-      setDealTier(found.tier as "Standard" | "Silver" | "Gold" | "Enterprise");
+  // Sync first customer if available
+  useEffect(() => {
+    if (apiCustomers && apiCustomers.length > 0) {
+      if (!selectedCustomerId) {
+        setSelectedCustomerId(apiCustomers[0]!.id);
+      }
+    } else if (apiCustomers && apiCustomers.length === 0) {
+      // If organization has no customers yet, switch to "new" customer mode
+      setCustomerMode("new");
     }
-  };
+  }, [apiCustomers, selectedCustomerId]);
 
-  // Add item from catalog
-  const handleAddItem = (product: CatalogProduct) => {
-    const existingIndex = items.findIndex((i) => i.name === product.name);
-    if (existingIndex > -1) {
+  // Sync default quote title when customer changes
+  useEffect(() => {
+    if (customerMode === "existing") {
+      const selected = apiCustomers?.find((c) => c.id === selectedCustomerId);
+      if (selected) {
+        setQuoteTitle(`${selected.companyName || selected.name} Commercial Proposal`);
+      }
+    } else {
+      if (companyName || customerName) {
+        setQuoteTitle(`${companyName || customerName} Commercial Proposal`);
+      }
+    }
+  }, [customerMode, selectedCustomerId, apiCustomers, companyName, customerName]);
+
+  // Dynamic Risk & Threshold Calculation
+  const riskLines: RiskLineItem[] = useMemo(() => {
+    return items.map((i) => ({
+      id: i.id,
+      productId: i.productId,
+      quantity: i.quantity,
+      unitPrice: i.unitPrice,
+      discountPercent: i.discountPercent,
+      categoryCeiling: i.categoryCeiling,
+    }));
+  }, [items]);
+
+  const riskSummary = useMemo(() => {
+    return calculateQuotationRisk(
+      riskLines,
+      DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
+      DEFAULT_BLENDED_DISCOUNT_THRESHOLD
+    );
+  }, [riskLines]);
+
+  // Handle adding product from organization's real catalog
+  const handleAddProduct = () => {
+    if (!selectedProductId || !apiProducts) return;
+    const prod = apiProducts.find((p) => p.id === selectedProductId);
+    if (!prod) return;
+
+    const existing = items.find((it) => it.productId === prod.id);
+    if (existing) {
       setItems((prev) =>
-        prev.map((item, idx) => (idx === existingIndex ? { ...item, quantity: item.quantity + 1 } : item))
+        prev.map((it) => (it.productId === prod.id ? { ...it, quantity: it.quantity + 1 } : it))
       );
     } else {
-      const newItem: LineItem = {
-        id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        name: product.name,
-        description: product.description,
-        category: product.category,
+      const newItem: LineItemState = {
+        id: `line-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        productId: prod.id,
+        name: prod.name,
+        description: prod.description || prod.name,
+        category: prod.category?.name || "Standard",
+        categoryCeiling: DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
         quantity: 1,
-        unitPrice: product.unitPrice,
-        costPrice: product.costPrice,
+        unitPrice: prod.basePrice,
+        costPrice: prod.costPrice,
         discountPercent: 0,
       };
       setItems((prev) => [...prev, newItem]);
     }
+    setSelectedProductId("");
   };
 
-  // Add custom line item
-  const handleAddCustomItem = () => {
-    if (!customName.trim()) return;
-    const unitPrice = parseFloat(customPrice) || 0;
-    const costPrice = parseFloat(customCost) || unitPrice * 0.4;
+  // Add custom deliverable item
+  const handleAddCustom = () => {
+    if (!customName.trim() || !customPrice) return;
+    const price = parseFloat(customPrice) || 0;
+    const fallbackProdId = apiProducts?.[0]?.id || "prod-custom";
 
-    const newItem: LineItem = {
+    const newItem: LineItemState = {
       id: `custom-${Date.now()}`,
+      productId: fallbackProdId,
       name: customName.trim(),
-      description: customDescription.trim() || "Custom tailored commercial deliverable",
+      description: "Custom commercial deliverable",
       category: customCategory,
+      categoryCeiling: DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
       quantity: 1,
-      unitPrice,
-      costPrice,
+      unitPrice: price,
+      costPrice: price * 0.4,
       discountPercent: 0,
     };
-
     setItems((prev) => [...prev, newItem]);
     setCustomName("");
-    setCustomDescription("");
-    setCustomPrice("2500");
-    setCustomCost("1000");
-    setCustomModalOpen(false);
+    setCustomPrice("");
   };
 
-  // Modular Blocks management
-  const handleAddBlock = (blockType: DocumentBlockDefinition["blockType"]) => {
-    setActiveBlocks((prev) => new Set([...prev, blockType]));
-  };
-
-  const handleRemoveBlock = (blockType: DocumentBlockDefinition["blockType"]) => {
-    setActiveBlocks((prev) => {
-      const next = new Set(prev);
-      next.delete(blockType);
-      return next;
+  const handleUpdateQty = (index: number, qty: number) => {
+    setItems((prev) => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index]!, quantity: Math.max(1, qty) };
+      return copy;
     });
   };
 
-  // Item field handlers
-  const handleUpdateQuantity = (id: string, qty: number) => {
-    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, quantity: qty } : item)));
+  const handleUpdateDiscount = (index: number, discount: number) => {
+    setItems((prev) => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index]!, discountPercent: Math.max(0, Math.min(100, discount)) };
+      return copy;
+    });
   };
 
-  const handleUpdateDiscount = (id: string, discount: number) => {
-    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, discountPercent: discount } : item)));
+  const handleUpdatePrice = (index: number, price: number) => {
+    setItems((prev) => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index]!, unitPrice: Math.max(0, price) };
+      return copy;
+    });
   };
 
-  const handleUpdateUnitPrice = (id: string, price: number) => {
-    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, unitPrice: price } : item)));
+  const handleRemoveLine = (index: number) => {
+    setItems((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleDeleteItem = (id: string) => {
-    setItems((prev) => prev.filter((item) => item.id !== id));
-  };
+  // Create Quotation Handler
+  const handleSaveQuotation = async (submitImmediately: boolean) => {
+    setErrorMessage(null);
 
-  // Export PDF via clean browser print
-  const handleExportPDF = () => {
-    setBuilderMode("preview");
-    setTimeout(() => {
-      window.print();
-    }, 200);
-  };
-
-  // Save Draft
-  const handleSaveDraft = async () => {
-    setIsSubmitting(true);
-    try {
-      const selectedCust = accounts.find((a) => a.name === selectedAccount);
-      if (selectedCust && (selectedCust as any).id) {
-        await createQuotationMutation.mutateAsync({
-          customerId: (selectedCust as any).id,
-          title: `${selectedAccount} Proposal`,
-          expiresAt: validUntil,
-          notes: paymentTerms,
-          lines: items.map((i) => ({
-            productId: (i as any).productId || apiProducts?.[0]?.id || "prod-default",
-            quantity: i.quantity,
-            unitPrice: i.unitPrice,
-            discountPercent: i.discountPercent,
-            description: i.name,
-          })),
-        });
-      }
-    } catch (err) {
-      console.warn("Saved draft with fallback demo state:", err);
-    } finally {
-      setIsSubmitting(false);
-      setSuccessMessage(`Quotation draft ${quoteId} saved successfully. You can resume editing anytime.`);
-      setSuccessModalOpen(true);
+    // Validation
+    if (customerMode === "existing" && !selectedCustomerId) {
+      setErrorMessage("Please select a customer for this proposal.");
+      return;
     }
-  };
-
-  // Submit for Approval
-  const handleSubmitForApproval = async () => {
+    if (customerMode === "new" && (!customerEmail.trim() || !customerEmail.includes("@"))) {
+      setErrorMessage("Please provide a valid customer email address.");
+      return;
+    }
     if (items.length === 0) {
-      alert("Please add at least one line item to submit this quote.");
+      setErrorMessage("Please add at least one product line item to this quotation.");
       return;
     }
 
     setIsSubmitting(true);
+
     try {
-      const selectedCust = accounts.find((a) => a.name === selectedAccount);
-      if (selectedCust && (selectedCust as any).id) {
-        await createQuotationMutation.mutateAsync({
-          customerId: (selectedCust as any).id,
-          title: `${selectedAccount} Proposal`,
-          expiresAt: validUntil,
-          notes: paymentTerms,
-          lines: items.map((i) => ({
-            productId: (i as any).productId || apiProducts?.[0]?.id || "prod-default",
-            quantity: i.quantity,
-            unitPrice: i.unitPrice,
-            discountPercent: i.discountPercent,
-            description: i.name,
-          })),
-        });
+      const payload: any = {
+        title: quoteTitle.trim() || "Commercial Quotation",
+        notes: paymentTerms,
+        expiresAt: validUntil ? new Date(validUntil).toISOString() : undefined,
+        lines: items.map((i) => ({
+          productId: i.productId,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice,
+          discountPercent: i.discountPercent,
+          description: i.name,
+        })),
+      };
+
+      if (customerMode === "existing") {
+        payload.customerId = selectedCustomerId;
+      } else {
+        payload.customerEmail = customerEmail.trim().toLowerCase();
+        payload.customerName = customerName.trim() || undefined;
+        payload.companyName = companyName.trim() || customerName.trim() || undefined;
+        payload.customerPhone = customerPhone.trim() || undefined;
       }
-    } catch (err) {
-      console.warn("Submitted quote with fallback demo state:", err);
+
+      const createdQuote = await createQuotationMutation.mutateAsync(payload);
+
+      // If user clicked "Submit for Approval" directly
+      if (submitImmediately && createdQuote?.id) {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+        await fetch(`${apiUrl}/api/quotations/${createdQuote.id}/submit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+        }).catch(() => {});
+      }
+
+      router.push(`/dashboard/sale-ref/quotations/${createdQuote.id}`);
+    } catch (err: any) {
+      console.error("Create quotation error:", err);
+      setErrorMessage(
+        err.message || "Failed to create quotation. Please check customer and line details."
+      );
     } finally {
       setIsSubmitting(false);
-      setSuccessMessage(
-        marginPercent < 35 || (totalDiscount / grossSubtotal) * 100 > 20
-          ? `Proposal ${quoteId} submitted for Tier 2 Finance & Executive sign-off.`
-          : (totalDiscount / grossSubtotal) * 100 > 10 || netTotal > 50000
-          ? `Proposal ${quoteId} submitted to Marcus Vance (Sales Director) for approval.`
-          : `Proposal ${quoteId} auto-approved under standard commercial policy! Ready for customer delivery.`
-      );
-      setSuccessModalOpen(true);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-[#f9f9f9] text-[#0f172a] font-sans antialiased">
-      {/* Navigation Header (hidden on print) */}
-      <div className="print:hidden">
-        <SalesNav activeTab="new-quote" linkComponent={Link} />
-      </div>
+  const userInitials = user?.name
+    ? user.name
+        .split(" ")
+        .map((p) => p[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase()
+    : "SR";
 
-      <main className="pt-20 pb-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full space-y-6">
-        {/* Header Breadcrumbs & Action Toolbar (hidden on print) */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-4 border-b border-slate-200 print:hidden">
+  return (
+    <div className="min-h-screen bg-[#f8fafc] text-[#0f172a] font-sans antialiased">
+      {/* Role-Aware Navigation Header */}
+      <SalesNav
+        activeTab="new-quote"
+        userName={user?.name || "Sales Representative"}
+        userInitials={userInitials}
+        roleLabel={user?.role === "SALES_REP" ? "Sales Representative" : user?.role || "Sales Rep"}
+        linkComponent={Link}
+      />
+
+      <main className="pt-20 pb-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full space-y-6 text-left">
+        {/* Header Breadcrumbs */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-3 border-b border-slate-200">
           <div>
             <div className="flex items-center gap-2 mb-1 text-xs text-slate-500 font-medium">
-              <Link href="/dashboard/sale-ref/quotations" className="hover:text-[#ff5e3a] transition-colors flex items-center gap-1">
+              <Link
+                href="/dashboard/sale-ref/quotations"
+                className="hover:text-[#0066cc] transition-colors flex items-center gap-1"
+              >
                 <ArrowLeft size={13} />
                 <span>Quotations</span>
               </Link>
               <span>/</span>
-              <span className="text-slate-900 font-bold">Drag &amp; Drop Proposal Builder</span>
+              <span className="text-slate-900 font-bold">New Proposal Builder</span>
             </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0f172a] tracking-tight">
-                Quotation Builder
-              </h1>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-50 text-[#ff5e3a] text-xs font-semibold border border-orange-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#ff5e3a] animate-pulse"></span>
-                Interactive Session &bull; {quoteId}
-              </span>
-            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0f172a] tracking-tight">
+              Create New Quotation
+            </h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Build a dynamic proposal with real-time category limits, blended threshold scoring, and automated customer provisioning.
+            </p>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleExportPDF}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold shadow-2xs transition-all cursor-pointer"
-            >
-              <Printer size={14} />
-              <span>Export PDF</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShareModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold shadow-2xs transition-all cursor-pointer"
-            >
-              <Share2 size={14} />
-              <span>Share Proposal</span>
-            </button>
-
             <Link
-              href="/quotations"
-              className="px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-900 text-xs font-semibold transition-all cursor-pointer"
+              href="/dashboard/sale-ref/quotations"
+              className="px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold transition-all cursor-pointer"
             >
               Cancel
             </Link>
           </div>
         </div>
 
-        {/* ── 3-COLUMN SPLIT WORKSPACE ── */}
+        {/* Error Alert */}
+        {errorMessage && (
+          <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-800 flex items-center gap-2 shadow-xs">
+            <AlertTriangle size={16} className="text-rose-600 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* LEFT: Data Showcase & Draggable Catalog Sidebar (3 cols) */}
-          <div className="lg:col-span-3 print:hidden">
-            <QuotationBuilderSidebar
-              products={CATALOG_PRODUCTS}
-              onAddProduct={handleAddItem}
-              onAddBlock={handleAddBlock}
-              onOpenCustomItemModal={() => setCustomModalOpen(true)}
-            />
+          {/* ── LEFT & CENTER: Customer & Items Configuration (8 cols) ── */}
+          <div className="lg:col-span-8 space-y-6">
+            {/* 1. Customer Selection Card */}
+            <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <Building2 size={18} className="text-[#0066cc]" />
+                  <h2 className="text-sm font-bold text-slate-900">Customer Organization</h2>
+                </div>
+
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-medium">
+                  <button
+                    type="button"
+                    onClick={() => setCustomerMode("existing")}
+                    disabled={!apiCustomers || apiCustomers.length === 0}
+                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                      customerMode === "existing"
+                        ? "bg-white text-[#0066cc] font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900 disabled:opacity-50"
+                    }`}
+                  >
+                    Select Existing ({apiCustomers?.length || 0})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCustomerMode("new")}
+                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                      customerMode === "new"
+                        ? "bg-white text-[#0066cc] font-bold shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    + New Customer
+                  </button>
+                </div>
+              </div>
+
+              {customerMode === "existing" ? (
+                <div className="space-y-3">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Select Client Account
+                  </label>
+                  {loadingCustomers ? (
+                    <div className="py-3 flex items-center gap-2 text-xs text-slate-400">
+                      <Loader2 size={14} className="animate-spin text-[#0066cc]" />
+                      <span>Loading organization customers...</span>
+                    </div>
+                  ) : (
+                    <select
+                      value={selectedCustomerId}
+                      onChange={(e) => setSelectedCustomerId(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs font-semibold text-slate-800 outline-none cursor-pointer"
+                    >
+                      {apiCustomers?.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.companyName || c.name} &ndash; {c.email} ({c.tier?.name || "Standard Tier"})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              ) : (
+                /* Auto-Provisioning Customer Fields */
+                <div className="space-y-3 pt-1">
+                  <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-200/80 text-[11px] text-blue-800 flex items-center gap-2">
+                    <ShieldCheck size={14} className="text-[#0066cc] shrink-0" />
+                    <span>
+                      If customer does not have an account, DealFlow 360 will automatically create a portal user and assign this quotation.
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        Customer Email <span className="text-[#0066cc]">*</span>
+                      </label>
+                      <div className="relative">
+                        <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="email"
+                          required
+                          value={customerEmail}
+                          onChange={(e) => setCustomerEmail(e.target.value)}
+                          placeholder="procurement@client.com"
+                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs text-slate-900 outline-none font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        Company / Organization
+                      </label>
+                      <div className="relative">
+                        <Building2 size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          value={companyName}
+                          onChange={(e) => setCompanyName(e.target.value)}
+                          placeholder="e.g. Acme Corp"
+                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs text-slate-900 outline-none font-medium"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        Contact Person Name
+                      </label>
+                      <div className="relative">
+                        <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          value={customerName}
+                          onChange={(e) => setCustomerName(e.target.value)}
+                          placeholder="e.g. Johnathan Ward"
+                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs text-slate-900 outline-none font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        Phone Number
+                      </label>
+                      <div className="relative">
+                        <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="tel"
+                          value={customerPhone}
+                          onChange={(e) => setCustomerPhone(e.target.value)}
+                          placeholder="+1 (555) 019-2834"
+                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs text-slate-900 outline-none font-medium"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Proposal Title & Terms */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
+                <div className="space-y-1 sm:col-span-2">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Proposal Title
+                  </label>
+                  <input
+                    type="text"
+                    value={quoteTitle}
+                    onChange={(e) => setQuoteTitle(e.target.value)}
+                    placeholder="e.g. Enterprise Solution & Hardware Modernization"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs text-slate-900 font-medium outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Valid Until
+                  </label>
+                  <input
+                    type="date"
+                    value={validUntil}
+                    onChange={(e) => setValidUntil(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs text-slate-900 font-medium outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Quotation Products Table */}
+            <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <Package size={18} className="text-[#0066cc]" />
+                  <h2 className="text-sm font-bold text-slate-900">Quotation Line Items</h2>
+                </div>
+
+                {/* Catalog Dropdown to add product */}
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedProductId}
+                    onChange={(e) => setSelectedProductId(e.target.value)}
+                    disabled={loadingProducts || !apiProducts || apiProducts.length === 0}
+                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none cursor-pointer max-w-[220px]"
+                  >
+                    <option value="">+ Choose Product...</option>
+                    {apiProducts?.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} (₹{p.basePrice})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleAddProduct}
+                    disabled={!selectedProductId}
+                    className="px-3 py-1.5 rounded-xl bg-[#0066cc] hover:bg-[#0052a3] disabled:opacity-50 text-white text-xs font-bold transition cursor-pointer"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              {/* Products Table */}
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
+                    <tr>
+                      <th className="py-3 px-4 min-w-[200px]">Product</th>
+                      <th className="py-3 px-3 w-20 text-center">Qty</th>
+                      <th className="py-3 px-4 w-28 text-right">Price</th>
+                      <th className="py-3 px-3 w-24 text-center">Discount</th>
+                      <th className="py-3 px-3 w-20 text-center">Limit</th>
+                      <th className="py-3 px-4 w-28 text-center">Status</th>
+                      <th className="py-3 px-3 w-12 text-center"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-800">
+                    {items.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-10 text-center text-slate-400">
+                          <Package size={24} className="mx-auto mb-2 text-slate-300" />
+                          <p className="font-semibold text-slate-600">No products added yet</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Select products from your organization's catalog above to start building the quote.
+                          </p>
+                        </td>
+                      </tr>
+                    ) : (
+                      items.map((item, idx) => {
+                        const limit = item.categoryCeiling;
+                        const isOver = item.discountPercent > limit;
+                        const overage = isOver ? Math.round((item.discountPercent - limit) * 10) / 10 : 0;
+
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="py-3.5 px-4 font-semibold text-slate-900">
+                              <div>{item.name}</div>
+                              <div className="text-[11px] text-slate-400 font-normal">{item.category}</div>
+                            </td>
+                            <td className="py-3.5 px-3 text-center">
+                              <input
+                                type="number"
+                                min={1}
+                                value={item.quantity}
+                                onChange={(e) => handleUpdateQty(idx, parseInt(e.target.value) || 1)}
+                                className="w-16 px-2 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
+                              />
+                            </td>
+                            <td className="py-3.5 px-4 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                value={item.unitPrice}
+                                onChange={(e) => handleUpdatePrice(idx, parseFloat(e.target.value) || 0)}
+                                className="w-24 px-2 py-1 text-right font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
+                              />
+                            </td>
+                            <td className="py-3.5 px-3 text-center">
+                              <div className="inline-flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  value={item.discountPercent}
+                                  onChange={(e) => handleUpdateDiscount(idx, parseFloat(e.target.value) || 0)}
+                                  className="w-16 px-2 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
+                                />
+                                <span className="text-slate-400 font-semibold">%</span>
+                              </div>
+                            </td>
+                            <td className="py-3.5 px-3 text-center text-slate-500 font-medium">
+                              {limit}%
+                            </td>
+                            <td className="py-3.5 px-4 text-center">
+                              {isOver ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                                  OVER (+{overage}%)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  OK
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveLine(idx)}
+                                className="text-slate-400 hover:text-rose-600 transition p-1 cursor-pointer"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Yellow Live Banner */}
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center gap-2">
+                <span className="text-amber-600">⚠️</span>
+                <span className="font-medium">
+                  Discount is checked against each item's own limit live, as soon as it is entered, not only at submit time.
+                </span>
+              </div>
+            </div>
           </div>
 
-          {/* CENTER: Document Canvas (6 cols) */}
-          <div className="lg:col-span-6 print:w-full print:col-span-12">
-            <QuotationBuilderCanvas
-              quoteId={quoteId}
-              accountName={selectedAccount}
-              contactName={contactName}
-              contactEmail={contactEmail}
-              validUntil={validUntil}
-              dealTier={dealTier}
-              paymentTerms={paymentTerms}
-              items={items}
-              activeBlocks={activeBlocks}
-              onAccountChange={handleAccountChange}
-              onContactChange={setContactName}
-              onEmailChange={setContactEmail}
-              onValidUntilChange={setValidUntil}
-              onPaymentTermsChange={setPaymentTerms}
-              onUpdateQuantity={handleUpdateQuantity}
-              onUpdateDiscount={handleUpdateDiscount}
-              onUpdateUnitPrice={handleUpdateUnitPrice}
-              onDeleteItem={handleDeleteItem}
-              onDropItem={handleAddItem}
-              onDropBlock={handleAddBlock}
-              onRemoveBlock={handleRemoveBlock}
-              mode={builderMode}
-              onModeChange={setBuilderMode}
-            />
-          </div>
+          {/* ── RIGHT: Live Economics & Submission (4 cols) ── */}
+          <div className="lg:col-span-4 space-y-4 sticky top-24">
+            <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-5">
+              <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-3">
+                Financial Summary &amp; Thresholds
+              </h3>
 
-          {/* RIGHT: Live Financial Economics & Deal Execution (3 cols) */}
-          <div className="lg:col-span-3 space-y-4 print:hidden sticky top-24">
-            <QuotationMarginCard
-              grossSubtotal={grossSubtotal}
-              totalDiscount={totalDiscount}
-              netTotal={netTotal}
-              totalCost={totalCost}
-              marginAmount={marginAmount}
-              marginPercent={marginPercent}
-              isSubmitting={isSubmitting}
-              onSaveDraft={handleSaveDraft}
-              onSubmitForApproval={handleSubmitForApproval}
-            />
+              <div className="space-y-3 text-xs">
+                <div className="flex items-center justify-between text-slate-600">
+                  <span>Gross Subtotal:</span>
+                  <span className="font-bold text-slate-900">
+                    ₹{riskSummary.subtotal.toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-slate-600">
+                  <span>Discount Amount:</span>
+                  <span className="font-bold text-rose-600">
+                    -₹{riskSummary.discountTotal.toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-sm">
+                  <span className="font-bold text-slate-800">Net Contract Total:</span>
+                  <span className="font-black text-[#0066cc] text-base">
+                    ₹{riskSummary.totalOrderValue.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Blended Risk Engine Box */}
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500 font-medium">Blended Risk Score:</span>
+                  <span
+                    className={`font-black ${
+                      riskSummary.isBlendedBreached ? "text-amber-600" : "text-emerald-600"
+                    }`}
+                  >
+                    {riskSummary.blendedScore}%
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  Standard Approval Threshold: {DEFAULT_BLENDED_DISCOUNT_THRESHOLD}%
+                </div>
+
+                <div className="pt-2 border-t border-slate-200">
+                  {riskSummary.requiresApproval ? (
+                    <div className="text-[11px] font-bold text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200 flex items-center gap-1.5">
+                      <AlertTriangle size={13} className="shrink-0" />
+                      <span>Requires Manager Approval</span>
+                    </div>
+                  ) : (
+                    <div className="text-[11px] font-bold text-emerald-700 bg-emerald-50 p-2 rounded-lg border border-emerald-200 flex items-center gap-1.5">
+                      <Check size={13} className="shrink-0" />
+                      <span>Within Standard Approval Limits</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Primary Actions */}
+              <div className="space-y-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={isSubmitting || items.length === 0}
+                  onClick={() => handleSaveQuotation(false)}
+                  className="w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  <span>Save as Draft</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isSubmitting || items.length === 0}
+                  onClick={() => handleSaveQuotation(true)}
+                  className="w-full py-2.5 px-4 rounded-xl bg-[#0066cc] hover:bg-[#0052a3] text-white text-xs font-bold shadow-md shadow-[#0066cc]/25 transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                  <span>Submit for Approval</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </main>
-
-      {/* Share Proposal Modal */}
-      <ShareQuotationModal
-        open={shareModalOpen}
-        onClose={() => setShareModalOpen(false)}
-        quoteId={quoteId}
-        accountName={selectedAccount}
-        totalValue={netTotal}
-      />
-
-      {/* Custom Item Modal */}
-      <Modal open={customModalOpen} onClose={() => setCustomModalOpen(false)} title="Add Custom Commercial Deliverable">
-        <div className="space-y-4 text-left">
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700">Deliverable Name *</label>
-            <input
-              type="text"
-              required
-              value={customName}
-              onChange={(e) => setCustomName(e.target.value)}
-              placeholder="e.g. Custom ERP Pipeline Connector"
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-[#ff5e3a] focus:bg-white transition-all"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700">Description</label>
-            <textarea
-              rows={2}
-              value={customDescription}
-              onChange={(e) => setCustomDescription(e.target.value)}
-              placeholder="Provide deliverable details, SLA parameters, or scope boundary..."
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-[#ff5e3a] focus:bg-white transition-all"
-            />
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Category</label>
-              <select
-                value={customCategory}
-                onChange={(e) =>
-                  setCustomCategory(e.target.value as "license" | "services" | "support" | "hardware")
-                }
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:border-[#ff5e3a] focus:bg-white transition-all cursor-pointer"
-              >
-                <option value="services">Services</option>
-                <option value="license">License</option>
-                <option value="support">Support</option>
-                <option value="hardware">Hardware</option>
-              </select>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Unit Price (₹)</label>
-              <input
-                type="number"
-                value={customPrice}
-                onChange={(e) => setCustomPrice(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-[#ff5e3a] focus:bg-white transition-all"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Est. Cost (₹)</label>
-              <input
-                type="number"
-                value={customCost}
-                onChange={(e) => setCustomCost(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-[#ff5e3a] focus:bg-white transition-all"
-              />
-            </div>
-          </div>
-
-          <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setCustomModalOpen(false)}
-              className="text-xs h-9 px-4 border-slate-200 cursor-pointer"
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleAddCustomItem}
-              disabled={!customName.trim()}
-              className="text-xs h-9 px-4 bg-[#ff5e3a] hover:bg-[#ea4e28] text-white font-bold cursor-pointer disabled:opacity-50"
-            >
-              Add to Quotation
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Success Notification Modal */}
-      <Modal open={successModalOpen} onClose={() => setSuccessModalOpen(false)} title="Quotation Workflow Status">
-        <div className="space-y-4 text-center py-2">
-          <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto shadow-xs">
-            <CheckCircle2 size={24} />
-          </div>
-
-          <div className="space-y-1">
-            <h3 className="text-base font-bold text-slate-900">Operation Successful</h3>
-            <p className="text-xs text-slate-600 max-w-sm mx-auto leading-relaxed">{successMessage}</p>
-          </div>
-
-          <div className="pt-2 flex justify-center gap-3">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setSuccessModalOpen(false);
-                router.push("/dashboard/sale-ref/quotations");
-              }}
-              className="text-xs px-4 h-9 cursor-pointer"
-            >
-              View Pipeline
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => setSuccessModalOpen(false)}
-              className="text-xs px-4 h-9 bg-[#ff5e3a] hover:bg-[#ea4e28] text-white cursor-pointer"
-            >
-              Continue Editing
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }
