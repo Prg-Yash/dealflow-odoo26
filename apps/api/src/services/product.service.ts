@@ -60,11 +60,11 @@ export async function createProduct(organizationId: string, input: CreateProduct
     throw new AppError(400, "INVALID_CATEGORY", "Category does not exist in this organization.");
   }
 
-  const existingSku = await prisma.product.findUnique({
-    where: { sku: input.sku },
+  const existingSku = await prisma.product.findFirst({
+    where: { organizationId, sku: input.sku },
   });
   if (existingSku) {
-    throw new AppError(409, "DUPLICATE_SKU", `Product with SKU '${input.sku}' already exists.`);
+    throw new AppError(409, "DUPLICATE_SKU", `Product with SKU '${input.sku}' already exists in this organization.`);
   }
 
   return prisma.product.create({
@@ -90,10 +90,10 @@ export async function updateProduct(organizationId: string, id: string, input: U
 
   if (input.sku) {
     const existingSku = await prisma.product.findFirst({
-      where: { sku: input.sku, NOT: { id } },
+      where: { organizationId, sku: input.sku, NOT: { id } },
     });
     if (existingSku) {
-      throw new AppError(409, "DUPLICATE_SKU", `Product with SKU '${input.sku}' already exists.`);
+      throw new AppError(409, "DUPLICATE_SKU", `Product with SKU '${input.sku}' already exists in this organization.`);
     }
   }
 

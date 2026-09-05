@@ -195,9 +195,22 @@ export async function createQuotation(
     const year = new Date().getFullYear();
     quoteNumber = `QT-${year}-${String(count + 1).padStart(4, "0")}`;
 
-    const existing = await prisma.quotation.findUnique({ where: { quoteNumber } });
+    const existing = await prisma.quotation.findFirst({
+      where: { organizationId: orgId, quoteNumber },
+    });
     if (existing) {
       quoteNumber = `QT-${year}-${String(count + 1).padStart(4, "0")}-${Math.floor(1000 + Math.random() * 9000)}`;
+    }
+  } else {
+    const existing = await prisma.quotation.findFirst({
+      where: { organizationId: orgId, quoteNumber },
+    });
+    if (existing) {
+      throw new AppError(
+        409,
+        "DUPLICATE_QUOTE_NUMBER",
+        `Quotation number '${quoteNumber}' already exists in this organization.`
+      );
     }
   }
 
