@@ -8,46 +8,29 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-enum JobStatus {
-  PENDING
-  PROCESSING
-  COMPLETED
-  FAILED
-}
-
-enum LogLevel {
-  INFO
-  WARN
-  ERROR
-}
-
-enum UserRole {
-  ADMIN
-  SALES_REP
-  SALES_MANAGER
-  FINANCE_OPS
-  CUSTOMER
-}
-
 model User {
-  id                    String                @id @default(cuid())
-  name                  String
-  email                 String                @unique
-  emailVerified         Boolean               @default(false)
-  image                 String?
-  role                  UserRole              @default(SALES_REP)
-  organizationId        String?
-  organization          Organization?         @relation("OrganizationUsers", fields: [organizationId], references: [id], onDelete: SetNull)
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
-  sessions              Session[]
-  accounts              Account[]
-  jobs                  Job[]
-  salesRepProfile       SalesRepresentative?
-  salesManagerProfile   SalesManager?
-  financeOpsProfile     FinanceOpsUser?
-  createdOrganizations  Organization[]        @relation("AdminCreatedOrganizations")
-  createdWarehouses     Warehouse[]           @relation("AdminCreatedWarehouses")
+  id                   String                @id @default(cuid())
+  name                 String
+  email                String                @unique
+  emailVerified        Boolean               @default(false)
+  image                String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  organizationId       String?
+  role                 UserRole              @default(SALES_REP)
+  accounts             Account[]
+  approval_audit_logs  approval_audit_logs[]
+  approval_steps       approval_steps[]
+  customers            customers?
+  financeOpsProfile    FinanceOpsUser?
+  jobs                 Job[]
+  createdOrganizations Organization[]        @relation("AdminCreatedOrganizations")
+  salesManagerProfile  SalesManager?
+  salesRepProfile      SalesRepresentative?
+  sessions             Session[]
+  organization         Organization?         @relation("OrganizationUsers", fields: [organizationId], references: [id])
+  createdWarehouses    Warehouse[]           @relation("AdminCreatedWarehouses")
+  sentInvitations      Invitation[]          @relation("SentInvitations")
 
   @@index([organizationId])
   @@map("user")
@@ -73,17 +56,17 @@ model Account {
   accountId             String
   providerId            String
   userId                String
-  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   accessToken           String?
   refreshToken          String?
   idToken               String?
-  accessTokenExpiresAt DateTime?
+  accessTokenExpiresAt  DateTime?
   refreshTokenExpiresAt DateTime?
   scope                 String?
   password              String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
   issuer                String?
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("account")
@@ -102,22 +85,22 @@ model Verification {
 }
 
 model Job {
-  id          String     @id @default(cuid())
+  id          String    @id @default(cuid())
   name        String
   type        String
-  payload     Json       @default("{}")
-  status      JobStatus  @default(PENDING)
-  progress    Int        @default(0)
+  payload     Json      @default("{}")
+  status      JobStatus @default(PENDING)
+  progress    Int       @default(0)
   result      Json?
   error       String?
-  attempts    Int        @default(0)
+  attempts    Int       @default(0)
   durationMs  Int?
   workerId    String?
   processedAt DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   userId      String?
-  user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user        User?     @relation(fields: [userId], references: [id])
   logs        TaskLog[]
 
   @@index([status])
@@ -127,14 +110,14 @@ model Job {
 }
 
 model ComputeMetric {
-  id              String   @id @default(cuid())
-  workerId        String
-  cpuUsage        Float
-  memoryUsageMb   Float
-  activeJobs      Int      @default(0)
-  completedJobs   Int      @default(0)
-  failedJobs      Int      @default(0)
-  timestamp       DateTime @default(now())
+  id            String   @id @default(cuid())
+  workerId      String
+  cpuUsage      Float
+  memoryUsageMb Float
+  activeJobs    Int      @default(0)
+  completedJobs Int      @default(0)
+  failedJobs    Int      @default(0)
+  timestamp     DateTime @default(now())
 
   @@index([workerId, timestamp])
   @@map("compute_metrics")
@@ -143,48 +126,60 @@ model ComputeMetric {
 model TaskLog {
   id        String   @id @default(cuid())
   jobId     String
-  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
   level     LogLevel @default(INFO)
   message   String
   metadata  Json?
   createdAt DateTime @default(now())
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@index([jobId])
   @@map("task_logs")
 }
 
 model Organization {
-  id                   String                @id @default(cuid())
-  name                 String
-  slug                 String?               @unique
-  currency             String                @default("USD")
-  createdById          String?
-  createdBy            User?                 @relation("AdminCreatedOrganizations", fields: [createdById], references: [id], onDelete: SetNull)
-  warehouses           Warehouse[]
-  users                User[]                @relation("OrganizationUsers")
-  salesReps            SalesRepresentative[]
-  salesManagers        SalesManager[]
-  financeOpsUsers      FinanceOpsUser[]
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  id                      String                    @id @default(cuid())
+  name                    String
+  slug                    String?                   @unique
+  currency                String                    @default("USD")
+  createdById             String?
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  approval_audit_logs     approval_audit_logs[]
+  categories              categories[]
+  customer_tiers          customer_tiers[]
+  customers               customers[]
+  discount_approval_rules discount_approval_rules[]
+  financeOpsUsers         FinanceOpsUser[]
+  createdBy               User?                     @relation("AdminCreatedOrganizations", fields: [createdById], references: [id])
+  price_lists             price_lists[]
+  product_recommendations product_recommendations[]
+  products                products[]
+  quotations              quotations[]
+  salesManagers           SalesManager[]
+  salesReps               SalesRepresentative[]
+  users                   User[]                    @relation("OrganizationUsers")
+  warehouses              Warehouse[]
+  invitations             Invitation[]
 
   @@index([createdById])
   @@map("organizations")
 }
 
 model Warehouse {
-  id                   String        @id @default(cuid())
-  name                 String
-  code                 String?
-  location             String?
-  shippingCostWeight   Float         @default(1.0)
-  isActive             Boolean       @default(true)
-  organizationId       String
-  organization         Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdById          String?
-  createdBy            User?         @relation("AdminCreatedWarehouses", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  id                 String            @id @default(cuid())
+  name               String
+  code               String?
+  location           String?
+  shippingCostWeight Float             @default(1.0)
+  isActive           Boolean           @default(true)
+  organizationId     String
+  createdById        String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  stock_levels       stock_levels[]
+  stock_movements    stock_movements[]
+  createdBy          User?             @relation("AdminCreatedWarehouses", fields: [createdById], references: [id])
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([createdById])
@@ -192,34 +187,36 @@ model Warehouse {
 }
 
 model SalesManager {
-  id                   String                @id @default(cuid())
-  userId               String                @unique
-  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organizationId       String
-  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  department           String?               @default("Sales")
-  approvalThreshold    Float?
-  representatives      SalesRepresentative[] @relation("ManagerToReps")
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  id                String                @id @default(cuid())
+  userId            String                @unique
+  organizationId    String
+  department        String?               @default("Sales")
+  approvalThreshold Float?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  organization      Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  representatives   SalesRepresentative[] @relation("ManagerToReps")
 
   @@index([organizationId])
   @@map("sales_managers")
 }
 
 model SalesRepresentative {
-  id                     String        @id @default(cuid())
-  userId                 String        @unique
-  user                   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organizationId         String
-  organization           Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  managerId              String?
-  manager                SalesManager? @relation("ManagerToReps", fields: [managerId], references: [id], onDelete: SetNull)
-  commissionRate         Float?        @default(0)
-  targetQuota            Float?
-  historicalAvgDiscount  Float         @default(0)
-  createdAt              DateTime      @default(now())
-  updatedAt              DateTime      @updatedAt
+  id                    String        @id @default(cuid())
+  userId                String        @unique
+  organizationId        String
+  managerId             String?
+  commissionRate        Float?        @default(0)
+  targetQuota           Float?
+  historicalAvgDiscount Float         @default(0)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  customers             customers[]
+  quotations            quotations[]
+  manager               SalesManager? @relation("ManagerToReps", fields: [managerId], references: [id])
+  organization          Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([managerId])
@@ -227,19 +224,452 @@ model SalesRepresentative {
 }
 
 model FinanceOpsUser {
-  id                   String        @id @default(cuid())
-  userId               String        @unique
-  user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                   String       @id @default(cuid())
+  userId               String       @unique
   organizationId       String
-  organization         Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  department           String?       @default("Finance & Operations")
-  canApproveHighRisk   Boolean       @default(true)
-  canManageFulfillment Boolean       @default(true)
-  canManageBilling     Boolean       @default(true)
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  department           String?      @default("Finance & Operations")
+  canApproveHighRisk   Boolean      @default(true)
+  canManageFulfillment Boolean      @default(true)
+  canManageBilling     Boolean      @default(true)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                 User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@map("finance_ops_users")
+}
+
+model approval_audit_logs {
+  id             String       @id
+  quotationId    String
+  organizationId String
+  actorId        String
+  actorRole      UserRole
+  action         String
+  reason         String?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  user           User         @relation(fields: [actorId], references: [id])
+  organizations  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  quotations     quotations   @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@index([actorId])
+  @@index([organizationId])
+  @@index([quotationId])
+}
+
+model approval_requests {
+  id               String           @id
+  quotationId      String           @unique
+  status           ApprovalStatus   @default(PENDING)
+  escalationLevel  String           @default("SALES_MANAGER")
+  currentStep      Int              @default(1)
+  blendedRiskScore Float            @default(0.0)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime
+  quotations       quotations       @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  approval_steps   approval_steps[]
+}
+
+model approval_steps {
+  id                String            @id
+  approvalRequestId String
+  stepNumber        Int
+  level             ApprovalLevel
+  status            ApprovalStatus    @default(PENDING)
+  reviewerId        String?
+  comments          String?
+  actionedAt        DateTime?
+  createdAt         DateTime          @default(now())
+  approval_requests approval_requests @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
+  user              User?             @relation(fields: [reviewerId], references: [id])
+
+  @@index([approvalRequestId])
+  @@index([reviewerId])
+}
+
+model categories {
+  id              String       @id
+  name            String
+  slug            String
+  type            CategoryType @default(HARDWARE)
+  discountCeiling Float
+  targetMargin    Float?
+  description     String?
+  organizationId  String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime
+  organizations   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  products        products[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+}
+
+model customer_tiers {
+  id              String        @id
+  name            String
+  code            String
+  discountCeiling Float
+  description     String?
+  organizationId  String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime
+  organizations   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customers       customers[]
+  price_lists     price_lists[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+model customers {
+  id                    String               @id
+  name                  String
+  email                 String
+  phone                 String?
+  company               String?
+  taxId                 String?
+  paymentTerms          String?              @default("Net 30")
+  billingAddress        String?
+  shippingAddress       String?
+  tierId                String
+  salesRepId            String?
+  organizationId        String
+  portalUserId          String?              @unique
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime
+  organizations         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                  User?                @relation(fields: [portalUserId], references: [id])
+  sales_representatives SalesRepresentative? @relation(fields: [salesRepId], references: [id])
+  customer_tiers        customer_tiers       @relation(fields: [tierId], references: [id])
+  quotations            quotations[]
+
+  @@index([organizationId])
+  @@index([salesRepId])
+  @@index([tierId])
+}
+
+model discount_approval_rules {
+  id                      String       @id
+  name                    String
+  minDiscountPercent      Float        @default(0.0)
+  maxDiscountPercent      Float
+  minBlendedRiskScore     Float        @default(0.0)
+  maxBlendedRiskScore     Float
+  requiresManagerApproval Boolean      @default(false)
+  requiresFinanceApproval Boolean      @default(false)
+  escalationLevel         String       @default("SALES_MANAGER")
+  description             String?
+  organizationId          String
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime
+  organizations           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model price_list_items {
+  id               String            @id
+  priceListId      String
+  productId        String
+  variantId        String?
+  fixedPrice       Float?
+  discountPercent  Float?
+  minQuantity      Int               @default(1)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime
+  price_lists      price_lists       @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  products         products          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product_variants product_variants? @relation(fields: [variantId], references: [id])
+
+  @@index([priceListId])
+  @@index([productId])
+  @@index([variantId])
+}
+
+model price_lists {
+  id               String             @id
+  name             String
+  currency         String             @default("USD")
+  customerTierId   String?
+  organizationId   String
+  isDefault        Boolean            @default(false)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime
+  price_list_items price_list_items[]
+  customer_tiers   customer_tiers?    @relation(fields: [customerTierId], references: [id])
+  organizations    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([customerTierId])
+  @@index([organizationId])
+}
+
+model product_recommendations {
+  id                                                              String       @id
+  sourceProductId                                                 String
+  recommendedProductId                                            String
+  coPurchaseScore                                                 Float        @default(1.0)
+  promotionalTag                                                  String?
+  minMarginThreshold                                              Float        @default(20.0)
+  isActive                                                        Boolean      @default(true)
+  organizationId                                                  String
+  createdAt                                                       DateTime     @default(now())
+  updatedAt                                                       DateTime
+  organizations                                                   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  products_product_recommendations_recommendedProductIdToproducts products     @relation("product_recommendations_recommendedProductIdToproducts", fields: [recommendedProductId], references: [id], onDelete: Cascade)
+  products_product_recommendations_sourceProductIdToproducts      products     @relation("product_recommendations_sourceProductIdToproducts", fields: [sourceProductId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceProductId, recommendedProductId])
+  @@index([organizationId])
+  @@index([recommendedProductId])
+  @@index([sourceProductId])
+}
+
+model product_variants {
+  id               String             @id
+  productId        String
+  attributeName    String
+  attributeValue   String
+  sku              String?
+  extraPrice       Float              @default(0.0)
+  costPriceDelta   Float              @default(0.0)
+  isActive         Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime
+  price_list_items price_list_items[]
+  products         products           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quotation_lines  quotation_lines[]
+
+  @@index([productId])
+}
+
+model products {
+  id                                                                             String                    @id
+  name                                                                           String
+  sku                                                                            String                    @unique
+  description                                                                    String?
+  categoryId                                                                     String
+  basePrice                                                                      Float
+  costPrice                                                                      Float
+  unit                                                                           UnitType                  @default(UNIT)
+  taxRate                                                                        Float                     @default(0.0)
+  isPromoted                                                                     Boolean                   @default(false)
+  isActive                                                                       Boolean                   @default(true)
+  organizationId                                                                 String
+  createdAt                                                                      DateTime                  @default(now())
+  updatedAt                                                                      DateTime
+  price_list_items                                                               price_list_items[]
+  product_recommendations_product_recommendations_recommendedProductIdToproducts product_recommendations[] @relation("product_recommendations_recommendedProductIdToproducts")
+  product_recommendations_product_recommendations_sourceProductIdToproducts      product_recommendations[] @relation("product_recommendations_sourceProductIdToproducts")
+  product_variants                                                               product_variants[]
+  categories                                                                     categories                @relation(fields: [categoryId], references: [id])
+  organizations                                                                  Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  quotation_lines                                                                quotation_lines[]
+  stock_levels                                                                   stock_levels[]
+  stock_movements                                                                stock_movements[]
+
+  @@index([categoryId])
+  @@index([organizationId])
+}
+
+model quotation_lines {
+  id                String            @id
+  quotationId       String
+  productId         String
+  variantId         String?
+  itemType          CategoryType      @default(HARDWARE)
+  description       String?
+  quantity          Int               @default(1)
+  unitPrice         Float
+  costPrice         Float
+  discountPercent   Float             @default(0.0)
+  discountAmount    Float             @default(0.0)
+  netPrice          Float             @default(0.0)
+  totalCost         Float             @default(0.0)
+  lineMargin        Float             @default(0.0)
+  lineMarginPercent Float             @default(0.0)
+  categoryCeiling   Float             @default(0.0)
+  customerCeiling   Float             @default(0.0)
+  isCeilingBreached Boolean           @default(false)
+  riskPoints        Float             @default(0.0)
+  sortOrder         Int               @default(0)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime
+  products          products          @relation(fields: [productId], references: [id])
+  quotations        quotations        @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  product_variants  product_variants? @relation(fields: [variantId], references: [id])
+
+  @@index([productId])
+  @@index([quotationId])
+  @@index([variantId])
+}
+
+model quotations {
+  id                      String                @id
+  quoteNumber             String                @unique
+  title                   String
+  customerId              String
+  salesRepId              String
+  organizationId          String
+  stage                   QuoteStage            @default(DRAFT)
+  subtotal                Float                 @default(0.0)
+  discountTotal           Float                 @default(0.0)
+  taxTotal                Float                 @default(0.0)
+  grandTotal              Float                 @default(0.0)
+  totalCost               Float                 @default(0.0)
+  grossMargin             Float                 @default(0.0)
+  grossMarginPercent      Float                 @default(0.0)
+  blendedRiskScore        Float                 @default(0.0)
+  requiresManagerApproval Boolean               @default(false)
+  requiresFinanceApproval Boolean               @default(false)
+  approvalStatus          ApprovalStatus        @default(PENDING)
+  portalToken             String                @unique
+  portalAccessExpiresAt   DateTime?
+  expiresAt               DateTime
+  notes                   String?
+  termsAndConditions      String?
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime
+  approval_audit_logs     approval_audit_logs[]
+  approval_requests       approval_requests?
+  quotation_lines         quotation_lines[]
+  customers               customers             @relation(fields: [customerId], references: [id])
+  organizations           Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sales_representatives   SalesRepresentative   @relation(fields: [salesRepId], references: [id])
+
+  @@index([customerId])
+  @@index([organizationId])
+  @@index([salesRepId])
+  @@index([stage])
+}
+
+model stock_levels {
+  id               String    @id
+  warehouseId      String
+  productId        String
+  quantityOnHand   Int       @default(0)
+  quantityReserved Int       @default(0)
+  reorderPoint     Int       @default(10)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime
+  products         products  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouses       Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([warehouseId, productId])
+  @@index([productId])
+  @@index([warehouseId])
+}
+
+model stock_movements {
+  id           String            @id
+  warehouseId  String
+  productId    String
+  quantity     Int
+  movementType StockMovementType
+  referenceId  String?
+  notes        String?
+  createdAt    DateTime          @default(now())
+  products     products          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouses   Warehouse         @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([warehouseId])
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum LogLevel {
+  INFO
+  WARN
+  ERROR
+}
+
+enum UserRole {
+  ADMIN
+  SALES_REP
+  SALES_MANAGER
+  FINANCE_OPS
+  CUSTOMER
+}
+
+enum ApprovalLevel {
+  SALES_MANAGER
+  FINANCE
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVISION_REQUESTED
+}
+
+enum CategoryType {
+  HARDWARE
+  SERVICE
+  SUBSCRIPTION
+}
+
+enum QuoteStage {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  NEGOTIATION
+  CONFIRMED
+  CANCELLED
+}
+
+enum StockMovementType {
+  PURCHASE_RECEIPT
+  ORDER_RESERVED
+  ORDER_FULFILLED
+  ADJUSTMENT
+  TRANSFER
+}
+
+enum UnitType {
+  UNIT
+  HOUR
+  PROJECT
+  MONTH
+  USER_MONTH
+  YEAR
+  PACK
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+model Invitation {
+  id             String           @id @default(cuid())
+  email          String
+  role           UserRole
+  token          String           @unique
+  status         InvitationStatus @default(PENDING)
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedById    String
+  invitedBy      User             @relation("SentInvitations", fields: [invitedById], references: [id], onDelete: Cascade)
+  metadata       Json?            @default("{}")
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([email])
+  @@index([token])
+  @@index([organizationId])
+  @@map("invitations")
 }
 
