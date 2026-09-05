@@ -25,7 +25,7 @@ export async function createInvitation({
   const org = await prisma.organization.findUnique({
     where: { id: organizationId },
     include: {
-      createdBy: {
+      creator: {
         select: { name: true, email: true },
       },
     },
@@ -188,94 +188,118 @@ export async function acceptInvitation({
     }
   }
 
-  // Update user's organization and assigned role
-  const updatedUser = await prisma.user.update({
-    where: { id: targetUserId },
-    data: {
-      organizationId: invitation.organizationId,
+  // Atomic transaction for role profile creation, user assignment, and invitation status
+  const finalUserId = targetUserId;
+  return await prisma.$transaction(async (tx) => {
+    // If role is SALES_REP, enforce valid manager in the same organization
+    if (invitation.role === UserRole.SALES_REP) {
+      if (!metadata.managerId) {
+        throw new Error("A SalesRepresentative must reference an existing SalesManager in the same organization.");
+      }
+      const manager = await tx.salesManager.findFirst({
+        where: {
+          id: metadata.managerId,
+          organizationId: invitation.organizationId,
+        },
+      });
+      if (!manager) {
+        throw new Error("A SalesRepresentative must reference an existing SalesManager in the same organization.");
+      }
+    }
+
+    // Update user's organization and assigned role
+    const updatedUser = await tx.user.update({
+      where: { id: finalUserId },
+      data: {
+        organizationId: invitation.organizationId,
+        role: invitation.role,
+        ...(name ? { name: name.trim() } : {}),
+      },
+    });
+
+    // Provision role-specific profile table
+    switch (invitation.role) {
+      case UserRole.SALES_REP:
+        await tx.salesRepresentative.upsert({
+          where: { userId: finalUserId },
+          create: {
+            userId: finalUserId,
+            organizationId: invitation.organizationId,
+            managerId: metadata.managerId || null,
+            commissionRate: metadata.commissionRate ? Number(metadata.commissionRate) : 0,
+            targetQuota: metadata.targetQuota ? Number(metadata.targetQuota) : null,
+            historicalAvgDiscount: 0,
+          },
+          update: {
+            organizationId: invitation.organizationId,
+            managerId: metadata.managerId || undefined,
+            commissionRate: metadata.commissionRate ? Number(metadata.commissionRate) : undefined,
+            targetQuota: metadata.targetQuota ? Number(metadata.targetQuota) : undefined,
+          },
+        });
+        break;
+
+      case UserRole.SALES_MANAGER:
+        await tx.salesManager.upsert({
+          where: { userId: finalUserId },
+          create: {
+            userId: finalUserId,
+            organizationId: invitation.organizationId,
+            department: metadata.department || "Sales",
+            approvalThreshold: metadata.approvalThreshold ? Number(metadata.approvalThreshold) : null,
+          },
+          update: {
+            organizationId: invitation.organizationId,
+            department: metadata.department || undefined,
+            approvalThreshold: metadata.approvalThreshold ? Number(metadata.approvalThreshold) : undefined,
+          },
+        });
+        break;
+
+      case UserRole.FINANCE_OPS:
+        await tx.financeOpsUser.upsert({
+          where: { userId: finalUserId },
+          create: {
+            userId: finalUserId,
+            organizationId: invitation.organizationId,
+            department: metadata.department || "Finance & Operations",
+            canApproveHighRisk: metadata.canApproveHighRisk ?? true,
+            canManageFulfillment: metadata.canManageFulfillment ?? true,
+            canManageBilling: metadata.canManageBilling ?? true,
+          },
+          update: {
+            organizationId: invitation.organizationId,
+            department: metadata.department || undefined,
+            canApproveHighRisk: metadata.canApproveHighRisk ?? true,
+            canManageFulfillment: metadata.canManageFulfillment ?? true,
+            canManageBilling: metadata.canManageBilling ?? true,
+          },
+        });
+        break;
+
+      case UserRole.CUSTOMER:
+        // No staff role profile row for customer portal users
+        break;
+
+      default:
+        break;
+    }
+
+    // Mark invitation as ACCEPTED
+    await tx.invitation.update({
+      where: { id: invitation.id },
+      data: {
+        status: InvitationStatus.ACCEPTED,
+        acceptedAt: new Date(),
+      },
+    });
+
+    return {
+      user: updatedUser,
       role: invitation.role,
-      ...(name ? { name: name.trim() } : {}),
-    },
+      organizationId: invitation.organizationId,
+    };
   });
-
-  // Provision role-specific profile table
-  switch (invitation.role) {
-    case UserRole.SALES_REP:
-      await prisma.salesRepresentative.upsert({
-        where: { userId: targetUserId },
-        create: {
-          userId: targetUserId,
-          organizationId: invitation.organizationId,
-          managerId: metadata.managerId || null,
-          commissionRate: metadata.commissionRate ? Number(metadata.commissionRate) : 0,
-          targetQuota: metadata.targetQuota ? Number(metadata.targetQuota) : null,
-          historicalAvgDiscount: 0,
-        },
-        update: {
-          organizationId: invitation.organizationId,
-          managerId: metadata.managerId || undefined,
-          commissionRate: metadata.commissionRate ? Number(metadata.commissionRate) : undefined,
-          targetQuota: metadata.targetQuota ? Number(metadata.targetQuota) : undefined,
-        },
-      });
-      break;
-
-    case UserRole.SALES_MANAGER:
-      await prisma.salesManager.upsert({
-        where: { userId: targetUserId },
-        create: {
-          userId: targetUserId,
-          organizationId: invitation.organizationId,
-          department: metadata.department || "Sales",
-          approvalThreshold: metadata.approvalThreshold ? Number(metadata.approvalThreshold) : null,
-        },
-        update: {
-          organizationId: invitation.organizationId,
-          department: metadata.department || undefined,
-          approvalThreshold: metadata.approvalThreshold ? Number(metadata.approvalThreshold) : undefined,
-        },
-      });
-      break;
-
-    case UserRole.FINANCE_OPS:
-      await prisma.financeOpsUser.upsert({
-        where: { userId: targetUserId },
-        create: {
-          userId: targetUserId,
-          organizationId: invitation.organizationId,
-          department: metadata.department || "Finance & Operations",
-          canApproveHighRisk: metadata.canApproveHighRisk ?? true,
-          canManageFulfillment: metadata.canManageFulfillment ?? true,
-          canManageBilling: metadata.canManageBilling ?? true,
-        },
-        update: {
-          organizationId: invitation.organizationId,
-          department: metadata.department || undefined,
-          canApproveHighRisk: metadata.canApproveHighRisk ?? true,
-          canManageFulfillment: metadata.canManageFulfillment ?? true,
-          canManageBilling: metadata.canManageBilling ?? true,
-        },
-      });
-      break;
-
-    default:
-      break;
-  }
-
-  // Mark invitation as ACCEPTED
-  await prisma.invitation.update({
-    where: { id: invitation.id },
-    data: {
-      status: InvitationStatus.ACCEPTED,
-      acceptedAt: new Date(),
-    },
-  });
-
-  return {
-    user: updatedUser,
-    role: invitation.role,
-    organizationId: invitation.organizationId,
-  };
 }
 
 export async function listInvitations(organizationId: string) {

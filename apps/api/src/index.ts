@@ -8,6 +8,15 @@ import { authRouter } from "./routes/auth.routes.js";
 import { organizationRouter } from "./routes/organization.routes.js";
 import { warehouseRouter } from "./routes/warehouse.routes.js";
 import { memberRouter } from "./routes/member.routes.js";
+import { customerTiersRouter } from "./routes/customer-tier.routes.js";
+import { customersRouter } from "./routes/customer.routes.js";
+import { categoryRouter } from "./routes/category.routes.js";
+import { productRouter } from "./routes/product.routes.js";
+import { priceListRouter } from "./routes/price-list.routes.js";
+import { discountRuleRouter } from "./routes/discount-rule.routes.js";
+import { productRecommendationRouter } from "./routes/product-recommendation.routes.js";
+import { quotationRouter } from "./routes/quotation.routes.js";
+import { errorHandler } from "./middleware/error.js";
 
 const app = express();
 
@@ -72,14 +81,22 @@ app.get("/api/health", async (_req: Request, res: Response) => {
   });
 });
 
-// Domain API Routers
-app.use("/api", authRouter);
-app.use("/api/organizations", organizationRouter);
-app.use("/api/warehouses", warehouseRouter);
-app.use("/api", memberRouter);
+// Domain API Routers (supporting both /api and direct root prefixes)
+app.use(["/api", "/"], authRouter);
+app.use(["/api/organizations", "/organizations"], organizationRouter);
+app.use(["/api/warehouses", "/warehouses"], warehouseRouter);
+app.use(["/api", "/"], memberRouter);
+app.use(["/api/customer-tiers", "/customer-tiers"], customerTiersRouter);
+app.use(["/api/customers", "/customers"], customersRouter);
+app.use(["/api/categories", "/categories"], categoryRouter);
+app.use(["/api/products", "/products"], productRouter);
+app.use(["/api/price-lists", "/price-lists"], priceListRouter);
+app.use(["/api/discount-approval-rules", "/discount-approval-rules"], discountRuleRouter);
+app.use(["/api/product-recommendations", "/product-recommendations"], productRecommendationRouter);
+app.use(["/api/quotations", "/quotations"], quotationRouter);
 
 // Demo Background Job Trigger (Interacts with @repo/db)
-app.post("/api/jobs/trigger", async (req: Request, res: Response) => {
+app.post(["/api/jobs/trigger", "/jobs/trigger"], async (req: Request, res: Response) => {
   try {
     const session = await auth.api.getSession({
       headers: fromNodeHeaders(req.headers),
@@ -109,15 +126,8 @@ app.post("/api/jobs/trigger", async (req: Request, res: Response) => {
   }
 });
 
-// Error handling middleware
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error("[API Error]", err);
-  res.status(500).json({
-    error: "Internal Server Error",
-    message: err.message,
-  });
-});
+// Centralized Error Handling Middleware
+app.use(errorHandler);
 
 const server = app.listen(ENV.PORT, ENV.HOST, () => {
   console.log("==================================================");
