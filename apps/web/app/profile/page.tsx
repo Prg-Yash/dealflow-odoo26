@@ -3,17 +3,15 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogOut, Home, Zap, AlertCircle, ArrowLeft, Target, ShieldCheck, CreditCard, Users, Briefcase, Activity, CheckCircle2 } from "lucide-react";
+import { LogOut, Home, Zap, AlertCircle, ArrowLeft, Target, ShieldCheck, CreditCard, Users, Briefcase, Activity, CheckCircle2, Building } from "lucide-react";
 import { useSession, signOut, sendVerificationEmail } from "../../lib/auth-client";
 import { BrandLogo, SalesNav, AdminNav } from "@repo/ui";
 import { getStoredRole, ROLES } from "../../lib/roles";
-import { useQuotations, useMembers, useDealAnomalies } from "../../lib/query";
+import { useQuotations, useMembers, useDealAnomalies, useCurrentOrg } from "../../lib/query";
 
 export default function ProfilePage() {
   const router = useRouter();
   const { data: session, isPending } = useSession();
-  const [jobStatus, setJobStatus] = useState<string | null>(null);
-  const [triggeringJob, setTriggeringJob] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [sendingVerification, setSendingVerification] = useState(false);
   const [demoRole] = useState<string | null>(() => {
@@ -43,6 +41,7 @@ export default function ProfilePage() {
   const { data: quotes = [] } = useQuotations();
   const { data: members = [] } = useMembers();
   const { data: anomaliesData } = useDealAnomalies();
+  const { data: org } = useCurrentOrg();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -93,35 +92,7 @@ export default function ProfilePage() {
     }
   };
 
-  const handleTriggerComputeJob = async () => {
-    setTriggeringJob(true);
-    setJobStatus(null);
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-    try {
-      const res = await fetch(`${apiUrl}/api/jobs/trigger`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          taskType: "matrix-multiplication",
-          matrixSize: 128,
-          iterations: 25,
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        setJobStatus(`Job #${data.job?.id || "N/A"} enqueued for 24/7 background worker!`);
-      } else {
-        setJobStatus(`Error: ${data.message || "Failed to trigger job"}`);
-      }
-    } catch (err) {
-      setJobStatus(`Connection Error: ${(err as Error).message}`);
-    } finally {
-      setTriggeringJob(false);
-    }
-  };
 
   if (isPending) {
     return (
@@ -181,7 +152,7 @@ export default function ProfilePage() {
           adminName={user.name || "Admin"}
           adminEmail={user.email}
           adminInitials={initials}
-          orgName="Acme Corp"
+          orgName={org?.name || "Acme Corp"}
           onSignOut={handleSignOut}
           linkComponent={Link as any}
         />
@@ -225,16 +196,16 @@ export default function ProfilePage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="p-5 rounded-2xl bg-purple-50 border border-purple-200 shadow-sm flex flex-col gap-3">
             <div className="flex items-center gap-2 text-purple-700 font-bold text-sm">
-              <ShieldCheck size={18} />
-              <h3>System Health & Access</h3>
+              <Building size={18} />
+              <h3>Organization Info</h3>
             </div>
-            <div className="flex justify-between items-end border-b border-purple-100 pb-2">
-              <span className="text-xs text-purple-600 font-medium">Active Members</span>
-              <span className="text-lg font-black text-purple-900">{members.length > 0 ? members.length : 12}</span>
+            <div className="flex flex-col border-b border-purple-100 pb-2 gap-0.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-purple-500">Name</span>
+              <span className="text-base font-black text-purple-900 break-words">{org?.name || "Acme Corp"}</span>
             </div>
-            <div className="flex justify-between items-end border-b border-purple-100 pb-2">
-              <span className="text-xs text-purple-600 font-medium">System Uptime</span>
-              <span className="text-lg font-black text-purple-900">99.98%</span>
+            <div className="flex flex-col border-b border-purple-100 pb-2 gap-0.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-purple-500">Workspace Slug</span>
+              <span className="text-base font-black text-purple-900 break-words">{org?.slug || "acme-corp"}</span>
             </div>
           </div>
           <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-sm flex flex-col gap-3">
@@ -450,29 +421,12 @@ export default function ProfilePage() {
               
               {renderRoleData()}
               
-              {/* Job trigger & actions */}
-              {jobStatus && (
-                <div className="mt-6 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700">
-                  {jobStatus}
-                </div>
-              )}
-
-              <div className="flex flex-wrap items-center gap-3 mt-8 pt-6 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={handleTriggerComputeJob}
-                  disabled={triggeringJob}
-                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs shadow-md shadow-slate-900/25 transition cursor-pointer disabled:opacity-50"
-                >
-                  <Zap size={14} />
-                  <span>{triggeringJob ? "Triggering..." : "Trigger Background Compute"}</span>
-                </button>
-
+              <div className="flex flex-wrap items-center justify-end gap-3 mt-8 pt-6 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={handleSignOut}
                   disabled={loggingOut}
-                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 font-semibold text-xs transition cursor-pointer ml-auto"
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 font-semibold text-xs transition cursor-pointer"
                 >
                   <LogOut size={14} />
                   <span>{loggingOut ? "Signing out..." : "Sign Out"}</span>
