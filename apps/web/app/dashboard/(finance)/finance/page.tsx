@@ -15,6 +15,7 @@ import {
   Package,
   TrendingDown,
   ArrowUpRight,
+  ChevronRight,
 } from "lucide-react";
 import { BrandLogo } from "@repo/ui";
 import {
@@ -25,13 +26,16 @@ import {
   type FulfillmentRecord,
   type InvoiceRecord,
   type ApprovalStatus,
+  INITIAL_SUBSCRIPTION_RECORDS,
+  type SubscriptionRecord,
 } from "../../../../lib/finance-data";
 
 export default function FinanceDashboardPage() {
-  const [activeView, setActiveView] = useState<"approvals" | "fulfillment" | "billing">("approvals");
+  const [activeView, setActiveView] = useState<"approvals" | "fulfillment" | "subscriptions" | "invoices">("approvals");
   const [approvals, setApprovals] = useState<FinanceApprovalRequest[]>(INITIAL_FINANCE_APPROVALS);
   const [fulfillments] = useState<FulfillmentRecord[]>(INITIAL_FULFILLMENT_RECORDS);
   const [invoices] = useState<InvoiceRecord[]>(INITIAL_INVOICE_RECORDS);
+  const [subscriptions] = useState<SubscriptionRecord[]>(INITIAL_SUBSCRIPTION_RECORDS);
   
   const [searchQuery, setSearchQuery] = useState("");
   const [approvalFilter, setApprovalFilter] = useState<"pending" | "all">("pending");
@@ -145,15 +149,28 @@ export default function FinanceDashboardPage() {
 
               <button
                 type="button"
-                onClick={() => setActiveView("billing")}
+                onClick={() => setActiveView("subscriptions")}
                 className={`inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 cursor-pointer ${
-                  activeView === "billing"
+                  activeView === "subscriptions"
                     ? "bg-[#ff5e3a] text-white shadow-sm"
                     : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
                 }`}
               >
-                <CreditCard size={13} className={activeView === "billing" ? "text-white" : "text-slate-500"} />
-                <span>A/R &amp; Invoicing</span>
+                <TrendingUp size={13} className={activeView === "subscriptions" ? "text-white" : "text-slate-500"} />
+                <span>Subscriptions</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveView("invoices")}
+                className={`inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 cursor-pointer ${
+                  activeView === "invoices"
+                    ? "bg-[#ff5e3a] text-white shadow-sm"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
+                }`}
+              >
+                <CreditCard size={13} className={activeView === "invoices" ? "text-white" : "text-slate-500"} />
+                <span>Invoices</span>
               </button>
             </nav>
           </div>
@@ -436,20 +453,24 @@ export default function FinanceDashboardPage() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {fulfillments.map((order) => (
-                <div key={order.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                <Link href={`/dashboard/finance/fulfillment/${order.id}`} key={order.id} className="block group">
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between group-hover:border-[#ff5e3a]/30 group-hover:shadow-md transition-all cursor-pointer">
                   <div className="flex justify-between items-start mb-4">
                     <div>
                       <div className="text-xs font-bold text-[#ff5e3a] font-mono">{order.id}</div>
                       <div className="text-lg font-extrabold text-slate-900 mt-1">{order.account}</div>
                       <div className="text-xs text-slate-500 mt-1">Quote Origin: {order.quoteId}</div>
                     </div>
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                      order.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                      order.status === 'PARTIALLY_FULFILLED' ? 'bg-sky-50 text-sky-700 border-sky-200' :
-                      'bg-slate-100 text-slate-600 border-slate-200'
-                    }`}>
-                      {order.status.replace('_', ' ')}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                        order.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                        order.status === 'PARTIALLY_FULFILLED' ? 'bg-sky-50 text-sky-700 border-sky-200' :
+                        'bg-slate-100 text-slate-600 border-slate-200'
+                      }`}>
+                        {order.status.replace('_', ' ')}
+                      </span>
+                      <ChevronRight size={18} className="text-slate-300 group-hover:text-[#ff5e3a] transition-colors" />
+                    </div>
                   </div>
 
                   <div className="space-y-3">
@@ -480,13 +501,94 @@ export default function FinanceDashboardPage() {
                     </div>
                   </div>
                 </div>
+                </Link>
               ))}
             </div>
           </div>
         )}
 
-        {/* VIEW 3: BILLING & A/R */}
-        {activeView === "billing" && (
+        {/* VIEW 3: SUBSCRIPTIONS */}
+        {activeView === "subscriptions" && (
+          <div className="space-y-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-black/[0.06] pb-5">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Recurring Revenue
+                  </span>
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0f172a] tracking-tight mt-1">
+                  Subscriptions (List)
+                </h1>
+                <p className="text-xs text-slate-500 mt-1">
+                  Every recurring plan across every customer, regardless of which order it came from.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="px-4 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold cursor-pointer">
+                {subscriptions.filter(s => s.status === 'Active').length} Active
+              </div>
+              <div className="px-4 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-xs font-bold cursor-pointer">
+                {subscriptions.filter(s => s.status === 'Paused').length} Paused
+              </div>
+              <div className="px-4 py-1.5 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer">
+                {subscriptions.filter(s => s.status === 'Cancelled').length} Cancelled
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-black/[0.06] shadow-xs overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-50/80 border-b border-slate-100 font-semibold">
+                    <th className="py-4 px-6 rounded-l-xl">Customer</th>
+                    <th className="py-4 px-4">Plan</th>
+                    <th className="py-4 px-4">Cycle</th>
+                    <th className="py-4 px-4">Next Bill</th>
+                    <th className="py-4 px-6 text-right rounded-r-xl">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {subscriptions.map((sub) => (
+                    <tr key={sub.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="py-4 px-6">
+                        <Link href={`/dashboard/finance/subscriptions/${sub.id}`} className="font-bold text-[#ff5e3a] hover:underline cursor-pointer block">
+                          {sub.account}
+                        </Link>
+                      </td>
+                      <td className="py-4 px-4 text-slate-900 font-semibold">
+                        {sub.plan}
+                      </td>
+                      <td className="py-4 px-4 text-slate-600">
+                        {sub.cycle}
+                      </td>
+                      <td className="py-4 px-4 font-mono text-slate-700">
+                        {sub.nextBillDate}
+                      </td>
+                      <td className="py-4 px-6 text-right">
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                          sub.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                          sub.status === 'Paused' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                          'bg-rose-50 text-rose-700 border-rose-200'
+                        }`}>
+                          {sub.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="bg-amber-50 text-amber-800 p-4 rounded-xl border border-amber-200/50 text-xs font-semibold">
+              Click a subscription row to open its billing detail and proration history.
+            </div>
+          </div>
+        )}
+
+        {/* VIEW 4: INVOICING */}
+        {activeView === "invoices" && (
           <div className="space-y-8">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-black/[0.06] pb-5">
               <div>
@@ -496,11 +598,20 @@ export default function FinanceDashboardPage() {
                   </span>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0f172a] tracking-tight mt-1">
-                  Invoicing &amp; Subscriptions
+                  Invoices (List)
                 </h1>
                 <p className="text-xs text-slate-500 mt-1">
-                  Track overdue invoices, process recurring subscriptions, and manage collections.
+                  Every invoice generated from one-time and recurring orders.
                 </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="px-4 py-1.5 rounded-xl bg-rose-400 text-white text-xs font-bold shadow-sm cursor-pointer border border-rose-500">
+                4 Unpaid
+              </div>
+              <div className="px-4 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold shadow-sm cursor-pointer border border-emerald-700">
+                21 Paid
               </div>
             </div>
 
@@ -508,33 +619,26 @@ export default function FinanceDashboardPage() {
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-50/80 border-b border-slate-100 font-semibold">
-                    <th className="py-4 px-6 rounded-l-xl">Invoice ID / Account</th>
+                    <th className="py-4 px-6 rounded-tl-2xl">Invoice #</th>
+                    <th className="py-4 px-4">Customer</th>
                     <th className="py-4 px-4">Amount</th>
-                    <th className="py-4 px-4">Due Date</th>
                     <th className="py-4 px-4">Status</th>
-                    <th className="py-4 px-6 text-right rounded-r-xl">Actions</th>
+                    <th className="py-4 px-6 rounded-tr-2xl">Due Date</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {invoices.map((inv) => (
-                    <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors">
+                    <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors group">
                       <td className="py-4 px-6">
-                        <div className="font-bold text-[#ff5e3a] font-mono hover:underline cursor-pointer">{inv.id}</div>
-                        <div className="text-slate-900 mt-0.5">{inv.account}</div>
-                        {inv.subscriptionId && (
-                          <div className="text-[10px] text-slate-400 mt-0.5">Sub: {inv.subscriptionId}</div>
-                        )}
+                        <Link href={`/dashboard/finance/invoices/${inv.id}`} className="font-bold text-slate-900 font-mono group-hover:text-[#ff5e3a] transition-colors block">
+                          {inv.id}
+                        </Link>
                       </td>
-                      <td className="py-4 px-4 font-mono font-bold text-slate-900 text-sm">
+                      <td className="py-4 px-4 text-slate-900 font-bold">
+                        {inv.account}
+                      </td>
+                      <td className="py-4 px-4 font-mono font-bold text-slate-700 text-sm">
                         ${inv.amount.toLocaleString()}
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="text-slate-800">{inv.dueDate}</div>
-                        {inv.daysOverdue && (
-                          <div className="text-rose-600 text-[10px] font-bold mt-0.5">
-                            {inv.daysOverdue} Days Overdue
-                          </div>
-                        )}
                       </td>
                       <td className="py-4 px-4">
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
@@ -542,18 +646,20 @@ export default function FinanceDashboardPage() {
                           inv.status === 'DRAFT' ? 'bg-slate-100 text-slate-600 border-slate-200' :
                           'bg-emerald-50 text-emerald-700 border-emerald-200'
                         }`}>
-                          {inv.status}
+                          {inv.status === 'OVERDUE' ? 'Unpaid' : inv.status === 'ISSUED' ? 'Unpaid' : 'Paid'}
                         </span>
                       </td>
-                      <td className="py-4 px-6 text-right">
-                        <button className="text-[#ff5e3a] hover:text-[#cc4b2e] font-bold text-xs inline-flex items-center gap-1 cursor-pointer">
-                          View Details <ArrowUpRight size={13} />
-                        </button>
+                      <td className="py-4 px-6">
+                        <div className="text-slate-800">{inv.dueDate}</div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+            
+            <div className="bg-amber-50 text-amber-800 p-4 rounded-xl border border-amber-200/50 text-xs font-semibold shadow-xs">
+              Click an invoice row to open its full payment and delivery reconciliation detail.
             </div>
           </div>
         )}

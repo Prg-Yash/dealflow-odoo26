@@ -40,6 +40,28 @@ export interface InvoiceRecord {
   subscriptionId?: string;
 }
 
+export interface SubscriptionRecord {
+  id: string; // e.g. "SUB-8812"
+  account: string;
+  plan: string;
+  cycle: "Monthly" | "Quarterly" | "Annual";
+  nextBillDate: string; // can be "-" if paused/cancelled
+  status: "Active" | "Paused" | "Cancelled";
+  amount: number;
+}
+
+export interface FulfillmentDetailRecord {
+  id: string;
+  quoteId: string;
+  account: string;
+  warehouseSplits: {
+    warehouse: string;
+    qtyFulfilled: number;
+    estShipments: number;
+    cost: number;
+  }[];
+}
+
 export const INITIAL_FINANCE_APPROVALS: FinanceApprovalRequest[] = [
   {
     id: "FIN-901",
@@ -152,3 +174,53 @@ export const INITIAL_INVOICE_RECORDS: InvoiceRecord[] = [
     dueDate: "2026-09-15",
   },
 ];
+
+export const INITIAL_SUBSCRIPTION_RECORDS: SubscriptionRecord[] = [
+  {
+    id: "SUB-8812",
+    account: "Acme Corp",
+    plan: "Care Plan 2yr",
+    cycle: "Monthly",
+    nextBillDate: "Sep 15",
+    status: "Active",
+    amount: 46,
+  },
+  {
+    id: "SUB-8813",
+    account: "Beta Industries",
+    plan: "Support SLA",
+    cycle: "Quarterly",
+    nextBillDate: "Nov 1",
+    status: "Active",
+    amount: 300,
+  },
+  {
+    id: "SUB-8814",
+    account: "Delta LLC",
+    plan: "Care Plan 1yr",
+    cycle: "Monthly",
+    nextBillDate: "-",
+    status: "Paused",
+    amount: 46,
+  },
+];
+
+export const MOCK_FULFILLMENT_DETAIL: FulfillmentDetailRecord = {
+  id: "ORD-441",
+  quoteId: "Q-1042",
+  account: "Acme Corp",
+  warehouseSplits: [
+    {
+      warehouse: "Main Warehouse",
+      qtyFulfilled: 18,
+      estShipments: 1,
+      cost: 42,
+    },
+    {
+      warehouse: "East Depot",
+      qtyFulfilled: 6,
+      estShipments: 1,
+      cost: 29,
+    },
+  ],
+};
