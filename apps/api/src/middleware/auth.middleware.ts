@@ -6,9 +6,9 @@ import { hasPermission, type Permission } from "../config/roles.js";
 
 export interface AuthenticatedUser extends User {
   organization?: Organization | null;
-  salesRepProfile?: any | null;
-  salesManagerProfile?: any | null;
-  financeOpsProfile?: any | null;
+  salesRep?: any | null;
+  salesManager?: any | null;
+  financeOpsUser?: any | null;
 }
 
 export interface AuthRequest extends Request {
@@ -31,6 +31,7 @@ export async function requireAuth(
     });
 
     if (!sessionResult?.user) {
+      console.log("UNAUTHORIZED")
       return res.status(401).json({
         error: "Unauthorized",
         message: "You must be logged in to perform this action.",
@@ -41,9 +42,9 @@ export async function requireAuth(
       where: { id: sessionResult.user.id },
       include: {
         organization: true,
-        salesRepProfile: true,
-        salesManagerProfile: true,
-        financeOpsProfile: true,
+        salesRep: true,
+        salesManager: true,
+        financeOpsUser: true,
       },
     });
 
