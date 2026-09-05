@@ -18,9 +18,9 @@ export const ROLES: Record<UserRole, RoleConfig> = {
     label: "Sales Rep",
     title: "Account Executive / Sales Rep",
     description: "Quotations, deals pipeline, pricing rules & customer negotiations",
-    defaultEmail: "rep@dealflow360.com",
-    defaultName: "Sarah Jenkins",
-    defaultOrg: "Acme Cloud Division",
+    defaultEmail: "rep.alex@dealflow360.com",
+    defaultName: "Alex Rivera",
+    defaultOrg: "Apex Enterprise Technologies Inc",
     targetPath: "/dashboard",
     badgeVariant: "info",
   },
@@ -29,9 +29,9 @@ export const ROLES: Record<UserRole, RoleConfig> = {
     label: "Sales Manager",
     title: "Regional Sales Director",
     description: "Discount tier approvals, quota pacing, deal health & anomalies",
-    defaultEmail: "manager@dealflow360.com",
-    defaultName: "Marcus Vance",
-    defaultOrg: "DealFlow360 HQ",
+    defaultEmail: "manager.elena@dealflow360.com",
+    defaultName: "Elena Rostova",
+    defaultOrg: "Apex Enterprise Technologies Inc",
     targetPath: "/dashboard",
     badgeVariant: "warning",
   },
@@ -40,9 +40,9 @@ export const ROLES: Record<UserRole, RoleConfig> = {
     label: "Finance",
     title: "Billing & Revenue Operations",
     description: "Invoice reconciliations, recurring billing, contracts & fulfillment",
-    defaultEmail: "finance@dealflow360.com",
-    defaultName: "Elena Rostova",
-    defaultOrg: "FinOps Global",
+    defaultEmail: "finance.marcus@dealflow360.com",
+    defaultName: "Marcus Vance",
+    defaultOrg: "Apex Enterprise Technologies Inc",
     targetPath: "/dashboard",
     badgeVariant: "success",
   },
@@ -52,19 +52,19 @@ export const ROLES: Record<UserRole, RoleConfig> = {
     title: "Platform Administrator",
     description: "Organization hierarchy, rule engines, catalogs & access control",
     defaultEmail: "admin@dealflow360.com",
-    defaultName: "David Chen",
-    defaultOrg: "DealFlow360 Enterprise",
+    defaultName: "System Administrator",
+    defaultOrg: "Apex Enterprise Technologies Inc",
     targetPath: "/dashboard",
     badgeVariant: "default",
   },
   customer: {
     id: "customer",
     label: "Customer / Buyer",
-    title: "Procurement Lead (Customer)",
+    title: "Procurement Lead (Acme Corp)",
     description: "Client proposal review, redlining, negotiation portal & sign-off",
-    defaultEmail: "customer@acme.com",
-    defaultName: "Alex Rivera",
-    defaultOrg: "Acme Technologies Inc.",
+    defaultEmail: "buyer@acmecorp.com",
+    defaultName: "Johnathan Ward",
+    defaultOrg: "Acme Corporation",
     targetPath: "/portal",
     badgeVariant: "info",
   },
@@ -88,12 +88,23 @@ export function setStoredRole(role: UserRole): void {
 
 export function inferRoleFromEmail(email: string): UserRole {
   const e = email.toLowerCase().trim();
-  if (e.includes("admin")) return "admin";
-  if (e.includes("manager")) return "manager";
-  if (e.includes("finance")) return "finance";
-  if (e.includes("customer") || e.includes("buyer") || e.includes("acme") || e.includes("client")) {
+  if (
+    e === "buyer@acmecorp.com" ||
+    e === "customer@acme.com" ||
+    e === "procurement@betaindustries.com" ||
+    e === "finance@quantumleaplabs.ai" ||
+    e.includes("customer") ||
+    e.includes("buyer") ||
+    e.includes("acme") ||
+    e.includes("procurement") ||
+    e.includes("quantumleap") ||
+    e.includes("client")
+  ) {
     return "customer";
   }
+  if (e.includes("admin")) return "admin";
+  if (e.includes("manager") || e.includes("elena")) return "manager";
+  if (e.includes("finance") || e.includes("marcus")) return "finance";
   return "sales_rep";
 }
 
