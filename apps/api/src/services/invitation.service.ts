@@ -289,12 +289,27 @@ export async function acceptInvitation({
         break;
 
       case UserRole.CUSTOMER:
-        // No staff role profile row for customer portal users
+        // Link customer profile record to this user account
+        if (metadata.customerId) {
+          await tx.customer.update({
+            where: { id: metadata.customerId },
+            data: { portalUserId: finalUserId },
+          });
+        } else {
+          await tx.customer.updateMany({
+            where: {
+              email: invitation.email,
+              organizationId: invitation.organizationId,
+            },
+            data: { portalUserId: finalUserId },
+          });
+        }
         break;
 
       default:
         break;
     }
+
 
     // Mark invitation as ACCEPTED
     await tx.invitation.update({

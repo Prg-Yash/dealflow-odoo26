@@ -59,25 +59,73 @@ export interface PortalQuoteData {
     id: string;
     name: string;
     email: string;
-    tier?: { name: string; code: string; discountCeiling: number };
+    tier?: { id?: string; name: string; code?: string; discountCeiling: number } | null;
   };
   salesRep?: {
     id: string;
     user?: { name: string; email: string; image?: string };
-  };
+  } | null;
   organization?: {
     id: string;
     name: string;
     currency: string;
   };
-  lines: PortalLineItem[];
-  comments: PortalComment[];
-  counterProposals: PortalCounterProposal[];
+  lines: Array<
+    PortalLineItem & {
+      billingCadence?: string;
+      isRecurring?: boolean;
+      comments?: Array<{
+        id: string;
+        message: string;
+        authorRole: string;
+        authorName?: string;
+        createdAt: string;
+      }>;
+    }
+  >;
+  comments: Array<
+    PortalComment & {
+      authorName?: string;
+    }
+  >;
+  counterProposals: Array<
+    PortalCounterProposal & {
+      respondedBy?: any;
+    }
+  >;
   signature?: {
     signedByName: string;
     signedAt: string;
     signatureData?: string;
   } | null;
+}
+
+export interface ActivePortalQuote {
+  id: string;
+  token: string;
+  quoteNumber: string;
+  title: string;
+  label: string;
+  stage: string;
+  customer: string;
+  customerEmail?: string;
+  grandTotal: number;
+  lineCount?: number;
+  createdAt: string;
+}
+
+/**
+ * Hook to fetch all active quotations directly from the database for the quote directory & switcher
+ */
+export function usePortalActiveQuotes() {
+  return useQuery({
+    queryKey: ["portal", "active-quotes"],
+    queryFn: async () => {
+      const res = await api.get<any>("/api/portal/active-quotes");
+      const list = res?.data || res || [];
+      return (Array.isArray(list) ? list : []) as ActivePortalQuote[];
+    },
+  });
 }
 
 /**
@@ -86,9 +134,32 @@ export interface PortalQuoteData {
 export function usePortalQuote(portalToken: string) {
   return useQuery({
     queryKey: queryKeys.portal.quote(portalToken),
-    queryFn: () => api.get<PortalQuoteData>(`/api/portal/${portalToken}`),
+    queryFn: async () => {
+      const res = await api.get<any>(`/api/portal/${portalToken}`);
+      return (res?.data || res) as PortalQuoteData;
+    },
     enabled: Boolean(portalToken),
     retry: 1,
+  });
+}
+
+/**
+ * Mutation: Customer adds a line-level or quote-level comment / question
+ */
+export function useAddPortalComment(portalToken: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (variables: {
+      message: string;
+      quotationLineId?: string;
+      authorName?: string;
+      authorEmail?: string;
+      proposedDiscountPercent?: number;
+    }) => api.post(`/api/portal/${portalToken}/comments`, variables),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.portal.quote(portalToken) });
+    },
   });
 }
 
@@ -157,6 +228,37 @@ export function useSubmitPortalComment(portalToken: string) {
         return {
           ...oldQuote,
           comments: optimisticAppendItem(oldQuote.comments || [], optimisticComment, "end"),
+        };
+      },
+    }),
+  });
+}
+
+/**
+ * Mutation: Customer confirms quotation with one click
+ */
+export function useConfirmQuotation(portalToken: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (variables?: {
+      customerName?: string;
+      customerEmail?: string;
+      agreedToTerms?: boolean;
+      notes?: string;
+    }) => api.post(`/api/portal/${portalToken}/confirm`, variables || { agreedToTerms: true }),
+
+    ...createOptimisticMutationOptions<
+      { customerName?: string; customerEmail?: string; agreedToTerms?: boolean; notes?: string } | undefined,
+      PortalQuoteData
+    >({
+      queryClient,
+      queryKey: queryKeys.portal.quote(portalToken),
+      updateFn: (oldQuote) => {
+        if (!oldQuote) return oldQuote as any;
+        return {
+          ...oldQuote,
+          stage: "CONFIRMED",
         };
       },
     }),

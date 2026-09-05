@@ -1,6 +1,22 @@
-import type { Response, NextFunction } from "express";
+import type { Request, Response, NextFunction } from "express";
 import type { PortalRequest } from "../middleware/portalAuth.js";
 import * as portalService from "../services/portal.service.js";
+
+export async function listActiveQuotations(
+  _req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const quotations = await portalService.listActivePortalQuotations();
+    return res.json({
+      success: true,
+      data: quotations,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 
 export async function getQuotation(
   req: PortalRequest,
@@ -12,6 +28,7 @@ export async function getQuotation(
     return res.json({
       success: true,
       data: quotation,
+      ...quotation,
     });
   } catch (error) {
     next(error);
@@ -58,6 +75,27 @@ export async function postCounterProposal(
   }
 }
 
+export async function confirmQuotation(
+  req: PortalRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const result = await portalService.confirmPortalQuotation(
+      req.portalToken!,
+      req.body
+    );
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      data: result,
+      confirmation: result.confirmation,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function signQuotation(
   req: PortalRequest,
   res: Response,
@@ -81,6 +119,8 @@ export async function signQuotation(
       success: true,
       message: "Quotation signed successfully. Deal confirmed and billing initiated.",
       data: result,
+      signature: result.signature,
+      confirmation: result.confirmation,
     });
   } catch (error) {
     next(error);

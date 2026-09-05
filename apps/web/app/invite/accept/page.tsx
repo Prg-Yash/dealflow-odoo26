@@ -211,6 +211,7 @@ function AcceptInvitationContent() {
       }, 1200);
     } catch (err: any) {
       setFormError(err?.message || "An unexpected error occurred while accepting the invitation.");
+    } finally {
       setSubmitting(false);
     }
   };

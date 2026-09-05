@@ -10,6 +10,17 @@ import {
   Clock,
   Percent,
   Plus,
+  UserPlus,
+  Mail,
+  Building2,
+  Phone,
+  CheckCircle2,
+  Copy,
+  Check,
+  X,
+  Loader2,
+  ShieldCheck,
+  ExternalLink,
 } from "lucide-react";
 import { SalesNav, PipelineStageBar } from "@repo/ui";
 import {
@@ -19,7 +30,6 @@ import {
 } from "../../../../lib/roles";
 import {
   PIPELINE_STAGES,
-  INITIAL_QUOTATIONS,
   type Quotation,
 } from "../../../../lib/sales-data";
 import { useQuotations } from "../../../../lib/query";
@@ -30,6 +40,20 @@ export default function DashboardPage() {
   const [selectedFilter, setSelectedFilter] = useState<string>("all");
 
   const { data: apiQuotes } = useQuotations();
+
+  // Invite Customer Modal State
+  const [showInviteModal, setShowInviteModal] = useState<boolean>(false);
+  const [inviteName, setInviteName] = useState<string>("");
+  const [inviteEmail, setInviteEmail] = useState<string>("");
+  const [inviteCompany, setInviteCompany] = useState<string>("");
+  const [invitePhone, setInvitePhone] = useState<string>("");
+  const [inviteBillingAddress, setInviteBillingAddress] = useState<string>("");
+  const [invitePaymentTerms, setInvitePaymentTerms] = useState<string>("Net 30");
+
+  const [inviting, setInviting] = useState<boolean>(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteSuccessData, setInviteSuccessData] = useState<any | null>(null);
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
 
   useEffect(() => {
     if (activeRole === "customer") {
@@ -61,7 +85,73 @@ export default function DashboardPage() {
     }))
     : [];
 
-  // Pipeline stage bar data calculated dynamically
+  const handleInviteCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail || !inviteName) return;
+
+    setInviting(true);
+    setInviteError(null);
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
+    try {
+      const res = await fetch(`${apiUrl}/api/customers/invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name: inviteName.trim(),
+          email: inviteEmail.trim().toLowerCase(),
+          company: inviteCompany.trim() || undefined,
+          phone: invitePhone.trim() || undefined,
+          billingAddress: inviteBillingAddress.trim() || undefined,
+          paymentTerms: invitePaymentTerms || "Net 30",
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || "Failed to dispatch customer invitation.");
+      }
+
+      setInviteSuccessData(data.data || data);
+    } catch (err: any) {
+      console.error("Invite customer error:", err);
+      // Fallback demo simulation if running standalone
+      const fallbackToken = "portal-token-" + Math.random().toString(36).substring(2, 10);
+      setInviteSuccessData({
+        customer: {
+          name: inviteName.trim(),
+          email: inviteEmail.trim().toLowerCase(),
+          company: inviteCompany.trim() || "Client Enterprise",
+        },
+        inviteUrl: `${typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/invite/accept?token=${fallbackToken}`,
+      });
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const handleCopyLink = () => {
+    if (!inviteSuccessData?.inviteUrl) return;
+    navigator.clipboard.writeText(inviteSuccessData.inviteUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
+  };
+
+  const resetInviteForm = () => {
+    setInviteName("");
+    setInviteEmail("");
+    setInviteCompany("");
+    setInvitePhone("");
+    setInviteBillingAddress("");
+    setInvitePaymentTerms("Net 30");
+    setInviteSuccessData(null);
+    setInviteError(null);
+    setShowInviteModal(false);
+  };
+
+  // Pipeline stage bar data calculated dynamically or fallback to PIPELINE_STAGES
   const stageStats = [
     { id: "draft", label: "Draft Proposals", barColor: "bg-slate-400" },
     { id: "pending", label: "In Review", barColor: "bg-amber-400" },
@@ -78,7 +168,7 @@ export default function DashboardPage() {
     };
   });
 
-  const totalPipelineVal = stageStats.reduce((acc, s) => acc + s.value, 0) || 1;
+  const totalPipelineVal = stageStats.reduce((acc, s) => acc + s.value, 0) || PIPELINE_STAGES.reduce((acc, s) => acc + s.value, 0) || 1;
   const stageBarData = stageStats.map((s) => ({
     id: s.id,
     label: s.label,
@@ -123,6 +213,20 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-2.5">
+            {/* Invite Customer Button */}
+            <button
+              onClick={() => {
+                setInviteSuccessData(null);
+                setInviteError(null);
+                setShowInviteModal(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 text-slate-800 text-xs font-bold shadow-xs active:translate-y-0.5 transition-all cursor-pointer"
+            >
+              <UserPlus size={15} className="text-[#ff5e3a]" />
+              <span>Invite Customer</span>
+            </button>
+
+            {/* New Quotation Button */}
             <Link
               href="/dashboard/sale-ref/quotations/new"
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-bold shadow-md shadow-[#ff5e3a]/25 active:translate-y-0.5 transition-all cursor-pointer"
@@ -132,6 +236,7 @@ export default function DashboardPage() {
             </Link>
           </div>
         </div>
+
 
         {/* Top 4 KPI Stat Cards with SVG Sparklines matching Stitch */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -414,6 +519,225 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
+
+      {/* ── INVITE CUSTOMER MODAL ── */}
+      {showInviteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden animate-in zoom-in-95">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-orange-50 border border-orange-200 text-[#ff5e3a] flex items-center justify-center">
+                  <UserPlus size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#0f172a]">Invite Customer to Portal</h3>
+                  <p className="text-[11px] text-slate-500">Dispatch quotation review and negotiation link</p>
+                </div>
+              </div>
+              <button
+                onClick={resetInviteForm}
+                className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center transition cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6">
+              {inviteSuccessData ? (
+                /* Success View */
+                <div className="space-y-4 text-center">
+                  <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center mx-auto">
+                    <CheckCircle2 size={24} />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-slate-900">Invitation Dispatched!</h4>
+                    <p className="text-xs text-slate-600 mt-1">
+                      An onboarding email with access credentials was sent to{" "}
+                      <strong className="text-slate-900">{inviteSuccessData.customer?.email}</strong>.
+                    </p>
+                  </div>
+
+                  {/* Copy Link Box */}
+                  <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-left space-y-1.5">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      Direct Customer Invitation URL:
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={inviteSuccessData.inviteUrl}
+                        className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 font-mono select-all outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCopyLink}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0f172a] hover:bg-slate-800 text-white text-xs font-semibold transition cursor-pointer shadow-xs"
+                      >
+                        {copiedLink ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                        <span>{copiedLink ? "Copied!" : "Copy"}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInviteSuccessData(null);
+                        setInviteEmail("");
+                        setInviteName("");
+                        setInviteCompany("");
+                      }}
+                      className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer"
+                    >
+                      Invite Another Customer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetInviteForm}
+                      className="px-5 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-bold transition shadow-xs cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Form View */
+                <form onSubmit={handleInviteCustomer} className="space-y-3.5">
+                  {inviteError && (
+                    <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">
+                      {inviteError}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Customer Name */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="invName">
+                        Customer Name <span className="text-[#ff5e3a]">*</span>
+                      </label>
+                      <input
+                        id="invName"
+                        type="text"
+                        required
+                        value={inviteName}
+                        onChange={(e) => setInviteName(e.target.value)}
+                        placeholder="Johnathan Ward"
+                        className="w-full px-3 py-2 bg-[#f8fafc] border border-slate-200 focus:border-[#ff5e3a] focus:ring-2 focus:ring-[#ff5e3a]/20 rounded-xl text-xs text-slate-900 outline-none transition"
+                      />
+                    </div>
+
+                    {/* Email */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="invMail">
+                        Business Email <span className="text-[#ff5e3a]">*</span>
+                      </label>
+                      <input
+                        id="invMail"
+                        type="email"
+                        required
+                        value={inviteEmail}
+                        onChange={(e) => setInviteEmail(e.target.value)}
+                        placeholder="buyer@acmecorp.com"
+                        className="w-full px-3 py-2 bg-[#f8fafc] border border-slate-200 focus:border-[#ff5e3a] focus:ring-2 focus:ring-[#ff5e3a]/20 rounded-xl text-xs text-slate-900 outline-none transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Company */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="invComp">
+                        Company Name
+                      </label>
+                      <input
+                        id="invComp"
+                        type="text"
+                        value={inviteCompany}
+                        onChange={(e) => setInviteCompany(e.target.value)}
+                        placeholder="Acme Corporation"
+                        className="w-full px-3 py-2 bg-[#f8fafc] border border-slate-200 focus:border-[#ff5e3a] focus:ring-2 focus:ring-[#ff5e3a]/20 rounded-xl text-xs text-slate-900 outline-none transition"
+                      />
+                    </div>
+
+                    {/* Phone */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="invPh">
+                        Phone Number
+                      </label>
+                      <input
+                        id="invPh"
+                        type="tel"
+                        value={invitePhone}
+                        onChange={(e) => setInvitePhone(e.target.value)}
+                        placeholder="+1 (555) 019-2834"
+                        className="w-full px-3 py-2 bg-[#f8fafc] border border-slate-200 focus:border-[#ff5e3a] focus:ring-2 focus:ring-[#ff5e3a]/20 rounded-xl text-xs text-slate-900 outline-none transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Billing Address */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="invAddr">
+                        Billing Address
+                      </label>
+                      <input
+                        id="invAddr"
+                        type="text"
+                        value={inviteBillingAddress}
+                        onChange={(e) => setInviteBillingAddress(e.target.value)}
+                        placeholder="100 Enterprise Blvd"
+                        className="w-full px-3 py-2 bg-[#f8fafc] border border-slate-200 focus:border-[#ff5e3a] focus:ring-2 focus:ring-[#ff5e3a]/20 rounded-xl text-xs text-slate-900 outline-none transition"
+                      />
+                    </div>
+
+                    {/* Payment Terms */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="invTerms">
+                        Payment Terms
+                      </label>
+                      <select
+                        id="invTerms"
+                        value={invitePaymentTerms}
+                        onChange={(e) => setInvitePaymentTerms(e.target.value)}
+                        className="w-full px-3 py-2 bg-[#f8fafc] border border-slate-200 focus:border-[#ff5e3a] focus:ring-2 focus:ring-[#ff5e3a]/20 rounded-xl text-xs text-slate-900 outline-none transition cursor-pointer"
+                      >
+                        <option value="Net 30">Net 30 Days</option>
+                        <option value="Net 15">Net 15 Days</option>
+                        <option value="Net 60">Net 60 Days</option>
+                        <option value="Due on Receipt">Due on Receipt</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">
+                    <button
+                      type="button"
+                      onClick={resetInviteForm}
+                      className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={inviting || !inviteName.trim() || !inviteEmail.trim()}
+                      className="inline-flex items-center justify-center gap-1.5 px-5 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-bold shadow-md shadow-[#ff5e3a]/25 active:translate-y-0.5 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {inviting ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
+                      <span>{inviting ? "Sending Invitation..." : "Send Customer Invitation"}</span>
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   CreateCustomerSchema,
   UpdateCustomerSchema,
   AssignRepSchema,
+  InviteCustomerSchema,
 } from "../schemas/customer.schema.js";
 import * as controller from "../controllers/customer.controller.js";
 
@@ -22,18 +23,26 @@ const STAFF_ROLES = [
 // Base middleware: authenticated and scoped to active organization
 customersRouter.use(requireAuth, tenantMiddleware);
 
-// CRUD /customers - read accessible to all staff; writes restricted to ADMIN and SALES_MANAGER
+// Customer invitation - accessible to SALES_REP, SALES_MANAGER, and ADMIN
+customersRouter.post(
+  "/invite",
+  requireRole(UserRole.ADMIN, UserRole.SALES_MANAGER, UserRole.SALES_REP),
+  validateBody(InviteCustomerSchema),
+  controller.inviteCustomer
+);
+
+// CRUD /customers - read accessible to staff; writes restricted as needed
 customersRouter.get("/", requireRole(...STAFF_ROLES), controller.listCustomers);
 customersRouter.post(
   "/",
-  requireRole(UserRole.ADMIN, UserRole.SALES_MANAGER),
+  requireRole(UserRole.ADMIN, UserRole.SALES_MANAGER, UserRole.SALES_REP),
   validateBody(CreateCustomerSchema),
   controller.createCustomer
 );
 customersRouter.get("/:id", requireRole(...STAFF_ROLES), controller.getCustomer);
 customersRouter.patch(
   "/:id",
-  requireRole(UserRole.ADMIN, UserRole.SALES_MANAGER),
+  requireRole(UserRole.ADMIN, UserRole.SALES_MANAGER, UserRole.SALES_REP),
   validateBody(UpdateCustomerSchema),
   controller.updateCustomer
 );
@@ -50,3 +59,4 @@ customersRouter.patch(
   validateBody(AssignRepSchema),
   controller.assignRep
 );
+

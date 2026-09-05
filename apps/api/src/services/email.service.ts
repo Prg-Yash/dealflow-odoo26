@@ -285,8 +285,10 @@ export async function sendInvitationEmail({
     SALES_MANAGER: "Sales Manager / Approver",
     FINANCE_OPS: "Finance / Operations User",
     ADMIN: "Administrator",
+    CUSTOMER: "Customer / Client Portal",
   };
   const readableRole = roleDisplayNames[role] || role;
+
 
   // If SMTP not configured, print to console for development testing
   if (!ENV.SMTP_USER || !ENV.SMTP_PASS) {

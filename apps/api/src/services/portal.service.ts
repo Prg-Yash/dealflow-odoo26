@@ -13,6 +13,7 @@ import { confirmQuotation, type ConfirmQuotationResult } from "./confirmation.se
 import type {
   CreateQuotationCommentInput,
   CreateCounterProposalInput,
+  ConfirmQuotationInput,
   SignQuotationInput,
 } from "../schemas/portal.schema.js";
 
@@ -56,11 +57,59 @@ async function resolveCustomerAuthorId(
 // =============================================================================
 
 /**
+ * 0. List Active Quotations for Portal Directory / Switcher (Database-backed)
+ */
+export async function listActivePortalQuotations() {
+  const quotations = await prisma.quotation.findMany({
+    where: {
+      stage: { not: QuoteStage.CANCELLED },
+    },
+    select: {
+      id: true,
+      portalToken: true,
+      quoteNumber: true,
+      title: true,
+      stage: true,
+      grandTotal: true,
+      createdAt: true,
+      customer: {
+        select: { id: true, name: true, email: true },
+      },
+      _count: {
+        select: { lines: true },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+
+  return quotations.map((q) => ({
+    id: q.id,
+    token: q.portalToken || q.quoteNumber,
+    quoteNumber: q.quoteNumber,
+    title: q.title || "Enterprise Proposal",
+    label: `${q.quoteNumber} (${q.title || "Enterprise"} - $${Number(q.grandTotal).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
+    stage: q.stage,
+    customer: q.customer?.name || "Client Enterprise",
+    customerEmail: q.customer?.email || "",
+    grandTotal: Number(q.grandTotal),
+    lineCount: q._count?.lines || 0,
+    createdAt: q.createdAt.toISOString(),
+  }));
+}
+
+/**
  * 1. Read-Only Quotation View for the Customer
  */
 export async function getPortalQuotation(portalToken: string) {
-  const quotation = await prisma.quotation.findUnique({
-    where: { portalToken },
+  const quotation = await prisma.quotation.findFirst({
+    where: {
+      OR: [
+        { portalToken },
+        { quoteNumber: portalToken },
+        { id: portalToken },
+      ],
+    },
     include: {
       customer: {
         include: { tier: true },
@@ -108,11 +157,86 @@ export async function getPortalQuotation(portalToken: string) {
   });
 
   if (!quotation) {
-    console.log("PORTAL SERVICE", quotation)
     throw new AppError(404, "NOT_FOUND", "Quotation not found for the provided portal link.");
   }
 
-  return quotation;
+  // Format line items to attach their line-level comments (matches PortalQuoteData in web)
+  const formattedLines = quotation.lines.map((line) => {
+    const lineComments = quotation.comments
+      .filter((c) => c.quotationLineId === line.id)
+      .map((c) => ({
+        id: c.id,
+        message: c.message,
+        authorRole: c.authorRole,
+        authorName: c.author?.name || "User",
+        createdAt: c.createdAt.toISOString(),
+      }));
+
+    return {
+      ...line,
+      description: line.description || line.product.name,
+      comments: lineComments,
+    };
+  });
+
+  const formattedComments = quotation.comments.map((c) => ({
+    id: c.id,
+    message: c.message,
+    authorRole: c.authorRole,
+    authorName: c.author?.name || "User",
+    quotationLineId: c.quotationLineId,
+    createdAt: c.createdAt.toISOString(),
+  }));
+
+  const formattedCounterProposals = quotation.counterProposals.map((cp) => ({
+    id: cp.id,
+    proposedGrandTotal: cp.proposedGrandTotal,
+    proposedDiscountPercent: cp.proposedDiscountPercent,
+    customerNotes: cp.customerNotes,
+    status: cp.status,
+    respondedBy: cp.respondedBy?.name || null,
+    createdAt: cp.createdAt.toISOString(),
+  }));
+
+  const signatureData = quotation.signature
+    ? {
+        signedByName: quotation.signature.signedByName,
+        signedByEmail: quotation.signature.signedByEmail,
+        signedAt: quotation.signature.signedAt.toISOString(),
+      }
+    : null;
+
+  const allCustomerQuotations = await prisma.quotation.findMany({
+    where: { customerId: quotation.customerId, organizationId: quotation.organizationId },
+    select: {
+      id: true,
+      quoteNumber: true,
+      title: true,
+      stage: true,
+      approvalStatus: true,
+      subtotal: true,
+      discountTotal: true,
+      taxTotal: true,
+      grandTotal: true,
+      portalToken: true,
+      expiresAt: true,
+      createdAt: true,
+      updatedAt: true,
+      _count: {
+        select: { lines: true, comments: true, counterProposals: true },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return {
+    ...quotation,
+    lines: formattedLines,
+    comments: formattedComments,
+    counterProposals: formattedCounterProposals,
+    signature: signatureData,
+    customerQuotations: allCustomerQuotations,
+  };
 }
 
 /**
@@ -122,8 +246,14 @@ export async function addQuotationComment(
   portalToken: string,
   input: CreateQuotationCommentInput
 ) {
-  const quotation = await prisma.quotation.findUnique({
-    where: { portalToken },
+  const quotation = await prisma.quotation.findFirst({
+    where: {
+      OR: [
+        { portalToken },
+        { quoteNumber: portalToken },
+        { id: portalToken },
+      ],
+    },
     include: { customer: true, lines: true },
   });
 
@@ -146,6 +276,14 @@ export async function addQuotationComment(
       input.authorName,
       input.authorEmail
     );
+
+    // If quotation is in DRAFT or APPROVED stage, customer interaction moves it to NEGOTIATION
+    if (quotation.stage === QuoteStage.DRAFT || quotation.stage === QuoteStage.APPROVED) {
+      await tx.quotation.update({
+        where: { id: quotation.id },
+        data: { stage: QuoteStage.NEGOTIATION },
+      });
+    }
 
     const comment = await tx.quotationComment.create({
       data: {
@@ -178,8 +316,14 @@ export async function submitCounterProposal(
   portalToken: string,
   input: CreateCounterProposalInput
 ) {
-  const quotation = await prisma.quotation.findUnique({
-    where: { portalToken },
+  const quotation = await prisma.quotation.findFirst({
+    where: {
+      OR: [
+        { portalToken },
+        { quoteNumber: portalToken },
+        { id: portalToken },
+      ],
+    },
     include: { customer: true, lines: true },
   });
 
@@ -190,6 +334,14 @@ export async function submitCounterProposal(
   if (quotation.stage === QuoteStage.CONFIRMED) {
     throw new AppError(400, "ALREADY_CONFIRMED", "Cannot submit counter-proposal on a confirmed order.");
   }
+
+  const discPercent = input.proposedDiscountPercent ?? input.proposedDiscount ?? 0;
+
+  // Auto-calculate proposedGrandTotal if omitted
+  const proposedTotal =
+    input.proposedGrandTotal !== undefined && input.proposedGrandTotal !== null && input.proposedGrandTotal > 0
+      ? input.proposedGrandTotal
+      : Math.round(quotation.subtotal * (1 - discPercent / 100) * 100) / 100;
 
   return prisma.$transaction(async (tx) => {
     // Supersede previous pending counter-proposals
@@ -203,14 +355,14 @@ export async function submitCounterProposal(
       },
     });
 
-    // Advance quotation stage to NEGOTIATION if not already confirmed/cancelled
+    // Advance quotation stage to NEGOTIATION
     await tx.quotation.update({
       where: { id: quotation.id },
       data: { stage: QuoteStage.NEGOTIATION },
     });
 
     // If line-level proposed discounts were provided, encode into customer notes or metadata
-    let formattedNotes = input.customerNotes || "";
+    let formattedNotes = input.customerNotes || input.message || "";
     if (input.lineDiscounts && input.lineDiscounts.length > 0) {
       const lineSummary = input.lineDiscounts
         .map((ld) => `[Line ${ld.lineId}: ${ld.proposedDiscountPercent}%]`)
@@ -221,8 +373,8 @@ export async function submitCounterProposal(
     const counterProposal = await tx.counterProposal.create({
       data: {
         quotationId: quotation.id,
-        proposedGrandTotal: input.proposedGrandTotal,
-        proposedDiscountPercent: input.proposedDiscountPercent,
+        proposedGrandTotal: proposedTotal,
+        proposedDiscountPercent: discPercent,
         customerNotes: formattedNotes || null,
         status: CounterProposalStatus.PENDING,
       },
@@ -515,8 +667,14 @@ export async function signQuotation(
   signature: any;
   confirmation: ConfirmQuotationResult;
 }> {
-  const quotation = await prisma.quotation.findUnique({
-    where: { portalToken },
+  const quotation = await prisma.quotation.findFirst({
+    where: {
+      OR: [
+        { portalToken },
+        { quoteNumber: portalToken },
+        { id: portalToken },
+      ],
+    },
     include: { customer: true, signature: true },
   });
 
@@ -542,12 +700,15 @@ export async function signQuotation(
   }
 
   return prisma.$transaction(async (tx) => {
+    const resolvedName = (input.signedByName || input.signerName || quotation.customer.name || "Customer Representative").trim();
+    const resolvedEmail = (input.signedByEmail || input.signerEmail || quotation.customer.email || "buyer@customer.com").trim().toLowerCase();
+
     // 1. Create QuoteSignature
     const signature = await tx.quoteSignature.create({
       data: {
         quotationId: quotation.id,
-        signedByName: input.signedByName.trim(),
-        signedByEmail: input.signedByEmail.trim().toLowerCase(),
+        signedByName: resolvedName,
+        signedByEmail: resolvedEmail,
         signatureData: input.signatureData,
         ipAddress: ipAddress || null,
         userAgent: userAgent || null,
@@ -560,8 +721,8 @@ export async function signQuotation(
       tx,
       quotation.customer,
       quotation.organizationId,
-      input.signedByName,
-      input.signedByEmail
+      resolvedName,
+      resolvedEmail
     );
 
     // 3. Centralized Phase 7 Deal Confirmation Logic
@@ -579,3 +740,76 @@ export async function signQuotation(
     };
   });
 }
+
+/**
+ * 7. One-Click Deal Confirmation (Direct Acceptance)
+ *
+ * For buyers who confirm terms with one click without drawing signature strokes.
+ * Triggers Phase 7 confirmation to generate Invoices, Subscriptions & Fulfillment orders.
+ */
+export async function confirmPortalQuotation(
+  portalToken: string,
+  input?: ConfirmQuotationInput
+): Promise<{
+  success: boolean;
+  message: string;
+  confirmation: ConfirmQuotationResult;
+}> {
+  const quotation = await prisma.quotation.findFirst({
+    where: {
+      OR: [
+        { portalToken },
+        { quoteNumber: portalToken },
+        { id: portalToken },
+      ],
+    },
+    include: { customer: true, signature: true },
+  });
+
+  if (!quotation) {
+    throw new AppError(404, "NOT_FOUND", "Quotation not found.");
+  }
+
+  if (quotation.stage === QuoteStage.CONFIRMED) {
+    throw new AppError(
+      409,
+      "ALREADY_CONFIRMED",
+      "This quotation has already been confirmed."
+    );
+  }
+
+  if (quotation.stage === QuoteStage.PENDING_APPROVAL) {
+    throw new AppError(
+      400,
+      "PENDING_APPROVAL",
+      "This quotation is currently pending internal discount approval and cannot be confirmed yet."
+    );
+  }
+
+  return prisma.$transaction(async (tx) => {
+    // 1. Resolve or ensure customer user
+    const customerUserId = await resolveCustomerAuthorId(
+      tx,
+      quotation.customer,
+      quotation.organizationId,
+      input?.customerName,
+      input?.customerEmail
+    );
+
+    // 2. Centralized Phase 7 Deal Confirmation Logic
+    const confirmation = await confirmQuotation(
+      tx,
+      quotation.id,
+      quotation.organizationId,
+      customerUserId,
+      UserRole.CUSTOMER
+    );
+
+    return {
+      success: true,
+      message: "Quotation confirmed successfully with one click. Invoices and fulfillment generated.",
+      confirmation,
+    };
+  });
+}
+
