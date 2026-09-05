@@ -110,7 +110,7 @@ export const listMembers = asyncHandler(async (req: AuthRequest, res: Response) 
       image: true,
       role: true,
       createdAt: true,
-      salesRepProfile: {
+      salesRep: {
         include: {
           manager: {
             select: {
@@ -120,9 +120,9 @@ export const listMembers = asyncHandler(async (req: AuthRequest, res: Response) 
           },
         },
       },
-      salesManagerProfile: {
+      salesManager: {
         include: {
-          representatives: {
+          reps: {
             select: {
               id: true,
               user: { select: { name: true, email: true } },
@@ -130,7 +130,7 @@ export const listMembers = asyncHandler(async (req: AuthRequest, res: Response) 
           },
         },
       },
-      financeOpsProfile: true,
+      financeOpsUser: true,
     },
     orderBy: { createdAt: "asc" },
   });

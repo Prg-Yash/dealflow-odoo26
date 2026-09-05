@@ -6,10 +6,9 @@ import { hasPermission, type Permission } from "../config/roles.js";
 
 export interface AuthenticatedUser extends User {
   organization?: Organization | null;
-  salesRepProfile?: any | null;
-  salesManagerProfile?: any | null;
-  financeOpsProfile?: any | null;
-  customerProfile?: any | null;
+  salesRep?: any | null;
+  salesManager?: any | null;
+  financeOpsUser?: any | null;
 }
 
 export interface AuthRequest extends Request {
@@ -42,7 +41,9 @@ export async function requireAuth(
       where: { id: sessionResult.user.id },
       include: {
         organization: true,
-        customerProfile: true,
+        salesRep: true,
+        salesManager: true,
+        financeOpsUser: true,
       },
     });
 

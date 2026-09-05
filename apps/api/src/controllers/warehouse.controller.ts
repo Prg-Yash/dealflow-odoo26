@@ -71,3 +71,17 @@ export const manualAdjustStock = asyncHandler(async (req: TenantRequest, res: Re
   );
   return res.json({ success: true, data: result });
 });
+
+export const directAdjustStock = asyncHandler(async (req: TenantRequest, res: Response) => {
+  const result = await warehouseService.adjustStock({
+    organizationId: req.orgId,
+    warehouseId: req.body.warehouseId,
+    productId: req.body.productId,
+    variantId: req.body.variantId,
+    quantityDelta: req.body.quantityDelta,
+    movementType: req.body.movementType,
+    referenceId: req.body.referenceId,
+    notes: req.body.notes,
+  });
+  return res.status(200).json({ success: true, data: result });
+});
