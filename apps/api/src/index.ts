@@ -5,6 +5,13 @@ import { prisma, JobStatus } from "@repo/db";
 import { ENV } from "./config/env.js";
 import { auth } from "./lib/auth.js";
 import { authRouter } from "./routes/auth.routes.js";
+import {
+  getMe,
+  verifyResetToken,
+  resetPasswordHandler,
+  requestPasswordResetHandler,
+} from "./controllers/auth.controller.js";
+import { requireAuth } from "./middleware/auth.middleware.js";
 import { organizationRouter } from "./routes/organization.routes.js";
 import { warehouseRouter } from "./routes/warehouse.routes.js";
 import { memberRouter } from "./routes/member.routes.js";
@@ -72,6 +79,14 @@ app.use(
     exposedHeaders: ["Set-Cookie"],
   })
 );
+
+// Password Reset Token Verification & Single-Use Enforcement
+app.get(["/api/auth/verify-reset-token", "/api/verify-reset-token"], verifyResetToken);
+app.post(["/api/auth/reset-password", "/api/reset-password"], express.json(), resetPasswordHandler);
+app.post(["/api/auth/request-password-reset", "/api/request-password-reset"], express.json(), requestPasswordResetHandler);
+
+// Authenticated Session Inspector (mounted before Better Auth wildcard handler so /api/auth/me succeeds)
+app.get(["/api/auth/me", "/api/me", "/me"], requireAuth, getMe);
 
 // Mount Better Auth handler on /api/auth/*
 // toNodeHandler parses raw request bodies so we mount it before express.json()

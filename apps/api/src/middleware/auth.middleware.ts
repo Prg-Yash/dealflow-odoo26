@@ -32,7 +32,7 @@ export async function requireAuth(
     });
 
     if (!sessionResult?.user) {
-      console.log("UNAUTHORIZED")
+      console.warn(`[Auth] 401 Unauthorized request to: ${req.method} ${req.originalUrl || req.url}`);
       return res.status(401).json({
         error: "Unauthorized",
         message: "You must be logged in to perform this action.",
@@ -46,6 +46,7 @@ export async function requireAuth(
         salesRep: true,
         salesManager: true,
         financeOpsUser: true,
+        customerProfile: true,
       },
     });
 

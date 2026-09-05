@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Mail, CheckCircle2, ArrowLeft } from "lucide-react";
-import { AuthCard } from "@repo/ui";
+import { ArrowRight, Mail, CheckCircle2, ArrowLeft, Loader2, AlertCircle } from "lucide-react";
+import { AuthCard, useToast } from "@repo/ui";
 import { isValidEmail } from "../../../lib/validation";
 
 export default function ForgotPasswordPage() {
+  const { toast } = useToast();
+
   const [email, setEmail] = useState(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -39,20 +41,26 @@ export default function ForgotPasswordPage() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          email,
+          email: email.trim().toLowerCase(),
           redirectTo: `${window.location.origin}/reset-password`,
         }),
       });
 
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         throw new Error(data.message || "Failed to submit password reset request.");
       }
 
+      toast.success(
+        "Recovery Link Dispatched",
+        `Instructions have been sent to ${email}. Check your inbox.`
+      );
       setSubmitted(true);
-    } catch (err) {
-      console.warn("API request failed, proceeding in fallback mode:", err);
-      setSubmitted(true);
+    } catch (err: any) {
+      const msg = err?.message || "Failed to dispatch recovery link. Please try again.";
+      setError(msg);
+      toast.error("Request Failed", msg);
     } finally {
       setLoading(false);
     }
@@ -77,12 +85,6 @@ export default function ForgotPasswordPage() {
         </div>
       }
     >
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 text-left">
-          {error}
-        </div>
-      )}
-
       {submitted ? (
         <div className="flex flex-col items-center gap-4 py-4 text-center">
           <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
@@ -131,6 +133,7 @@ export default function ForgotPasswordPage() {
                 onChange={(e) => {
                   setEmail(e.target.value);
                   setEmailTouched(true);
+                  if (error) setError(null);
                 }}
                 placeholder="name@company.com"
                 className={`w-full bg-[#f8fafc] rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-[#0f172a] placeholder:text-slate-400 transition-all outline-none border ${
@@ -149,8 +152,17 @@ export default function ForgotPasswordPage() {
               disabled={loading || !isFormValid}
               className="w-full inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white font-semibold text-sm transition-all shadow-md shadow-[#ff5e3a]/25 active:translate-y-0.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span>{loading ? "Sending link..." : "Send Recovery Instructions"}</span>
-              <ArrowRight size={16} />
+              {loading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin text-white" />
+                  <span>Sending link...</span>
+                </>
+              ) : (
+                <>
+                  <span>Send Recovery Instructions</span>
+                  <ArrowRight size={16} />
+                </>
+              )}
             </button>
           </div>
         </form>
