@@ -639,7 +639,7 @@ async function main() {
   const products: Record<string, any> = {};
   for (const p of productsData) {
     products[p.sku] = await prisma.product.upsert({
-      where: { sku: p.sku },
+      where: { organizationId_sku: { organizationId: org.id, sku: p.sku } },
       update: {
         name: p.name,
         description: p.description,
@@ -685,24 +685,32 @@ async function main() {
   ];
 
   for (const st of stockAllocations) {
-    await prisma.stockLevel.upsert({
+    const existing = await prisma.stockLevel.findFirst({
       where: {
-        warehouseId_productId: {
-          warehouseId: st.warehouseId,
-          productId: st.productId,
-        },
-      },
-      update: {
-        quantityOnHand: st.onHand,
-        quantityReserved: st.reserved,
-      },
-      create: {
         warehouseId: st.warehouseId,
         productId: st.productId,
-        quantityOnHand: st.onHand,
-        quantityReserved: st.reserved,
+        variantId: null,
       },
     });
+
+    if (existing) {
+      await prisma.stockLevel.update({
+        where: { id: existing.id },
+        data: {
+          quantityOnHand: st.onHand,
+          quantityReserved: st.reserved,
+        },
+      });
+    } else {
+      await prisma.stockLevel.create({
+        data: {
+          warehouseId: st.warehouseId,
+          productId: st.productId,
+          quantityOnHand: st.onHand,
+          quantityReserved: st.reserved,
+        },
+      });
+    }
   }
   console.log("  ✓ Real-time stock levels populated across Denver, Newark, and San Jose.");
 
@@ -726,7 +734,7 @@ async function main() {
 
   // QUOTE 1: DRAFT (Acme Corp / Alex Rivera - Healthy margins, rep discretion)
   const q1 = await prisma.quotation.upsert({
-    where: { quoteNumber: "QT-2026-0001" },
+    where: { portalToken: "portal-token-acme-draft-01" },
     update: {
       stage: QuoteStage.DRAFT,
     },
@@ -824,7 +832,7 @@ async function main() {
 
   // QUOTE 2: PENDING_APPROVAL (Beta Industries / Sarah Chen - Category Ceiling Breach)
   const q2 = await prisma.quotation.upsert({
-    where: { quoteNumber: "QT-2026-0002" },
+    where: { portalToken: "portal-token-beta-pending-02" },
     update: {
       stage: QuoteStage.PENDING_APPROVAL,
     },
@@ -946,7 +954,7 @@ async function main() {
 
   // QUOTE 3: APPROVED (OmniCorp / Alex Rivera - Manager Sign-off Recorded)
   const q3 = await prisma.quotation.upsert({
-    where: { quoteNumber: "QT-2026-0003" },
+    where: { portalToken: "portal-token-omni-approved-03" },
     update: {
       stage: QuoteStage.APPROVED,
     },
@@ -1058,7 +1066,7 @@ async function main() {
 
   // QUOTE 4: NEGOTIATION (QuantumLeap / Sarah Chen - Live Portal Link Active)
   const q4 = await prisma.quotation.upsert({
-    where: { quoteNumber: "QT-2026-0004" },
+    where: { portalToken: "portal-token-quantum-04" },
     update: {
       stage: QuoteStage.NEGOTIATION,
     },
@@ -1155,7 +1163,7 @@ async function main() {
 
   // QUOTE 5: CONFIRMED (Acme Corp / Alex Rivera - Ready for fulfillment & billing)
   const q5 = await prisma.quotation.upsert({
-    where: { quoteNumber: "QT-2026-0005" },
+    where: { portalToken: "portal-token-acme-confirmed-05" },
     update: {
       stage: QuoteStage.CONFIRMED,
     },
@@ -1249,6 +1257,113 @@ async function main() {
     ],
   });
   console.log("  ✓ Quotation [QT-2026-0005] (CONFIRMED - Ready for Fulfillment & Billing)");
+
+  // QUOTE 6: DF-Q1042 (Dedicated Customer Portal Negotiation Demo)
+  const qDemo = await prisma.quotation.upsert({
+    where: { portalToken: "DF-Q1042" },
+    update: {
+      stage: QuoteStage.NEGOTIATION,
+      portalToken: "DF-Q1042",
+      title: "Enterprise Cloud & Operations License",
+      subtotal: 48200.0,
+      discountTotal: 4800.0,
+      taxTotal: 2604.0,
+      grandTotal: 46004.0,
+    },
+    create: {
+      quoteNumber: "DF-Q1042",
+      title: "Enterprise Cloud & Operations License",
+      customerId: customers["cust-acme-01"].id,
+      salesRepId: salesRepSarah.id,
+      organizationId: org.id,
+      stage: QuoteStage.NEGOTIATION,
+      subtotal: 48200.0,
+      discountTotal: 4800.0,
+      taxTotal: 2604.0,
+      grandTotal: 46004.0,
+      totalCost: 24500.0,
+      grossMargin: 18900.0,
+      grossMarginPercent: 43.55,
+      blendedRiskScore: 5.5,
+      requiresManagerApproval: false,
+      requiresFinanceApproval: false,
+      approvalStatus: ApprovalStatus.APPROVED,
+      portalToken: "DF-Q1042",
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      notes: "Dedicated customer negotiation portal demonstration proposal.",
+    },
+  });
+
+  await prisma.quotationLine.deleteMany({ where: { quotationId: qDemo.id } });
+  const demoNodeLine = await prisma.quotationLine.create({
+    data: {
+      quotationId: qDemo.id,
+      productId: products["SUB-CORE-01"].id,
+      itemType: CategoryType.SUBSCRIPTION,
+      description: "DealFlow360 Enterprise Node (x50 Seats)",
+      quantity: 50,
+      unitPrice: 720.0,
+      costPrice: 180.0,
+      discountPercent: 10.0,
+      discountAmount: 3600.0,
+      netPrice: 32400.0,
+      totalCost: 9000.0,
+      lineMargin: 23400.0,
+      lineMarginPercent: 72.22,
+      categoryCeiling: 20.0,
+      customerCeiling: 15.0,
+      isCeilingBreached: false,
+      riskPoints: 2.0,
+      sortOrder: 1,
+    },
+  });
+
+  await prisma.quotationLine.create({
+    data: {
+      quotationId: qDemo.id,
+      productId: products["SRV-INST-01"].id,
+      itemType: CategoryType.SERVICE,
+      description: "Custom Integration & Dedicated Deployment",
+      quantity: 1,
+      unitPrice: 8500.0,
+      costPrice: 4000.0,
+      discountPercent: 0.0,
+      discountAmount: 0.0,
+      netPrice: 8500.0,
+      totalCost: 4000.0,
+      lineMargin: 4500.0,
+      lineMarginPercent: 52.94,
+      categoryCeiling: 10.0,
+      customerCeiling: 15.0,
+      isCeilingBreached: false,
+      riskPoints: 0.0,
+      sortOrder: 2,
+    },
+  });
+
+  await prisma.quotationLine.create({
+    data: {
+      quotationId: qDemo.id,
+      productId: products["SRV-SLA-01"].id,
+      itemType: CategoryType.SERVICE,
+      description: "24/7 SLA & Dedicated Solution Architect",
+      quantity: 1,
+      unitPrice: 3700.0,
+      costPrice: 1500.0,
+      discountPercent: 0.0,
+      discountAmount: 0.0,
+      netPrice: 3700.0,
+      totalCost: 1500.0,
+      lineMargin: 2200.0,
+      lineMarginPercent: 59.46,
+      categoryCeiling: 10.0,
+      customerCeiling: 15.0,
+      isCeilingBreached: false,
+      riskPoints: 0.0,
+      sortOrder: 3,
+    },
+  });
+  console.log("  ✓ Quotation [DF-Q1042] (NEGOTIATION - Dedicated Portal Demo Token Ready)");
 
   // 9. Phase 6: Multi-Warehouse Split Fulfillment, Shipments & Backorders
   console.log("\n[9/9] Creating Phase 6 Multi-Warehouse Split Fulfillment for [QT-2026-0005]...");
@@ -1363,7 +1478,7 @@ async function main() {
 
   // A. One-Time Hardware & Services Invoice for QT-2026-0005 (Acme Corp)
   const inv1 = await (prisma as any).invoice.upsert({
-    where: { invoiceNumber: "INV-2026-0001" },
+    where: { organizationId_invoiceNumber: { organizationId: org.id, invoiceNumber: "INV-2026-0001" } },
     update: {
       totalAmount: 18472.0,
       amountPaid: 10000.0,
@@ -1446,7 +1561,7 @@ async function main() {
   const nextBilling = new Date(periodEnd);
 
   const sub1 = await (prisma as any).subscription.upsert({
-    where: { subscriptionNumber: "SUB-2026-0001" },
+    where: { organizationId_subscriptionNumber: { organizationId: org.id, subscriptionNumber: "SUB-2026-0001" } },
     update: {
       status: "ACTIVE",
       currentMrr: 4250.0,
@@ -1493,7 +1608,7 @@ async function main() {
 
   // Monthly Recurring Invoice for Subscription 1
   const inv2 = await (prisma as any).invoice.upsert({
-    where: { invoiceNumber: "INV-2026-0002" },
+    where: { organizationId_invoiceNumber: { organizationId: org.id, invoiceNumber: "INV-2026-0002" } },
     update: {
       status: "PAID",
       amountPaid: 4250.0,
@@ -1535,7 +1650,7 @@ async function main() {
 
   // C. Proration Credit Note for Mid-Cycle Seat Adjustment
   await (prisma as any).creditNote.upsert({
-    where: { creditNoteNumber: "CN-2026-0001" },
+    where: { organizationId_creditNoteNumber: { organizationId: org.id, creditNoteNumber: "CN-2026-0001" } },
     update: {
       amount: 340.0,
       status: "ISSUED",
@@ -1620,6 +1735,47 @@ async function main() {
     },
   });
   console.log("  ✓ Quotation [QT-2026-0005] (E-Signature Captured: Johnathan Ward <buyer@acmecorp.com>)");
+
+  // E. Negotiation Activity on DF-Q1042
+  await (prisma as any).quotationComment.deleteMany({ where: { quotationId: qDemo.id } });
+  await (prisma as any).counterProposal.deleteMany({ where: { quotationId: qDemo.id } });
+
+  await (prisma as any).quotationComment.create({
+    data: {
+      quotationId: qDemo.id,
+      quotationLineId: demoNodeLine.id,
+      authorId: "usr-cust-01",
+      authorRole: UserRole.CUSTOMER,
+      message: "Can we adjust the deployment schedule to roll out 25 seats in Month 1 and 25 seats in Month 3?",
+      proposedDiscountPercent: 12.0,
+      isResolved: false,
+      createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000),
+    },
+  });
+
+  await (prisma as any).quotationComment.create({
+    data: {
+      quotationId: qDemo.id,
+      quotationLineId: demoNodeLine.id,
+      authorId: "usr-rep-01",
+      authorRole: UserRole.SALES_REP,
+      message: "Yes! Our customer engineering team can phase seat provisioning without impacting your annual enterprise discount tier.",
+      isResolved: true,
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+    },
+  });
+
+  await (prisma as any).counterProposal.create({
+    data: {
+      quotationId: qDemo.id,
+      proposedGrandTotal: 42000.0,
+      proposedDiscountPercent: 15.0,
+      customerNotes: "We have an approved Q1 budget cap of $42,000 for this initiative. If agreed, we will sign and confirm immediately.",
+      status: CounterProposalStatus.PENDING,
+      createdAt: new Date(Date.now() - 1 * 60 * 60 * 1000),
+    },
+  });
+  console.log("  ✓ Quotation [DF-Q1042] (Negotiation: 2 Comments + Pending Counter-Proposal)");
 
   console.log("\n==================================================");
   console.log("  🎉 Seeding Completed Successfully!");
