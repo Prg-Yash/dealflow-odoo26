@@ -75,6 +75,12 @@ app.use(
       "Origin",
       "x-portal-token",
       "x-customer-email",
+      "Cache-Control",
+      "Pragma",
+      "Expires",
+      "cache-control",
+      "pragma",
+      "expires",
     ],
     exposedHeaders: ["Set-Cookie"],
   })

@@ -73,10 +73,6 @@ export default function ResetPasswordPage() {
           `${apiUrl}/api/auth/verify-reset-token?token=${encodeURIComponent(urlToken)}&_t=${Date.now()}`,
           {
             cache: "no-store",
-            headers: {
-              "Cache-Control": "no-cache",
-              "Pragma": "no-cache",
-            },
           }
         );
 
@@ -120,7 +116,6 @@ export default function ResetPasswordPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Cache-Control": "no-cache",
         },
         credentials: "include",
         body: JSON.stringify({
