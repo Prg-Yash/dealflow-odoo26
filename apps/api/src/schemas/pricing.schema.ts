@@ -3,11 +3,16 @@ import { z } from "zod";
 export const CreatePriceListSchema = z.object({
   name: z.string().min(1, "Price list name is required"),
   currency: z.string().default("INR"),
-  customerTierId: z.string().optional(),
+  customerTierId: z.string().nullable().optional(),
   isDefault: z.boolean().default(false),
-})
+});
 
-export const UpdatePriceListSchema = CreatePriceListSchema;
+export const UpdatePriceListSchema = z.object({
+  name: z.string().min(1, "Price list name cannot be empty").optional(),
+  currency: z.string().optional(),
+  customerTierId: z.string().nullable().optional(),
+  isDefault: z.boolean().optional(),
+});
 
 export const CreatePriceListItemBaseSchema = z.object({
   productId: z.string().min(1, "Product ID is required"),
@@ -28,19 +33,84 @@ export const UpdatePriceListItemSchema = z.object({
   minQuantity: z.number().int().min(1).optional(),
 });
 
-export const CreateDiscountApprovalRuleSchema = z.object({
-  name: z.string().min(1, "Rule name is required"),
-  minDiscountPercent: z.number().min(0).default(0.0),
-  maxDiscountPercent: z.number().min(0).max(100),
-  minBlendedRiskScore: z.number().min(0).default(0.0),
-  maxBlendedRiskScore: z.number().min(0).max(100).default(100.0),
-  requiresManagerApproval: z.boolean().default(false),
-  requiresFinanceApproval: z.boolean().default(false),
-  escalationLevel: z.string().default("SALES_MANAGER"),
-  description: z.string().optional(),
-});
+export const CreateDiscountApprovalRuleSchema = z
+  .object({
+    name: z.string().min(1, "Rule name is required"),
+    minDiscountPercent: z.number().min(0).optional(),
+    maxDiscountPercent: z.number().min(0).max(100).optional(),
+    minDiscount: z.number().min(0).optional(),
+    maxDiscount: z.number().min(0).max(100).optional(),
+    minBlendedRiskScore: z.number().min(0).optional(),
+    maxBlendedRiskScore: z.number().min(0).max(100).optional(),
+    minRiskScore: z.number().min(0).optional(),
+    maxRiskScore: z.number().min(0).max(100).optional(),
+    requiresManagerApproval: z.boolean().optional(),
+    requiresFinanceApproval: z.boolean().optional(),
+    escalationLevel: z.string().default("SALES_MANAGER").optional(),
+    description: z.string().nullable().optional(),
+  })
+  .transform((data) => {
+    const maxDiscountPercent = data.maxDiscountPercent ?? data.maxDiscount ?? 15.0;
+    const minDiscountPercent = data.minDiscountPercent ?? data.minDiscount ?? 0.0;
+    const maxBlendedRiskScore = data.maxBlendedRiskScore ?? data.maxRiskScore ?? 10.0;
+    const minBlendedRiskScore = data.minBlendedRiskScore ?? data.minRiskScore ?? 0.0;
+    const escalationLevel = data.escalationLevel ?? "SALES_MANAGER";
+    const requiresManagerApproval =
+      data.requiresManagerApproval !== undefined
+        ? data.requiresManagerApproval
+        : escalationLevel !== "NONE";
+    const requiresFinanceApproval =
+      data.requiresFinanceApproval !== undefined
+        ? data.requiresFinanceApproval
+        : escalationLevel === "SALES_MANAGER_AND_FINANCE" || escalationLevel === "FINANCE";
 
-export const UpdateDiscountApprovalRuleSchema = CreateDiscountApprovalRuleSchema;
+    return {
+      name: data.name,
+      minDiscountPercent,
+      maxDiscountPercent,
+      minBlendedRiskScore,
+      maxBlendedRiskScore,
+      requiresManagerApproval,
+      requiresFinanceApproval,
+      escalationLevel,
+      description: data.description ? data.description : undefined,
+    };
+  });
+
+export const UpdateDiscountApprovalRuleSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    minDiscountPercent: z.number().min(0).optional(),
+    maxDiscountPercent: z.number().min(0).max(100).optional(),
+    minDiscount: z.number().min(0).optional(),
+    maxDiscount: z.number().min(0).max(100).optional(),
+    minBlendedRiskScore: z.number().min(0).optional(),
+    maxBlendedRiskScore: z.number().min(0).max(100).optional(),
+    minRiskScore: z.number().min(0).optional(),
+    maxRiskScore: z.number().min(0).max(100).optional(),
+    requiresManagerApproval: z.boolean().optional(),
+    requiresFinanceApproval: z.boolean().optional(),
+    escalationLevel: z.string().optional(),
+    description: z.string().nullable().optional(),
+  })
+  .transform((data) => {
+    const maxDiscountPercent = data.maxDiscountPercent ?? data.maxDiscount;
+    const minDiscountPercent = data.minDiscountPercent ?? data.minDiscount;
+    const maxBlendedRiskScore = data.maxBlendedRiskScore ?? data.maxRiskScore;
+    const minBlendedRiskScore = data.minBlendedRiskScore ?? data.minRiskScore;
+
+    return {
+      ...(data.name !== undefined && { name: data.name }),
+      ...(minDiscountPercent !== undefined && { minDiscountPercent }),
+      ...(maxDiscountPercent !== undefined && { maxDiscountPercent }),
+      ...(minBlendedRiskScore !== undefined && { minBlendedRiskScore }),
+      ...(maxBlendedRiskScore !== undefined && { maxBlendedRiskScore }),
+      ...(data.requiresManagerApproval !== undefined && { requiresManagerApproval: data.requiresManagerApproval }),
+      ...(data.requiresFinanceApproval !== undefined && { requiresFinanceApproval: data.requiresFinanceApproval }),
+      ...(data.escalationLevel !== undefined && { escalationLevel: data.escalationLevel }),
+      ...(data.description !== undefined && { description: data.description || undefined }),
+    };
+  });
 
 export const CreateProductRecommendationBaseSchema = z.object({
   sourceProductId: z.string().min(1, "Source product ID is required"),

@@ -3,7 +3,7 @@ import { AppError } from "../middleware/error.js";
 import type { CreateCustomerTierInput, UpdateCustomerTierInput } from "../schemas/customer-tier.schema.js";
 
 export async function listTiers(organizationId: string) {
-  return prisma.customerTier.findMany({
+  let tiers = await prisma.customerTier.findMany({
     where: { organizationId },
     include: {
       _count: {
@@ -12,6 +12,33 @@ export async function listTiers(organizationId: string) {
     },
     orderBy: { discountCeiling: "asc" },
   });
+
+  if (tiers.length === 0) {
+    const tierConfigs = [
+      { code: "BRONZE", name: "Bronze Tier", discountCeiling: 5.0, description: "Standard commercial accounts. Up to 5% discount." },
+      { code: "SILVER", name: "Silver Tier", discountCeiling: 10.0, description: "Established mid-market clients. Up to 10% discount." },
+      { code: "GOLD", name: "Gold Tier", discountCeiling: 15.0, description: "Strategic high-volume enterprise partners. Up to 15% discount." },
+      { code: "PLATINUM", name: "Platinum Tier", discountCeiling: 20.0, description: "Global key accounts and multi-national enterprise agreements. Up to 20% discount." },
+    ];
+    for (const t of tierConfigs) {
+      await prisma.customerTier.upsert({
+        where: { organizationId_code: { organizationId, code: t.code } },
+        update: {},
+        create: { organizationId, ...t },
+      });
+    }
+    tiers = await prisma.customerTier.findMany({
+      where: { organizationId },
+      include: {
+        _count: {
+          select: { customers: true },
+        },
+      },
+      orderBy: { discountCeiling: "asc" },
+    });
+  }
+
+  return tiers;
 }
 
 export async function getTierById(organizationId: string, id: string) {

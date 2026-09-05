@@ -17,15 +17,68 @@ import type {
 // =============================================================================
 
 export async function listPriceLists(organizationId: string) {
-  return prisma.priceList.findMany({
+  let lists = await prisma.priceList.findMany({
     where: { organizationId },
     include: {
-      customerTier: { select: { id: true, name: true, code: true } },
-      items: { include: { product: { select: { id: true, name: true, sku: true } } } },
+      customerTier: { select: { id: true, name: true, code: true, discountCeiling: true } },
+      items: { include: { product: { select: { id: true, name: true, sku: true, basePrice: true } } } },
       _count: { select: { items: true } },
     },
     orderBy: { createdAt: "desc" },
   });
+
+  if (lists.length === 0) {
+    const tiers = await prisma.customerTier.findMany({
+      where: { organizationId },
+      orderBy: { discountCeiling: "asc" },
+    });
+
+    const bronzeTier = tiers.find((t) => t.code === "BRONZE");
+    const silverTier = tiers.find((t) => t.code === "SILVER");
+    const goldTier = tiers.find((t) => t.code === "GOLD");
+
+    const defaultPriceLists = [
+      {
+        name: "Bronze Tier (Standard)",
+        currency: "INR",
+        customerTierId: bronzeTier?.id,
+        isDefault: true,
+      },
+      {
+        name: "Silver Growth Partner",
+        currency: "INR",
+        customerTierId: silverTier?.id,
+        isDefault: false,
+      },
+      {
+        name: "Gold Tier Strategic",
+        currency: "INR",
+        customerTierId: goldTier?.id,
+        isDefault: false,
+      },
+    ];
+
+    for (const pl of defaultPriceLists) {
+      await prisma.priceList.create({
+        data: {
+          organizationId,
+          ...pl,
+        },
+      });
+    }
+
+    lists = await prisma.priceList.findMany({
+      where: { organizationId },
+      include: {
+        customerTier: { select: { id: true, name: true, code: true, discountCeiling: true } },
+        items: { include: { product: { select: { id: true, name: true, sku: true, basePrice: true } } } },
+        _count: { select: { items: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  return lists;
 }
 
 export async function getPriceListById(organizationId: string, id: string) {
@@ -71,6 +124,13 @@ export async function createPriceList(organizationId: string, input: CreatePrice
 export async function updatePriceList(organizationId: string, id: string, input: UpdatePriceListInput) {
   await getPriceListById(organizationId, id);
 
+  if (input.customerTierId) {
+    const tier = await prisma.customerTier.findFirst({
+      where: { id: input.customerTierId, organizationId },
+    });
+    if (!tier) throw new AppError(400, "INVALID_TIER", "Customer tier not found.");
+  }
+
   if (input.isDefault) {
     await prisma.priceList.updateMany({
       where: { organizationId, isDefault: true, NOT: { id } },
@@ -80,8 +140,17 @@ export async function updatePriceList(organizationId: string, id: string, input:
 
   return prisma.priceList.update({
     where: { id },
-    data: input,
-    include: { customerTier: true },
+    data: {
+      name: input.name,
+      currency: input.currency,
+      customerTierId: input.customerTierId === undefined ? undefined : input.customerTierId,
+      isDefault: input.isDefault,
+    },
+    include: {
+      customerTier: { select: { id: true, name: true, code: true, discountCeiling: true } },
+      items: { include: { product: { select: { id: true, name: true, sku: true, basePrice: true } } } },
+      _count: { select: { items: true } },
+    },
   });
 }
 
