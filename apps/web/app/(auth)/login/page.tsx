@@ -37,6 +37,7 @@ export default function LoginPage() {
     try {
       const effectiveRole = inferRoleFromEmail(email);
       setStoredRole(effectiveRole);
+      document.cookie = `demo_role=${effectiveRole}; path=/; max-age=86400; SameSite=Lax`;
 
       // Attempt Better Auth sign in with graceful demo fallback
       try {
@@ -50,6 +51,7 @@ export default function LoginPage() {
       console.warn("Routing in demo mode:", err);
       const effectiveRole = inferRoleFromEmail(email);
       setStoredRole(effectiveRole);
+      document.cookie = `demo_role=${effectiveRole}; path=/; max-age=86400; SameSite=Lax`;
       router.push(getRoleRedirect(effectiveRole));
     } finally {
       setLoading(false);
