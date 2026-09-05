@@ -14,7 +14,7 @@ export const CreateQuotationCommentSchema = z.object({
 });
 
 export const CreateCounterProposalSchema = z.object({
-  proposedGrandTotal: z.number().min(0, "Proposed total must be non-negative"),
+  proposedGrandTotal: z.number().min(0, "Proposed total must be non-negative").optional(),
   proposedDiscountPercent: z
     .number()
     .min(0, "Discount cannot be negative")
@@ -31,6 +31,12 @@ export const CreateCounterProposalSchema = z.object({
       })
     )
     .optional(),
+});
+
+export const ConfirmQuotationSchema = z.object({
+  customerNotes: z.string().optional().nullable(),
+  customerName: z.string().optional(),
+  customerEmail: z.string().email("Invalid email format").optional(),
 });
 
 export const SignQuotationSchema = z.object({
@@ -50,6 +56,7 @@ export const RejectCounterProposalSchema = z.object({
 
 export type CreateQuotationCommentInput = z.infer<typeof CreateQuotationCommentSchema>;
 export type CreateCounterProposalInput = z.infer<typeof CreateCounterProposalSchema>;
+export type ConfirmQuotationInput = z.infer<typeof ConfirmQuotationSchema>;
 export type SignQuotationInput = z.infer<typeof SignQuotationSchema>;
 export type AcceptCounterProposalInput = z.infer<typeof AcceptCounterProposalSchema>;
 export type RejectCounterProposalInput = z.infer<typeof RejectCounterProposalSchema>;

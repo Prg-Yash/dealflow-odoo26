@@ -20,14 +20,9 @@
   "overrides": {
     "typescript": "^5.8.2"
   },
+  "packageManager": "npm@11.6.3",
   "engines": {
     "node": ">=22"
-  },
-  "devEngines": {
-    "packageManager": {
-      "name": "npm",
-      "version": "^11.0.0"
-    }
   },
   "workspaces": [
     "apps/*",

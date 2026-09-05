@@ -13,6 +13,7 @@ import { confirmQuotation, type ConfirmQuotationResult } from "./confirmation.se
 import type {
   CreateQuotationCommentInput,
   CreateCounterProposalInput,
+  ConfirmQuotationInput,
   SignQuotationInput,
 } from "../schemas/portal.schema.js";
 
@@ -108,11 +109,62 @@ export async function getPortalQuotation(portalToken: string) {
   });
 
   if (!quotation) {
-    console.log("PORTAL SERVICE", quotation)
     throw new AppError(404, "NOT_FOUND", "Quotation not found for the provided portal link.");
   }
 
-  return quotation;
+  // Format line items to attach their line-level comments (matches PortalQuoteData in web)
+  const formattedLines = quotation.lines.map((line) => {
+    const lineComments = quotation.comments
+      .filter((c) => c.quotationLineId === line.id)
+      .map((c) => ({
+        id: c.id,
+        message: c.message,
+        authorRole: c.authorRole,
+        authorName: c.author?.name || "User",
+        createdAt: c.createdAt.toISOString(),
+      }));
+
+    return {
+      ...line,
+      description: line.description || line.product.name,
+      comments: lineComments,
+    };
+  });
+
+  const formattedComments = quotation.comments.map((c) => ({
+    id: c.id,
+    message: c.message,
+    authorRole: c.authorRole,
+    authorName: c.author?.name || "User",
+    quotationLineId: c.quotationLineId,
+    createdAt: c.createdAt.toISOString(),
+  }));
+
+  const formattedCounterProposals = quotation.counterProposals.map((cp) => ({
+    id: cp.id,
+    proposedGrandTotal: cp.proposedGrandTotal,
+    proposedDiscountPercent: cp.proposedDiscountPercent,
+    customerNotes: cp.customerNotes,
+    status: cp.status,
+    respondedBy: cp.respondedBy?.name || null,
+    createdAt: cp.createdAt.toISOString(),
+  }));
+
+  const signatureData = quotation.signature
+    ? {
+        signedByName: quotation.signature.signedByName,
+        signedByEmail: quotation.signature.signedByEmail,
+        signedAt: quotation.signature.signedAt.toISOString(),
+      }
+    : null;
+
+  return {
+    ...quotation,
+    lines: formattedLines,
+    comments: formattedComments,
+    counterProposals: formattedCounterProposals,
+    signature: signatureData,
+  };
 }
 
 /**
@@ -146,6 +198,14 @@ export async function addQuotationComment(
       input.authorName,
       input.authorEmail
     );
+
+    // If quotation is in DRAFT or APPROVED stage, customer interaction moves it to NEGOTIATION
+    if (quotation.stage === QuoteStage.DRAFT || quotation.stage === QuoteStage.APPROVED) {
+      await tx.quotation.update({
+        where: { id: quotation.id },
+        data: { stage: QuoteStage.NEGOTIATION },
+      });
+    }
 
     const comment = await tx.quotationComment.create({
       data: {
@@ -191,6 +251,12 @@ export async function submitCounterProposal(
     throw new AppError(400, "ALREADY_CONFIRMED", "Cannot submit counter-proposal on a confirmed order.");
   }
 
+  // Auto-calculate proposedGrandTotal if omitted
+  const proposedTotal =
+    input.proposedGrandTotal !== undefined && input.proposedGrandTotal !== null && input.proposedGrandTotal > 0
+      ? input.proposedGrandTotal
+      : Math.round(quotation.subtotal * (1 - input.proposedDiscountPercent / 100) * 100) / 100;
+
   return prisma.$transaction(async (tx) => {
     // Supersede previous pending counter-proposals
     await tx.counterProposal.updateMany({
@@ -203,7 +269,7 @@ export async function submitCounterProposal(
       },
     });
 
-    // Advance quotation stage to NEGOTIATION if not already confirmed/cancelled
+    // Advance quotation stage to NEGOTIATION
     await tx.quotation.update({
       where: { id: quotation.id },
       data: { stage: QuoteStage.NEGOTIATION },
@@ -221,7 +287,7 @@ export async function submitCounterProposal(
     const counterProposal = await tx.counterProposal.create({
       data: {
         quotationId: quotation.id,
-        proposedGrandTotal: input.proposedGrandTotal,
+        proposedGrandTotal: proposedTotal,
         proposedDiscountPercent: input.proposedDiscountPercent,
         customerNotes: formattedNotes || null,
         status: CounterProposalStatus.PENDING,
@@ -579,3 +645,70 @@ export async function signQuotation(
     };
   });
 }
+
+/**
+ * 7. One-Click Deal Confirmation (Direct Acceptance)
+ *
+ * For buyers who confirm terms with one click without drawing signature strokes.
+ * Triggers Phase 7 confirmation to generate Invoices, Subscriptions & Fulfillment orders.
+ */
+export async function confirmPortalQuotation(
+  portalToken: string,
+  input?: ConfirmQuotationInput
+): Promise<{
+  success: boolean;
+  message: string;
+  confirmation: ConfirmQuotationResult;
+}> {
+  const quotation = await prisma.quotation.findUnique({
+    where: { portalToken },
+    include: { customer: true, signature: true },
+  });
+
+  if (!quotation) {
+    throw new AppError(404, "NOT_FOUND", "Quotation not found.");
+  }
+
+  if (quotation.stage === QuoteStage.CONFIRMED) {
+    throw new AppError(
+      409,
+      "ALREADY_CONFIRMED",
+      "This quotation has already been confirmed."
+    );
+  }
+
+  if (quotation.stage === QuoteStage.PENDING_APPROVAL) {
+    throw new AppError(
+      400,
+      "PENDING_APPROVAL",
+      "This quotation is currently pending internal discount approval and cannot be confirmed yet."
+    );
+  }
+
+  return prisma.$transaction(async (tx) => {
+    // 1. Resolve or ensure customer user
+    const customerUserId = await resolveCustomerAuthorId(
+      tx,
+      quotation.customer,
+      quotation.organizationId,
+      input?.customerName,
+      input?.customerEmail
+    );
+
+    // 2. Centralized Phase 7 Deal Confirmation Logic
+    const confirmation = await confirmQuotation(
+      tx,
+      quotation.id,
+      quotation.organizationId,
+      customerUserId,
+      UserRole.CUSTOMER
+    );
+
+    return {
+      success: true,
+      message: "Quotation confirmed successfully with one click. Invoices and fulfillment generated.",
+      confirmation,
+    };
+  });
+}
+

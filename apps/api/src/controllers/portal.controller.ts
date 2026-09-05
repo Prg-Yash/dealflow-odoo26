@@ -12,6 +12,7 @@ export async function getQuotation(
     return res.json({
       success: true,
       data: quotation,
+      ...quotation,
     });
   } catch (error) {
     next(error);
@@ -58,6 +59,27 @@ export async function postCounterProposal(
   }
 }
 
+export async function confirmQuotation(
+  req: PortalRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const result = await portalService.confirmPortalQuotation(
+      req.portalToken!,
+      req.body
+    );
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      data: result,
+      confirmation: result.confirmation,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function signQuotation(
   req: PortalRequest,
   res: Response,
@@ -81,6 +103,8 @@ export async function signQuotation(
       success: true,
       message: "Quotation signed successfully. Deal confirmed and billing initiated.",
       data: result,
+      signature: result.signature,
+      confirmation: result.confirmation,
     });
   } catch (error) {
     next(error);

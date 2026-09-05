@@ -16,6 +16,24 @@ export interface PortalQuoteData {
   grandTotal: number;
   subtotal: number;
   discountTotal: number;
+  taxTotal?: number;
+  customer?: {
+    id: string;
+    name: string;
+    email: string;
+    tier?: {
+      id: string;
+      name: string;
+      discountCeiling: number;
+    } | null;
+  };
+  salesRep?: {
+    id: string;
+    user?: {
+      name: string;
+      email: string;
+    };
+  } | null;
   lines: Array<{
     id: string;
     description: string;
@@ -23,10 +41,19 @@ export interface PortalQuoteData {
     unitPrice: number;
     discountPercent: number;
     netPrice: number;
+    billingCadence?: string;
+    isRecurring?: boolean;
+    product?: {
+      name: string;
+      category?: {
+        name: string;
+      };
+    };
     comments: Array<{
       id: string;
       message: string;
       authorRole: string;
+      authorName?: string;
       createdAt: string;
     }>;
   }>;
@@ -34,6 +61,8 @@ export interface PortalQuoteData {
     id: string;
     message: string;
     authorRole: string;
+    authorName?: string;
+    quotationLineId?: string | null;
     createdAt: string;
   }>;
   counterProposals: Array<{
@@ -42,6 +71,7 @@ export interface PortalQuoteData {
     proposedDiscountPercent: number;
     customerNotes?: string | null;
     status: string;
+    respondedBy?: string | null;
     createdAt: string;
   }>;
   signature?: {
@@ -56,8 +86,31 @@ export interface PortalQuoteData {
 export function usePortalQuote(portalToken: string) {
   return useQuery({
     queryKey: queryKeys.portal.quote(portalToken),
-    queryFn: () => api.get<PortalQuoteData>(`/api/portal/${portalToken}`),
+    queryFn: async () => {
+      const res = await api.get<any>(`/api/portal/${portalToken}`);
+      return (res?.data || res) as PortalQuoteData;
+    },
     enabled: Boolean(portalToken),
+  });
+}
+
+/**
+ * Mutation: Customer adds a line-level or quote-level comment / question
+ */
+export function useAddPortalComment(portalToken: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (variables: {
+      message: string;
+      quotationLineId?: string;
+      authorName?: string;
+      authorEmail?: string;
+      proposedDiscountPercent?: number;
+    }) => api.post(`/api/portal/${portalToken}/comments`, variables),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.portal.quote(portalToken) });
+    },
   });
 }
 
@@ -93,6 +146,37 @@ export function useSubmitCounterProposal(portalToken: string) {
         return {
           ...oldQuote,
           counterProposals: optimisticAppendItem(oldQuote.counterProposals, optimisticProposal, "start"),
+        };
+      },
+    }),
+  });
+}
+
+/**
+ * Mutation: Customer confirms quotation with one click
+ */
+export function useConfirmQuotation(portalToken: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (variables?: {
+      customerName?: string;
+      customerEmail?: string;
+      agreedToTerms?: boolean;
+      notes?: string;
+    }) => api.post(`/api/portal/${portalToken}/confirm`, variables || { agreedToTerms: true }),
+
+    ...createOptimisticMutationOptions<
+      { customerName?: string; customerEmail?: string; agreedToTerms?: boolean; notes?: string } | undefined,
+      PortalQuoteData
+    >({
+      queryClient,
+      queryKey: queryKeys.portal.quote(portalToken),
+      updateFn: (oldQuote) => {
+        if (!oldQuote) return oldQuote as any;
+        return {
+          ...oldQuote,
+          stage: "CONFIRMED",
         };
       },
     }),
