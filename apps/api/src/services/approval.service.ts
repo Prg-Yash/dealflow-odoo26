@@ -272,8 +272,18 @@ export async function triggerApprovalWorkflow(
         actorId,
         actorRole,
         action: "AUTO_APPROVED",
-        reason: reason || "Condition 1 met: Zero overage risk and discount within standard 5% discretion.",
+        reason: reason || "Condition 1 met: Zero overage risk and discount within standard 5% discretion (0 Hops).",
         metadata: { blendedRiskScore, discountPercent, ...metadata },
+      },
+    });
+
+    await tx.quotationComment.create({
+      data: {
+        quotationId,
+        authorId: actorId,
+        authorRole: actorRole,
+        message: `Commercial proposal submitted and auto-approved (Condition 1: 0 Hops). Discount is within standard discretion (0% overage). Terms are immediately available for customer acceptance.`,
+        isResolved: true,
       },
     });
 
@@ -360,6 +370,16 @@ export async function triggerApprovalWorkflow(
         steps: stepsToCreate.map((s) => s.level),
         ...metadata,
       },
+    },
+  });
+
+  await tx.quotationComment.create({
+    data: {
+      quotationId,
+      authorId: actorId,
+      authorRole: actorRole,
+      message: `Commercial proposal submitted for review (${tierDescription}). Proposed discount: ${discountPercent.toFixed(1)}% with blended risk score: ${blendedRiskScore.toFixed(1)}%.`,
+      isResolved: false,
     },
   });
 
@@ -463,6 +483,18 @@ export async function approveStep(params: {
           level: currentStep.level,
           isFinalStep,
         },
+      },
+    });
+
+    await tx.quotationComment.create({
+      data: {
+        quotationId,
+        authorId: reviewerId,
+        authorRole: reviewerRole,
+        message: isFinalStep
+          ? `Approval sign-off granted by ${reviewerRole === "SALES_MANAGER" ? "Sales Manager" : reviewerRole}. Quotation is now APPROVED and ready for customer execution.`
+          : `Step ${currentStep.stepNumber} (${currentStep.level.replace(/_/g, " ")}) approved. Escalated to next review step.`,
+        isResolved: isFinalStep,
       },
     });
 
@@ -609,6 +641,16 @@ export async function rejectStep(params: {
           level: currentStep.level,
           lineAdjustments: lineAdjustments || [],
         },
+      },
+    });
+
+    await tx.quotationComment.create({
+      data: {
+        quotationId,
+        authorId: reviewerId,
+        authorRole: reviewerRole,
+        message: `Revision requested by ${reviewerRole === "SALES_MANAGER" ? "Sales Manager" : reviewerRole}: ${comments || "Please review line item discounts and adjust proposal."}`,
+        isResolved: false,
       },
     });
 
