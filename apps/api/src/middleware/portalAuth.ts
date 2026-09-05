@@ -69,7 +69,7 @@ export async function portalAuth(
     // 4. Query quotation with customer scoping
     let quotation: any = null;
 
-    if (token && token !== "current" && token !== "my") {
+    if (token && token !== "current" && token !== "my" && token !== "me") {
       // Lookup by token, quote number, or quotation ID
       quotation = await prisma.quotation.findFirst({
         where: {

@@ -14,8 +14,7 @@ export function middleware(request: NextRequest) {
     pathname.startsWith("/login") ||
     pathname.startsWith("/register") ||
     pathname.startsWith("/forgot-password") ||
-    pathname.startsWith("/reset-password") ||
-    isPortalLogin;
+    pathname.startsWith("/reset-password");
 
   // 2. Authentication Tokens / Cookies
   const hasBetterAuth =
@@ -26,6 +25,13 @@ export function middleware(request: NextRequest) {
 
   const isAuthenticated = hasBetterAuth || !!demoRole;
 
+  // If visiting deprecated /portal/login -> Redirect to unified /login
+  if (isPortalLogin) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
   // 3. Unauthenticated Access Protection
   // If attempting to access internal dashboards or profile without credentials -> Redirect to /login
   if ((isDashboard || isProfile) && !isAuthenticated) {
@@ -34,10 +40,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // If attempting to access /portal without being logged in and without a token -> Redirect to /portal/login
-  if (isPortal && !isPortalLogin && !isAuthenticated && !hasTokenQuery) {
+  // If attempting to access /portal without being logged in and without a token -> Redirect to unified /login
+  if (isPortal && !isAuthenticated && !hasTokenQuery) {
     const url = request.nextUrl.clone();
-    url.pathname = "/portal/login";
+    url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 

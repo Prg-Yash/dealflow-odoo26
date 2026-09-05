@@ -4,32 +4,65 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CustomerNegotiationPortal } from "./components/CustomerNegotiationPortal";
 import { getStoredRole } from "../../lib/roles";
+import { authClient } from "../../lib/auth-client";
 
 function PortalContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const urlToken = searchParams.get("token");
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
+  const [resolvedToken, setResolvedToken] = useState<string>("");
+  const [customerEmail, setCustomerEmail] = useState<string>("");
 
   useEffect(() => {
-    // 1. If explicit token is in URL, authorize
-    if (urlToken && urlToken.trim().length > 0) {
-      setIsAuthorized(true);
-      return;
+    async function checkAuth() {
+      // 1. Check Better Auth session for a customer role
+      try {
+        const { data: session } = await authClient.getSession();
+        if (session?.user?.email) {
+          const email = session.user.email;
+          setCustomerEmail(email);
+          // If logged in via session, use token from URL or derive from session
+          const tok = urlToken?.trim() || "current";
+          setResolvedToken(tok);
+          setIsAuthorized(true);
+
+          // Clean URL: remove token from address bar for security
+          if (urlToken) {
+            window.history.replaceState({}, "", "/portal");
+          }
+          return;
+        }
+      } catch {
+        // Session not available
+      }
+
+      // 2. If explicit token is in URL (customer entered it via portal/login), authorize
+      if (urlToken && urlToken.trim().length > 0) {
+        setResolvedToken(urlToken.trim());
+        setIsAuthorized(true);
+
+        // Clean token from URL after reading it
+        window.history.replaceState({}, "", "/portal");
+        return;
+      }
+
+      // 3. Check demo_role cookie (fallback for session-less token-based auth)
+      const role = getStoredRole();
+      const hasCustomerCookie = typeof document !== "undefined" && document.cookie.includes("demo_role=customer");
+
+      if (role === "customer" || hasCustomerCookie) {
+        setResolvedToken("current");
+        setIsAuthorized(true);
+        return;
+      }
+
+      // 4. Unauthenticated -> Redirect to unified /login
+      setIsAuthorized(false);
+      router.replace("/login");
     }
 
-    // 2. Check customer authenticated session / role
-    const role = getStoredRole();
-    const hasCustomerCookie = typeof document !== "undefined" && document.cookie.includes("demo_role=customer");
-
-    if (role === "customer" || hasCustomerCookie) {
-      setIsAuthorized(true);
-      return;
-    }
-
-    // 3. Unauthenticated -> Redirect to login
-    setIsAuthorized(false);
-    router.replace("/portal/login");
+    checkAuth();
   }, [urlToken, router]);
 
   if (isAuthorized === null) {
@@ -47,7 +80,7 @@ function PortalContent() {
     return null;
   }
 
-  return <CustomerNegotiationPortal initialToken={urlToken || "current"} />;
+  return <CustomerNegotiationPortal initialToken={resolvedToken || "current"} customerEmail={customerEmail} />;
 }
 
 export default function CustomerPortalPage() {

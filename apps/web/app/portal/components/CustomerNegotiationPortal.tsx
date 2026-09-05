@@ -104,9 +104,13 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
   const [notification, setNotification] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
+  // Derive the real portal token from the loaded quotation (never use "current" in API calls)
+  const effectiveApiToken = quotation?.portalToken || quotation?.quoteNumber || token;
 
   // Auto-hide notifications after 5 seconds
   useEffect(() => {
@@ -115,6 +119,13 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
       return () => clearTimeout(timer);
     }
   }, [notification]);
+
+  // Auto-scroll chat window to latest message
+  useEffect(() => {
+    if (activeTab === "messages" && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [activeTab, quotation?.comments?.length]);
 
   // Canvas drawing handlers
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
@@ -174,13 +185,18 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
       setLoading(true);
       setError(null);
       try {
-        const effectiveLookup = !currentToken || currentToken === "current" ? "DF-Q1042" : currentToken;
+        // When no explicit token, use "me" so portalAuth resolves via session
+        const effectiveLookup = !currentToken || currentToken === "current" || currentToken === "my" ? "me" : currentToken;
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          "x-portal-token": effectiveLookup,
+        };
+        if (customerEmail) {
+          headers["x-customer-email"] = customerEmail;
+        }
+
         const res = await fetch(`${API_BASE}/api/portal/${encodeURIComponent(effectiveLookup)}`, {
-          headers: {
-            "Content-Type": "application/json",
-            "x-portal-token": effectiveLookup,
-            "x-customer-email": customerEmail || "buyer@acmecorp.com",
-          },
+          headers,
           credentials: "include",
         });
 
@@ -199,9 +215,9 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
 
         // Pre-fill Signer Info from Customer Record
         if (data.customer) {
-          setSignerName((prev) => prev || data.customer.name || "Johnathan Ward");
-          setSignerEmail((prev) => prev || data.customer.email || "buyer@acmecorp.com");
-          setTypedSignature((prev) => prev || data.customer.name || "Johnathan Ward");
+          setSignerName((prev) => prev || data.customer.name || "");
+          setSignerEmail((prev) => prev || data.customer.email || customerEmail || "");
+          setTypedSignature((prev) => prev || data.customer.name || "");
         }
 
         // Populate customer's quotations catalog directly from response
@@ -214,7 +230,7 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
         setLoading(false);
       }
     },
-    [API_BASE]
+    [API_BASE, customerEmail]
   );
 
   // Fetch all customer quotations for the catalog list
@@ -273,11 +289,11 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
         requestedDeliveryDate: requestedDeliveryDate ? new Date(requestedDeliveryDate).toISOString() : undefined,
       };
 
-      const res = await fetch(`${API_BASE}/api/portal/${encodeURIComponent(token)}/counter-proposal`, {
+      const res = await fetch(`${API_BASE}/api/portal/${encodeURIComponent(effectiveApiToken)}/counter-proposal`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-portal-token": token,
+          "x-portal-token": effectiveApiToken,
         },
         credentials: "include",
         body: JSON.stringify(payload),
@@ -320,11 +336,11 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
         authorEmail: signerEmail || quotation?.customer?.email || "buyer@acmecorp.com",
       };
 
-      const res = await fetch(`${API_BASE}/api/portal/${encodeURIComponent(token)}/comments`, {
+      const res = await fetch(`${API_BASE}/api/portal/${encodeURIComponent(effectiveApiToken)}/comments`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-portal-token": token,
+          "x-portal-token": effectiveApiToken,
         },
         credentials: "include",
         body: JSON.stringify(payload),
@@ -365,11 +381,11 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
         authorEmail: signerEmail || quotation?.customer?.email || "buyer@acmecorp.com",
       };
 
-      const res = await fetch(`${API_BASE}/api/portal/${encodeURIComponent(token)}/comments`, {
+      const res = await fetch(`${API_BASE}/api/portal/${encodeURIComponent(effectiveApiToken)}/comments`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-portal-token": token,
+          "x-portal-token": effectiveApiToken,
         },
         credentials: "include",
         body: JSON.stringify(payload),
@@ -401,11 +417,11 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
     if (!quotation) return;
     setIsConfirmingOneClick(true);
     try {
-      const res = await fetch(`${API_BASE}/api/portal/${encodeURIComponent(token)}/confirm`, {
+      const res = await fetch(`${API_BASE}/api/portal/${encodeURIComponent(effectiveApiToken)}/confirm`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-portal-token": token,
+          "x-portal-token": effectiveApiToken,
         },
         credentials: "include",
         body: JSON.stringify({
@@ -465,11 +481,11 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
         agreedToTerms: true,
       };
 
-      const res = await fetch(`${API_BASE}/api/portal/${encodeURIComponent(token)}/sign`, {
+      const res = await fetch(`${API_BASE}/api/portal/${encodeURIComponent(effectiveApiToken)}/sign`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-portal-token": token,
+          "x-portal-token": effectiveApiToken,
         },
         credentials: "include",
         body: JSON.stringify(payload),
@@ -762,10 +778,10 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
             <p className="text-xs text-slate-600">{error}</p>
             <div className="pt-2">
               <button
-                onClick={() => router.push("/portal/login")}
+                onClick={() => router.push("/login")}
                 className="px-6 py-2.5 bg-[#ff5e3a] text-white text-xs font-semibold rounded-xl hover:bg-[#ea4e28] shadow-sm"
               >
-                Go to Customer Sign In
+                Go to Sign In
               </button>
             </div>
           </div>
@@ -1188,6 +1204,45 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
                             </button>
                           </div>
                         </form>
+
+                        {/* Counter-Proposal History */}
+                        {quotation.counterProposals && quotation.counterProposals.length > 0 && (
+                          <div className="mt-4 pt-4 border-t border-slate-100">
+                            <div className="flex items-center gap-2 mb-3">
+                              <Clock size={13} className="text-slate-400" />
+                              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Negotiation History</span>
+                            </div>
+                            <div className="space-y-2">
+                              {quotation.counterProposals.map((cp: any) => {
+                                const statusConfig: Record<string, { label: string; cls: string }> = {
+                                  PENDING:    { label: "Awaiting Review", cls: "bg-amber-50 border-amber-200 text-amber-700" },
+                                  ACCEPTED:   { label: "Accepted ✓",      cls: "bg-emerald-50 border-emerald-200 text-emerald-700" },
+                                  REJECTED:   { label: "Declined",        cls: "bg-red-50 border-red-200 text-red-700" },
+                                  SUPERSEDED: { label: "Superseded",      cls: "bg-slate-100 border-slate-200 text-slate-500" },
+                                };
+                                const sc = statusConfig[cp.status as string] ?? { label: "Pending", cls: "bg-amber-50 border-amber-200 text-amber-700" };
+                                return (
+                                  <div key={cp.id} className="flex items-start justify-between bg-[#f8fafc] border border-slate-200 rounded-xl p-3 text-xs gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-bold text-slate-900">
+                                          {cp.proposedDiscountPercent}% discount · ${Number(cp.proposedGrandTotal || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                        </span>
+                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${sc.cls}`}>
+                                          {sc.label}
+                                        </span>
+                                      </div>
+                                      {cp.customerNotes && (
+                                        <p className="text-slate-500 mt-0.5 truncate">{cp.customerNotes}</p>
+                                      )}
+                                      <span className="text-slate-400 mt-0.5 block">{new Date(cp.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1196,76 +1251,165 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
             )}
 
             {/* ══════════════════════════════════════════════════════
-                TAB 2: MESSAGES & QUESTIONS THREAD
+                TAB 2: MESSAGES — REAL-TIME CHAT WINDOW
             ══════════════════════════════════════════════════════ */}
             {activeTab === "messages" && quotation && (
-              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-6">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div className="flex items-center gap-2">
-                    <MessageSquare size={18} className="text-[#ff5e3a]" />
-                    <h3 className="text-sm font-bold text-slate-900">Direct Discussion Feed &bull; {quotation.quoteNumber}</h3>
+              <div className="flex flex-col bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden" style={{ minHeight: "560px", maxHeight: "80vh" }}>
+                {/* Chat Header */}
+                <div className="px-5 py-3.5 border-b border-slate-100 bg-white flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#ff5e3a] to-[#ea4e28] flex items-center justify-center text-white text-xs font-bold shrink-0">
+                        {(quotation.salesRep?.user?.name || "SR").split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
+                      </div>
+                      <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 border-2 border-white rounded-full"></span>
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-slate-900">{quotation.salesRep?.user?.name || "Sales Representative"}</div>
+                      <div className="text-[11px] text-emerald-600 font-medium">Active deal rep — {quotation.quoteNumber}</div>
+                    </div>
                   </div>
-                  <span className="text-xs text-slate-500">
-                    {quotation.comments?.length || 0} messages recorded
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => fetchQuotationData(token)}
+                      className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition cursor-pointer"
+                      title="Refresh messages"
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+                    <span className="text-[11px] text-slate-400">
+                      {quotation.comments?.length || 0} messages
+                    </span>
+                  </div>
                 </div>
 
-                {/* Conversation Thread */}
-                <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                {/* Messages Scroll Area */}
+                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1 bg-[#f8fafc]" style={{ scrollBehavior: "smooth" }}>
                   {(!quotation.comments || quotation.comments.length === 0) ? (
-                    <div className="py-12 text-center text-xs text-slate-500">
-                      No questions or messages yet. Start a conversation with your assigned sales representative below.
+                    <div className="h-full flex flex-col items-center justify-center gap-3 py-16">
+                      <div className="w-14 h-14 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center">
+                        <MessageSquare size={24} className="text-[#ff5e3a]" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-semibold text-slate-700">No messages yet</p>
+                        <p className="text-xs text-slate-500 mt-0.5 max-w-xs">
+                          Start a conversation with your assigned sales representative below.
+                        </p>
+                      </div>
                     </div>
                   ) : (
-                    quotation.comments.map((msg: any) => {
-                      const isCustomer = msg.authorRole === "CUSTOMER";
-                      return (
-                        <div
-                          key={msg.id}
-                          className={`p-4 rounded-2xl text-xs space-y-1 ${
-                            isCustomer
-                              ? "bg-orange-50/70 border border-orange-200/80 ml-auto max-w-xl"
-                              : "bg-slate-50 border border-slate-200 mr-auto max-w-xl"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between text-[11px]">
-                            <span className="font-bold text-slate-900">
-                              {msg.author?.name || msg.authorName || (isCustomer ? "Customer" : "Sales Representative")}
-                            </span>
-                            <span className="text-slate-400">
-                              {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                            </span>
-                          </div>
-                          {msg.quotationLine && (
-                            <div className="text-[10px] font-bold text-slate-500 uppercase">
-                              Re: {msg.quotationLine.description}
+                    (() => {
+                      // Group messages by date for date separators
+                      let lastDate = "";
+                      return quotation.comments.map((msg: any, idx: number) => {
+                        const isCustomer = msg.authorRole === "CUSTOMER";
+                        const msgDate = new Date(msg.createdAt);
+                        const dateLabel = msgDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                        const timeLabel = msgDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                        const showDateSep = dateLabel !== lastDate;
+                        lastDate = dateLabel;
+
+                        const prevMsg = idx > 0 ? quotation.comments[idx - 1] : null;
+                        const isSameAuthor = prevMsg && prevMsg.authorRole === msg.authorRole && !showDateSep;
+
+                        const initials = (msg.authorName || (isCustomer ? "C" : "S")).split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase();
+
+                        return (
+                          <div key={msg.id}>
+                            {/* Date Separator */}
+                            {showDateSep && (
+                              <div className="flex items-center gap-3 my-3">
+                                <div className="flex-1 h-px bg-slate-200" />
+                                <span className="text-[10px] font-semibold text-slate-400 px-2 py-0.5 bg-white rounded-full border border-slate-200">
+                                  {dateLabel}
+                                </span>
+                                <div className="flex-1 h-px bg-slate-200" />
+                              </div>
+                            )}
+
+                            {/* Message Bubble */}
+                            <div className={`flex items-end gap-2 mt-1 ${ isCustomer ? "flex-row-reverse" : "flex-row" }`}>
+                              {/* Avatar — only show for first message in a group or date separator */}
+                              {!isSameAuthor ? (
+                                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mb-0.5 ${
+                                  isCustomer
+                                    ? "bg-gradient-to-br from-[#ff5e3a] to-[#ea4e28] text-white"
+                                    : "bg-slate-200 text-slate-700"
+                                }`}>
+                                  {initials}
+                                </div>
+                              ) : (
+                                <div className="w-7 shrink-0" />
+                              )}
+
+                              <div className={`max-w-[72%] flex flex-col ${ isCustomer ? "items-end" : "items-start" }`}>
+                                {/* Sender name for first message in group */}
+                                {!isSameAuthor && (
+                                  <span className="text-[10px] font-semibold text-slate-500 mb-0.5 px-1">
+                                    {msg.authorName || (isCustomer ? quotation.customer?.name || "You" : quotation.salesRep?.user?.name || "Sales Rep")}
+                                  </span>
+                                )}
+
+                                <div className={`px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed ${
+                                  isCustomer
+                                    ? "bg-[#ff5e3a] text-white rounded-br-sm shadow-sm shadow-[#ff5e3a]/20"
+                                    : "bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-xs"
+                                }`}>
+                                  {/* Line item reference badge */}
+                                  {msg.quotationLineId && (
+                                    <div className={`text-[10px] font-bold mb-1 opacity-80 ${ isCustomer ? "text-orange-100" : "text-slate-400" }`}>
+                                      📎 Re: Line item
+                                    </div>
+                                  )}
+                                  {msg.message}
+                                </div>
+
+                                <span className="text-[10px] text-slate-400 mt-0.5 px-1">{timeLabel}</span>
+                              </div>
                             </div>
-                          )}
-                          <p className="text-slate-800 leading-relaxed">{msg.message}</p>
-                        </div>
-                      );
-                    })
+                          </div>
+                        );
+                      });
+                    })()
                   )}
+                  {/* Anchor for auto-scroll */}
+                  <div ref={messagesEndRef} />
                 </div>
 
-                {/* Send Message Form */}
-                <form onSubmit={handleSendGeneralMessage} className="pt-3 border-t border-slate-100 flex gap-2">
-                  <input
-                    type="text"
-                    value={generalMessage}
-                    onChange={(e) => setGeneralMessage(e.target.value)}
-                    placeholder="Type a message or question for your sales representative..."
-                    className="flex-1 bg-[#f8fafc] border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-900 outline-none focus:border-[#ff5e3a]"
-                  />
-                  <button
-                    type="submit"
-                    disabled={sendingGeneralMessage || !generalMessage.trim()}
-                    className="px-6 py-2.5 bg-[#ff5e3a] hover:bg-[#ea4e28] disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
-                  >
-                    {sendingGeneralMessage ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
-                    <span>Send</span>
-                  </button>
-                </form>
+                {/* Input Area */}
+                <div className="px-4 py-3 border-t border-slate-100 bg-white shrink-0">
+                  <form onSubmit={handleSendGeneralMessage} className="flex items-end gap-2">
+                    <div className="flex-1 relative">
+                      <textarea
+                        rows={1}
+                        value={generalMessage}
+                        onChange={(e) => {
+                          setGeneralMessage(e.target.value);
+                          // Auto-grow textarea
+                          e.target.style.height = "auto";
+                          e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendGeneralMessage(e as any);
+                          }
+                        }}
+                        placeholder="Message your sales representative… (Enter to send, Shift+Enter for new line)"
+                        className="w-full bg-[#f8fafc] border border-slate-200 rounded-2xl px-4 py-2.5 text-xs text-slate-900 outline-none focus:border-[#ff5e3a] resize-none transition-all"
+                        style={{ minHeight: "40px", maxHeight: "120px" }}
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={sendingGeneralMessage || !generalMessage.trim()}
+                      className="w-10 h-10 rounded-2xl bg-[#ff5e3a] hover:bg-[#ea4e28] disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition shadow-md shadow-[#ff5e3a]/20 shrink-0 cursor-pointer"
+                    >
+                      {sendingGeneralMessage ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
+                    </button>
+                  </form>
+                  <p className="text-[10px] text-slate-400 mt-1.5 px-1">Your messages are shared with your assigned DealFlow360 sales rep for this quotation.</p>
+                </div>
               </div>
             )}
 

@@ -246,8 +246,14 @@ export async function addQuotationComment(
   portalToken: string,
   input: CreateQuotationCommentInput
 ) {
-  const quotation = await prisma.quotation.findUnique({
-    where: { portalToken },
+  const quotation = await prisma.quotation.findFirst({
+    where: {
+      OR: [
+        { portalToken },
+        { quoteNumber: portalToken },
+        { id: portalToken },
+      ],
+    },
     include: { customer: true, lines: true },
   });
 
@@ -310,8 +316,14 @@ export async function submitCounterProposal(
   portalToken: string,
   input: CreateCounterProposalInput
 ) {
-  const quotation = await prisma.quotation.findUnique({
-    where: { portalToken },
+  const quotation = await prisma.quotation.findFirst({
+    where: {
+      OR: [
+        { portalToken },
+        { quoteNumber: portalToken },
+        { id: portalToken },
+      ],
+    },
     include: { customer: true, lines: true },
   });
 
@@ -655,8 +667,14 @@ export async function signQuotation(
   signature: any;
   confirmation: ConfirmQuotationResult;
 }> {
-  const quotation = await prisma.quotation.findUnique({
-    where: { portalToken },
+  const quotation = await prisma.quotation.findFirst({
+    where: {
+      OR: [
+        { portalToken },
+        { quoteNumber: portalToken },
+        { id: portalToken },
+      ],
+    },
     include: { customer: true, signature: true },
   });
 
@@ -737,8 +755,14 @@ export async function confirmPortalQuotation(
   message: string;
   confirmation: ConfirmQuotationResult;
 }> {
-  const quotation = await prisma.quotation.findUnique({
-    where: { portalToken },
+  const quotation = await prisma.quotation.findFirst({
+    where: {
+      OR: [
+        { portalToken },
+        { quoteNumber: portalToken },
+        { id: portalToken },
+      ],
+    },
     include: { customer: true, signature: true },
   });
 
