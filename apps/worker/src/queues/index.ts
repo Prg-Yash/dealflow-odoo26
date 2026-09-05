@@ -4,6 +4,7 @@ import { redisConnection } from "../config/redis.js";
 export const QUEUE_NAMES = {
   HEAVY_COMPUTE: "heavy-compute-queue",
   DATA_SYNC: "data-sync-queue",
+  BACKORDER_CONSOLIDATION: "backorder-consolidation-queue",
 } as const;
 
 export interface HeavyComputeJobData {
@@ -20,6 +21,13 @@ export interface DataSyncJobData {
   targetEntity: string;
   batchSize?: number;
   sourceFilter?: Record<string, unknown>;
+}
+
+export interface BackorderConsolidationJobData {
+  organizationId: string;
+  productId: string;
+  warehouseId?: string;
+  triggeredAt?: string;
 }
 
 // Queue options with automatic retries and exponential backoff
@@ -49,6 +57,14 @@ export const heavyComputeQueue = new Queue<HeavyComputeJobData>(
 
 export const dataSyncQueue = new Queue<DataSyncJobData>(
   QUEUE_NAMES.DATA_SYNC,
+  {
+    connection: redisConnection,
+    defaultJobOptions,
+  }
+);
+
+export const backorderConsolidationQueue = new Queue<BackorderConsolidationJobData>(
+  QUEUE_NAMES.BACKORDER_CONSOLIDATION,
   {
     connection: redisConnection,
     defaultJobOptions,

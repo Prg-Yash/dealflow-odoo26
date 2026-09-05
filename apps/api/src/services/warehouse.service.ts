@@ -86,6 +86,8 @@ export async function deleteWarehouse(organizationId: string, id: string) {
   });
 }
 
+import { enqueueBackorderConsolidation } from "../queues/backorder.queue.js";
+
 // =============================================================================
 // Shared Stock Ledger Engine: adjustStock()
 // =============================================================================
@@ -94,7 +96,8 @@ export interface AdjustStockParams {
   organizationId: string;
   warehouseId: string;
   productId: string;
-  quantityDelta: number;
+  quantityDelta?: number;
+  reservedDelta?: number;
   movementType?: StockMovementType;
   referenceId?: string;
   notes?: string;
@@ -111,11 +114,15 @@ export async function adjustStock({
   warehouseId,
   productId,
   quantityDelta,
+  reservedDelta,
   movementType = StockMovementType.ADJUSTMENT,
   referenceId,
   notes,
   tx,
 }: AdjustStockParams) {
+  const qDelta = quantityDelta ?? 0;
+  const rDelta = reservedDelta ?? 0;
+
   const executeInTx = async (client: Prisma.TransactionClient) => {
     // Validate warehouse and product tenant scoping
     const [warehouse, product] = await Promise.all([
@@ -134,12 +141,13 @@ export async function adjustStock({
       create: {
         warehouseId,
         productId,
-        quantityOnHand: Math.max(0, quantityDelta),
-        quantityReserved: 0,
+        quantityOnHand: Math.max(0, qDelta),
+        quantityReserved: Math.max(0, rDelta),
         reorderPoint: 10,
       },
       update: {
-        quantityOnHand: { increment: quantityDelta },
+        ...(qDelta !== 0 && { quantityOnHand: { increment: qDelta } }),
+        ...(rDelta !== 0 && { quantityReserved: { increment: rDelta } }),
       },
     });
 
@@ -152,12 +160,22 @@ export async function adjustStock({
       );
     }
 
+    // Enforce non-negative reservations
+    if (stockLevel.quantityReserved < 0) {
+      throw new AppError(
+        400,
+        "INSUFFICIENT_RESERVATION",
+        `Stock adjustment would cause negative reserved quantity (${stockLevel.quantityReserved}) for product '${product.name}' in warehouse '${warehouse.name}'.`
+      );
+    }
+
     // Always create paired StockMovement ledger entry
+    const movementQuantity = qDelta !== 0 ? qDelta : rDelta;
     const movement = await client.stockMovement.create({
       data: {
         warehouseId,
         productId,
-        quantity: quantityDelta,
+        quantity: movementQuantity,
         movementType,
         referenceId,
         notes,
@@ -177,10 +195,21 @@ export async function adjustStock({
     };
   };
 
+  let result;
   if (tx) {
-    return executeInTx(tx);
+    result = await executeInTx(tx);
+  } else {
+    result = await prisma.$transaction(async (client) => {
+      return executeInTx(client);
+    });
   }
-  return prisma.$transaction(executeInTx);
+
+  // If positive stock replenishment occurred, enqueue BullMQ backorder consolidation job
+  if (qDelta > 0) {
+    enqueueBackorderConsolidation(organizationId, productId, warehouseId).catch(() => {});
+  }
+
+  return result;
 }
 
 // =============================================================================

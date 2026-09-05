@@ -17,6 +17,20 @@ import { discountRuleRouter } from "./routes/discount-rule.routes.js";
 import { productRecommendationRouter } from "./routes/product-recommendation.routes.js";
 import { quotationRouter } from "./routes/quotation.routes.js";
 import { stockLevelRouter } from "./routes/stock-level.routes.js";
+import {
+  fulfillmentOrderRouter,
+  shipmentRouter,
+  backorderRouter,
+} from "./routes/fulfillment.routes.js";
+import {
+  subscriptionRouter,
+  invoiceRouter,
+  creditNoteRouter,
+} from "./routes/billing.routes.js";
+import {
+  dealHealthRouter,
+  jobRouter,
+} from "./routes/deal-health.routes.js";
 import { errorHandler } from "./middleware/error.js";
 
 const app = express();
@@ -96,6 +110,14 @@ app.use(["/api/discount-approval-rules", "/discount-approval-rules"], discountRu
 app.use(["/api/product-recommendations", "/product-recommendations"], productRecommendationRouter);
 app.use(["/api/quotations", "/quotations"], quotationRouter);
 app.use(["/api/stock-levels", "/stock-levels"], stockLevelRouter);
+app.use(["/api/fulfillment-orders", "/fulfillment-orders"], fulfillmentOrderRouter);
+app.use(["/api/shipments", "/shipments"], shipmentRouter);
+app.use(["/api/backorders", "/backorders"], backorderRouter);
+app.use(["/api/subscriptions", "/subscriptions"], subscriptionRouter);
+app.use(["/api/invoices", "/invoices"], invoiceRouter);
+app.use(["/api/credit-notes", "/credit-notes"], creditNoteRouter);
+app.use(["/api/deal-health", "/deal-health"], dealHealthRouter);
+app.use(["/api/jobs", "/jobs"], jobRouter);
 
 // Demo Background Job Trigger (Interacts with @repo/db)
 app.post(["/api/jobs/trigger", "/jobs/trigger"], async (req: Request, res: Response) => {

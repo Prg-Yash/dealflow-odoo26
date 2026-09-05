@@ -9,6 +9,7 @@ export interface AuthenticatedUser extends User {
   salesRepProfile?: any | null;
   salesManagerProfile?: any | null;
   financeOpsProfile?: any | null;
+  customerProfile?: any | null;
 }
 
 export interface AuthRequest extends Request {
@@ -41,9 +42,7 @@ export async function requireAuth(
       where: { id: sessionResult.user.id },
       include: {
         organization: true,
-        salesRepProfile: true,
-        salesManagerProfile: true,
-        financeOpsProfile: true,
+        customerProfile: true,
       },
     });
 
