@@ -102,8 +102,14 @@ export async function listActivePortalQuotations() {
  * 1. Read-Only Quotation View for the Customer
  */
 export async function getPortalQuotation(portalToken: string) {
-  const quotation = await prisma.quotation.findUnique({
-    where: { portalToken },
+  const quotation = await prisma.quotation.findFirst({
+    where: {
+      OR: [
+        { portalToken },
+        { quoteNumber: portalToken },
+        { id: portalToken },
+      ],
+    },
     include: {
       customer: {
         include: { tier: true },

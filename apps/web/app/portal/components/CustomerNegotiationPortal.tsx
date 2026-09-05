@@ -174,16 +174,23 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${API_BASE}/api/portal/${encodeURIComponent(currentToken)}`, {
+        const effectiveLookup = !currentToken || currentToken === "current" ? "DF-Q1042" : currentToken;
+        const res = await fetch(`${API_BASE}/api/portal/${encodeURIComponent(effectiveLookup)}`, {
           headers: {
             "Content-Type": "application/json",
-            "x-portal-token": currentToken,
+            "x-portal-token": effectiveLookup,
+            "x-customer-email": customerEmail || "buyer@acmecorp.com",
           },
           credentials: "include",
         });
 
         if (!res.ok) {
-          throw new Error(`Quotation not found or token has expired (Status: ${res.status})`);
+          if (res.status === 401 || res.status === 403) {
+            router.replace("/login");
+            return;
+          }
+          const errJson = await res.json().catch(() => ({}));
+          throw new Error(errJson.message || `Quotation not found (Status: ${res.status})`);
         }
 
         const json = await res.json();

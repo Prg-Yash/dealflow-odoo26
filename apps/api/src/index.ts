@@ -65,6 +65,8 @@ app.use(
       "x-requested-with",
       "Accept",
       "Origin",
+      "x-portal-token",
+      "x-customer-email",
     ],
     exposedHeaders: ["Set-Cookie"],
   })
