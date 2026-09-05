@@ -15,6 +15,7 @@ export interface CustomerTierData {
   name: string;
   discountCeiling: number;
   description?: string | null;
+  _count?: { customers: number };
 }
 
 export interface CustomerData {

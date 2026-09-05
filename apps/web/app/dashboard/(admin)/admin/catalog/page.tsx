@@ -32,6 +32,7 @@ import {
   GitBranch,
   Layers3,
   HelpCircle,
+  Award,
 } from "lucide-react";
 import {
   useProducts,
@@ -64,8 +65,8 @@ import {
 } from "../../../../../lib/query";
 
 export default function AdminCatalogPage() {
-  // Navigation & Sub-views: "products" (Wireframe 16), "pricelists" ("Manage Price fields"), "categories" (Category Data Entry), "approvals" (Approval Chains)
-  const [activeTab, setActiveTab] = useState<"products" | "pricelists" | "categories" | "approvals">("products");
+  // Navigation & Sub-views: "products", "pricelists", "tiers", "categories", "approvals"
+  const [activeTab, setActiveTab] = useState<"products" | "pricelists" | "tiers" | "categories" | "approvals">("products");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
 
@@ -134,6 +135,14 @@ export default function AdminCatalogPage() {
   const [newVariantAttr, setNewVariantAttr] = useState("");
   const [newVariantValue, setNewVariantValue] = useState("");
   const [newVariantPrice, setNewVariantPrice] = useState<number | "">("");
+
+  // Customer Tier Modal State
+  const [isTierModalOpen, setIsTierModalOpen] = useState(false);
+  const [editingTierId, setEditingTierId] = useState<string | null>(null);
+  const [tierFormName, setTierFormName] = useState("");
+  const [tierFormCode, setTierFormCode] = useState("");
+  const [tierFormCeiling, setTierFormCeiling] = useState<number>(10);
+  const [tierFormDesc, setTierFormDesc] = useState("");
 
   // Category Modal State
   const [isCatModalOpen, setIsCatModalOpen] = useState(false);
@@ -497,6 +506,79 @@ export default function AdminCatalogPage() {
   };
 
   // ══════════════════════════════════════════════════════════════════════════
+  // CUSTOMER TIER FULL DYNAMIC CRUD HANDLERS
+  // ══════════════════════════════════════════════════════════════════════════
+  const handleOpenNewTier = () => {
+    setEditingTierId(null);
+    setTierFormName("");
+    setTierFormCode("");
+    setTierFormCeiling(10);
+    setTierFormDesc("");
+    setIsTierModalOpen(true);
+  };
+
+  const handleEditTier = (tier: CustomerTierData) => {
+    setEditingTierId(tier.id);
+    setTierFormName(tier.name);
+    setTierFormCode(tier.code);
+    setTierFormCeiling(tier.discountCeiling);
+    setTierFormDesc(tier.description || "");
+    setIsTierModalOpen(true);
+  };
+
+  const handleSaveTier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tierFormName.trim()) {
+      showToast("Tier name is required.");
+      return;
+    }
+    const code =
+      tierFormCode.trim().toUpperCase() ||
+      tierFormName.trim().toUpperCase().replace(/[^A-Z0-9]/g, "_").slice(0, 10);
+
+    try {
+      if (editingTierId) {
+        await updateTierMutation.mutateAsync({
+          id: editingTierId,
+          body: {
+            name: tierFormName.trim(),
+            code,
+            discountCeiling: Number(tierFormCeiling),
+            description: tierFormDesc.trim() || undefined,
+          },
+        });
+        showToast(`Customer Tier "${tierFormName}" updated successfully!`);
+      } else {
+        await createTierMutation.mutateAsync({
+          name: tierFormName.trim(),
+          code,
+          discountCeiling: Number(tierFormCeiling),
+          description: tierFormDesc.trim() || undefined,
+        });
+        showToast(`New Customer Tier "${tierFormName}" created with ${tierFormCeiling}% discount limit!`);
+      }
+      setIsTierModalOpen(false);
+      setEditingTierId(null);
+      await refetchTiers();
+      await refetchPriceLists();
+    } catch (err: any) {
+      showToast(`Tier save error: ${err?.message || "Failed to save tier"}`);
+    }
+  };
+
+  const handleDeleteTier = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete Customer Tier "${name}"?`)) return;
+    try {
+      await deleteTierMutation.mutateAsync(id);
+      showToast(`Customer Tier "${name}" deleted.`);
+      await refetchTiers();
+      await refetchPriceLists();
+    } catch (err: any) {
+      showToast(`Delete failed: ${err?.message}`);
+    }
+  };
+
+  // ══════════════════════════════════════════════════════════════════════════
   // GLOBAL PRICELIST & CUSTOMER TIER HANDLERS (FULL CRUD)
   // ══════════════════════════════════════════════════════════════════════════
   const handleOpenNewPriceList = () => {
@@ -664,6 +746,18 @@ export default function AdminCatalogPage() {
             >
               <DollarSign size={14} />
               <span>Manage Price fields</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab(activeTab === "tiers" ? "products" : "tiers")}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                activeTab === "tiers"
+                  ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                  : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+              }`}
+            >
+              <Award size={14} />
+              <span>Customer Tiers</span>
             </button>
 
             <button
@@ -1026,7 +1120,136 @@ export default function AdminCatalogPage() {
         )}
 
         {/* ══════════════════════════════════════════════════════════════════════
-            VIEW 3: CATEGORIES & CEILINGS WITH PROPER DATA ENTRY
+            VIEW 3: CUSTOMER TIERS & DISCOUNT CEILINGS (DYNAMIC CRUD)
+        ══════════════════════════════════════════════════════════════════════ */}
+        {activeTab === "tiers" && (
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-6 animate-in fade-in duration-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Customer Tiers &amp; Discount Ceilings</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Define customer entitlement tiers, tier codes, and maximum discount ceilings before managerial approval is required.
+                </p>
+              </div>
+              <button
+                onClick={handleOpenNewTier}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#3b82f6] hover:bg-[#2563eb] text-white text-xs font-bold shadow-xs transition cursor-pointer self-start sm:self-auto"
+              >
+                <Plus size={14} />
+                <span>+ Add Customer Tier</span>
+              </button>
+            </div>
+
+            {/* Dynamic Tiers Grid */}
+            {isTiersLoading ? (
+              <div className="py-12 text-center text-slate-400">
+                <RefreshCw size={20} className="animate-spin mx-auto text-[#3b82f6] mb-2" />
+                <span>Loading customer tiers...</span>
+              </div>
+            ) : tiersList.length === 0 ? (
+              <div className="p-8 bg-[#f8fafc] border border-dashed border-slate-300 rounded-2xl text-center space-y-3">
+                <Award size={28} className="mx-auto text-slate-400" />
+                <h3 className="text-sm font-bold text-slate-800">No Customer Tiers Configured Yet</h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Create customer tiers (e.g. Bronze 5%, Silver 10%, Gold 15%, Platinum 20%) to establish commercial discount limits.
+                </p>
+                <button
+                  onClick={handleOpenNewTier}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#3b82f6] hover:bg-[#2563eb] text-white text-xs font-bold shadow-xs cursor-pointer"
+                >
+                  <Plus size={14} />
+                  <span>+ Create First Customer Tier</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {tiersList.map((tier) => {
+                  const isGold = tier.code === "GOLD" || tier.name.toLowerCase().includes("gold");
+                  const isSilver = tier.code === "SILVER" || tier.name.toLowerCase().includes("silver");
+                  const isPlat = tier.code === "PLATINUM" || tier.name.toLowerCase().includes("platinum");
+                  const ceiling = tier.discountCeiling;
+
+                  return (
+                    <div
+                      key={tier.id}
+                      className={`border rounded-2xl p-5 space-y-3.5 relative group transition flex flex-col justify-between ${
+                        isGold
+                          ? "bg-amber-50/40 border-amber-200"
+                          : isSilver
+                            ? "bg-blue-50/40 border-blue-200"
+                            : isPlat
+                              ? "bg-purple-50/40 border-purple-200"
+                              : "bg-[#f8fafc] border-slate-200"
+                      }`}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-900 text-sm">{tier.name}</span>
+                          <span className="px-2 py-0.5 rounded-md bg-slate-900 text-white font-mono text-[10px] font-bold">
+                            {tier.code}
+                          </span>
+                        </div>
+
+                        <p className="text-xs text-slate-500 line-clamp-2 min-h-[32px]">
+                          {tier.description || `Commercial discount entitlement level capped at ${ceiling}% max.`}
+                        </p>
+
+                        <div className="pt-2 border-t border-slate-200/70 space-y-1.5 text-xs">
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-500">Discount Limit:</span>
+                            <span
+                              className={`font-bold px-2 py-0.5 rounded-md border text-xs ${
+                                ceiling >= 15
+                                  ? "bg-purple-50 text-purple-700 border-purple-200"
+                                  : ceiling >= 10
+                                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                                    : "bg-blue-50 text-blue-700 border-blue-200"
+                              }`}
+                            >
+                              Up to {ceiling}% max
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-500">Price Rule:</span>
+                            <span className="font-semibold text-slate-700">
+                              {ceiling === 0 ? "Standard List Price" : `Base minus ${ceiling}%`}
+                            </span>
+                          </div>
+                          {tier._count?.customers !== undefined && (
+                            <div className="flex justify-between items-center text-[11px] text-slate-400">
+                              <span>Linked Accounts:</span>
+                              <span className="font-medium text-slate-600">{tier._count.customers} customers</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-1.5 pt-3 border-t border-slate-200/60">
+                        <button
+                          onClick={() => handleEditTier(tier)}
+                          className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 rounded-lg transition cursor-pointer"
+                          title="Edit Customer Tier"
+                        >
+                          <Edit2 size={13} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTier(tier.id, tier.name)}
+                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                          title="Delete Customer Tier"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════════
+            VIEW 4: CATEGORIES & CEILINGS WITH PROPER DATA ENTRY
         ══════════════════════════════════════════════════════════════════════ */}
         {activeTab === "categories" && (
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-6">
@@ -1740,6 +1963,124 @@ export default function AdminCatalogPage() {
                 </div>
               </div>
 
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          CUSTOMER TIER MODAL (CREATE & EDIT DYNAMIC CEILINGS)
+      ══════════════════════════════════════════════════════════════════════ */}
+      {isTierModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl border border-slate-200 max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-base">
+                  {editingTierId ? "Edit Customer Tier" : "New Customer Tier"}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Set customer discount privileges and commercial ceilings.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsTierModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveTier} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                  Tier Name <span className="text-[#3b82f6]">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Gold Strategic Enterprise"
+                  value={tierFormName}
+                  onChange={(e) => {
+                    setTierFormName(e.target.value);
+                    if (!editingTierId && !tierFormCode) {
+                      setTierFormCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "_").slice(0, 10));
+                    }
+                  }}
+                  className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 outline-none focus:border-[#3b82f6] focus:bg-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                    Tier Code <span className="text-[#3b82f6]">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. GOLD"
+                    value={tierFormCode}
+                    onChange={(e) => setTierFormCode(e.target.value.toUpperCase())}
+                    className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900 outline-none focus:border-[#3b82f6] focus:bg-white"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                    Discount Ceiling % <span className="text-[#3b82f6]">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      max={100}
+                      step={0.5}
+                      value={tierFormCeiling}
+                      onChange={(e) => setTierFormCeiling(Number(e.target.value))}
+                      className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2 pr-7 text-xs font-bold text-slate-900 outline-none focus:border-[#3b82f6] focus:bg-white"
+                    />
+                    <Percent size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                  Description / Commercial Scope
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. High-volume enterprise partners with annual spend commitments above ₹50L."
+                  value={tierFormDesc}
+                  onChange={(e) => setTierFormDesc(e.target.value)}
+                  className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 outline-none focus:border-[#3b82f6] focus:bg-white"
+                />
+              </div>
+
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-[11px] text-blue-900 flex items-start gap-2">
+                <Info size={14} className="text-[#3b82f6] shrink-0 mt-0.5" />
+                <span>
+                  Sales reps granting discounts above <strong>{tierFormCeiling}%</strong> for customers in this tier will automatically require manager/finance approval.
+                </span>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsTierModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-[#3b82f6] hover:bg-[#2563eb] text-white text-xs font-bold transition shadow-sm cursor-pointer"
+                >
+                  {editingTierId ? "Update Tier" : "Create Tier"}
+                </button>
+              </div>
             </form>
           </div>
         </div>
