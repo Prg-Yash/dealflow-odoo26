@@ -34,58 +34,28 @@ This Turborepo has some additional tools already setup for you:
 
 ### Build
 
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+To build all apps and packages, run the following command from the repository root:
 
 ```sh
-cd dealflow-360
-turbo build
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd dealflow-360
+npm run build
+# or
 npx turbo build
-npm exec turbo build
-npm exec turbo build
 ```
 
 You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
 ```sh
-turbo build --filter=docs
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo build --filter=docs
-npm exec turbo build --filter=docs
-npm exec turbo build --filter=docs
+npx turbo build --filter=web
 ```
 
 ### Develop
 
-To develop all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+To develop all apps and packages:
 
 ```sh
-cd dealflow-360
-turbo dev
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd dealflow-360
+npm run dev
+# or
 npx turbo dev
-npm exec turbo dev
-npm exec turbo dev
 ```
 
 You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
@@ -116,17 +86,13 @@ By default, Turborepo will cache locally. To enable Remote Caching you will need
 With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
 
 ```sh
-cd dealflow-360
 turbo login
 ```
 
 Without global `turbo`, use your package manager:
 
 ```sh
-cd dealflow-360
 npx turbo login
-npm exec turbo login
-npm exec turbo login
 ```
 
 This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
@@ -143,8 +109,6 @@ Without global `turbo`:
 
 ```sh
 npx turbo link
-npm exec turbo link
-npm exec turbo link
 ```
 
 ## Useful Links

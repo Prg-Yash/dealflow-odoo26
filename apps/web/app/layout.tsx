@@ -1,19 +1,16 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 
-const geistSans = localFont({
-  src: "./fonts/GeistVF.woff",
-  variable: "--font-geist-sans",
-});
-const geistMono = localFont({
-  src: "./fonts/GeistMonoVF.woff",
-  variable: "--font-geist-mono",
+const plusJakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Dealflow 360",
-  description: "Dealflow 360 platform",
+  title: "DealFlow360",
+  description: "B2B Sales Operations Platform",
 };
 
 export default function RootLayout({
@@ -23,7 +20,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable}`}>
+      <body className={`${plusJakarta.variable} font-sans antialiased bg-surface text-on-surface`}>
         {children}
       </body>
     </html>
