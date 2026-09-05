@@ -20,6 +20,9 @@ import {
   Check,
   Save,
   FileQuestion,
+  Sparkles,
+  TrendingUp,
+  Zap,
 } from "lucide-react";
 import { SalesNav } from "@repo/ui";
 import {
@@ -31,6 +34,7 @@ import {
   useDeleteQuotationLine,
   useUpdateQuotationStage,
   useProducts,
+  useProductRecommendations,
 } from "../../../../../../lib/query";
 import { useDashboardAuth } from "../../../../layout";
 import {
@@ -54,6 +58,7 @@ export default function QuotationDetailPage({ params }: Props) {
   // Queries & Mutations
   const { data: apiQuote, isLoading, error } = useQuotation(quoteId);
   const { data: apiProducts } = useProducts();
+  const { data: apiRecommendations } = useProductRecommendations();
   const submitMutation = useSubmitQuotation(quoteId);
   const confirmMutation = useConfirmQuotation(quoteId);
   const addLineMutation = useAddQuotationLine(quoteId);
@@ -138,6 +143,69 @@ export default function QuotationDetailPage({ params }: Props) {
     );
   }, [riskLines]);
 
+  // Live upsell & cross-sell recommendation candidates for current items
+  const upsellSuggestions = useMemo(() => {
+    if (!localLines || localLines.length === 0 || !apiProducts) return [];
+    const currentProductIds = new Set(localLines.map((i) => i.productId));
+
+    // 1. Direct Pairing Rules from DB
+    const matchingRecs = (apiRecommendations || []).filter(
+      (rec) =>
+        rec.isActive &&
+        currentProductIds.has(rec.sourceProductId) &&
+        !currentProductIds.has(rec.recommendedProductId)
+    );
+
+    const directCandidates = matchingRecs
+      .map((rec) => {
+        const prod = apiProducts.find((p) => p.id === rec.recommendedProductId);
+        if (!prod) return null;
+        const margin =
+          prod.basePrice > 0 ? ((prod.basePrice - prod.costPrice) / prod.basePrice) * 100 : 0;
+        if (margin < rec.minMarginThreshold) return null;
+        return {
+          productId: prod.id,
+          name: prod.name,
+          sku: prod.sku,
+          category: prod.category?.name || "Accessory",
+          basePrice: prod.basePrice,
+          costPrice: prod.costPrice,
+          marginPercent: Math.round(margin),
+          score: rec.coPurchaseScore,
+          promotionalTag: rec.promotionalTag || "Frequently Bought Together",
+          isPromoted: prod.isPromoted,
+        };
+      })
+      .filter(Boolean) as any[];
+
+    // 2. Fallback candidates
+    const fallbackCandidates = apiProducts
+      .filter(
+        (p) =>
+          !currentProductIds.has(p.id) &&
+          !directCandidates.some((c) => c.productId === p.id) &&
+          (p.category?.type === "SERVICE" || p.isPromoted || p.category?.type === "SUBSCRIPTION")
+      )
+      .map((p) => {
+        const margin = p.basePrice > 0 ? ((p.basePrice - p.costPrice) / p.basePrice) * 100 : 0;
+        return {
+          productId: p.id,
+          name: p.name,
+          sku: p.sku,
+          category: p.category?.name || "Service",
+          basePrice: p.basePrice,
+          costPrice: p.costPrice,
+          marginPercent: Math.round(margin),
+          score: p.isPromoted ? 9.0 : 7.0,
+          promotionalTag: p.isPromoted ? "Promoted Deal Booster" : "Recommended Support Add-on",
+          isPromoted: p.isPromoted,
+        };
+      })
+      .filter((c) => c.marginPercent >= 20);
+
+    return [...directCandidates, ...fallbackCandidates].slice(0, 4);
+  }, [localLines, apiProducts, apiRecommendations]);
+
   // Updating Handlers (persist to DB if API quote exists)
   const handleQuantityChange = async (index: number, newQty: number) => {
     if (isReadOnlyForSalesRep) return;
@@ -205,15 +273,18 @@ export default function QuotationDetailPage({ params }: Props) {
     }
   };
 
-  const handleAddUpsell = async (prod: any) => {
+  const handleAddUpsell = async (sugOrProd: any) => {
     if (isReadOnlyForSalesRep) return;
+    const prodId = sugOrProd.productId || sugOrProd.id;
+    const prodName = sugOrProd.name;
+    const prodPrice = sugOrProd.basePrice || sugOrProd.unitPrice || 0;
 
-    const existingIndex = localLines.findIndex((l) => l.productId === prod.id);
+    const existingIndex = localLines.findIndex((l) => l.productId === prodId);
     if (existingIndex >= 0) {
       const existingLine = localLines[existingIndex]!;
       const newQty = existingLine.quantity + 1;
       await handleQuantityChange(existingIndex, newQty);
-      setStatusFeedback(`Incremented quantity for ${prod.name} (now ${newQty}).`);
+      setStatusFeedback(`Incremented quantity for ${prodName} (now ${newQty}).`);
       setTimeout(() => setStatusFeedback(null), 3000);
       return;
     }
@@ -221,14 +292,14 @@ export default function QuotationDetailPage({ params }: Props) {
     try {
       if (apiQuote) {
         await addLineMutation.mutateAsync({
-          productId: prod.id,
+          productId: prodId,
           quantity: 1,
-          unitPrice: prod.basePrice,
+          unitPrice: prodPrice,
           discountPercent: 0,
-          description: prod.name,
+          description: prodName,
         });
       }
-      setStatusFeedback(`Added ${prod.name} to quotation!`);
+      setStatusFeedback(`Added ${prodName} to quotation!`);
       setTimeout(() => setStatusFeedback(null), 3000);
     } catch (err) {
       console.warn("Add upsell line error:", err);
@@ -692,6 +763,74 @@ export default function QuotationDetailPage({ params }: Props) {
               </span>
             </div>
           </div>
+
+          {/* Upsell & Cross-Sell Recommendations */}
+          {!isReadOnlyForSalesRep && upsellSuggestions.length > 0 && (
+            <div className="bg-linear-to-br from-indigo-50/50 via-white to-sky-50/40 rounded-2xl p-6 border border-indigo-100/80 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-600/10 text-indigo-600 flex items-center justify-center">
+                    <Sparkles size={16} />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900">
+                      Intelligent Upsell &amp; Cross-Sell Recommendations
+                    </h2>
+                    <p className="text-[11px] text-slate-500">
+                      Margin-governed add-ons paired with the products currently in this quotation.
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/60 px-2.5 py-1 rounded-full flex items-center gap-1">
+                  <Zap size={12} className="text-amber-500 fill-amber-500" />
+                  {upsellSuggestions.length} Recommended
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {upsellSuggestions.map((sug) => (
+                  <div
+                    key={sug.productId}
+                    className="bg-white p-4 rounded-xl border border-slate-200/80 hover:border-indigo-300 hover:shadow-md transition-all flex flex-col justify-between gap-3 group"
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                          {sug.promotionalTag}
+                        </span>
+                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded flex items-center gap-1">
+                          <TrendingUp size={11} />
+                          {sug.marginPercent}% margin
+                        </span>
+                      </div>
+                      <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                        {sug.name}
+                      </h4>
+                      <p className="text-[11px] text-slate-400 font-mono">SKU: {sug.sku} • {sug.category}</p>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-extrabold text-slate-900">
+                          ₹{sug.basePrice.toLocaleString()}
+                        </div>
+                        <div className="text-[10px] text-slate-400">Co-purchase score: {sug.score}/10</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleAddUpsell(sug)}
+                        disabled={addLineMutation.isPending}
+                        className="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer disabled:opacity-50"
+                      >
+                        <Plus size={13} />
+                        <span>Add to Quote</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ── THRESHOLD CALCULATION ENGINE BREAKDOWN ── */}
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">

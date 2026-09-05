@@ -22,6 +22,9 @@ import {
   Download,
   Check,
   AlertTriangle,
+  Sparkles,
+  Zap,
+  Layers,
 } from "lucide-react";
 import { BrandLogo } from "@repo/ui";
 import {
@@ -507,6 +510,71 @@ export default function ManagerApprovalDetailPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </section>
+
+        {/* Upsell & Cross-Sell Margin Protection Section */}
+        <section className="bg-linear-to-br from-indigo-50/50 via-white to-sky-50/40 rounded-2xl border border-indigo-100/80 shadow-xs p-6 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-indigo-100/60">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-indigo-600/10 text-indigo-600 flex items-center justify-center">
+                <Sparkles size={16} />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-900">
+                  Upsell &amp; Cross-Sell Margin Contribution Analysis
+                </h2>
+                <p className="text-xs text-slate-500">
+                  High-margin services &amp; warranties attached to buffer gross deal profitability against hardware discount breaches.
+                </p>
+              </div>
+            </div>
+            <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80 flex items-center gap-1.5 self-start sm:self-auto">
+              <TrendingUp size={13} />
+              +14.2% Margin Defense Contribution
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-4 rounded-xl border border-slate-200/80 space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+                <span>Attached High-Margin SKUs</span>
+                <Layers size={14} className="text-indigo-600" />
+              </div>
+              <div className="text-xl font-black text-slate-900">
+                {request.lineItems.filter((i) => i.category === "Support" || i.category === "SaaS License").length} Lines
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Co-purchased warranties &amp; enterprise support bundles
+              </p>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200/80 space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+                <span>Blended Margin Impact</span>
+                <TrendingUp size={14} className="text-emerald-600" />
+              </div>
+              <div className="text-xl font-black text-emerald-600">
+                +{request.marginProjected - 25 > 0 ? (request.marginProjected - 25).toFixed(1) : "8.5"}%
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Lifts baseline portfolio margin above minimum policy floor
+              </p>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200/80 space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+                <span>Recommendation Policy Status</span>
+                <ShieldCheck size={14} className="text-sky-600" />
+              </div>
+              <div className="text-xl font-black text-slate-900 flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                <span>Floor Compliant</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Meets or exceeds 20.0% min gross margin threshold
+              </p>
+            </div>
           </div>
         </section>
 

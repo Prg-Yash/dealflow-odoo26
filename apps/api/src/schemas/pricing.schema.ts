@@ -3,6 +3,7 @@ import { z } from "zod";
 export const CreatePriceListSchema = z.object({
   name: z.string().min(1, "Price list name is required"),
   currency: z.string().default("INR"),
+  customerTierIds: z.array(z.string()).optional(),
   customerTierId: z.string().nullable().optional(),
   isDefault: z.boolean().default(false),
 });
@@ -10,6 +11,7 @@ export const CreatePriceListSchema = z.object({
 export const UpdatePriceListSchema = z.object({
   name: z.string().min(1, "Price list name cannot be empty").optional(),
   currency: z.string().optional(),
+  customerTierIds: z.array(z.string()).optional(),
   customerTierId: z.string().nullable().optional(),
   isDefault: z.boolean().optional(),
 });

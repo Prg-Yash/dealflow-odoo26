@@ -578,17 +578,15 @@ model PriceList {
   id             String   @id @default(cuid())
   name           String // e.g. "Gold Tier Preferred Price List"
   currency       String   @default("INR")
-  customerTierId String?
   organizationId String
   isDefault      Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  customerTier CustomerTier?   @relation(fields: [customerTierId], references: [id])
-  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  items        PriceListItem[]
+  customerTiers CustomerTier[]
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  items         PriceListItem[]
 
-  @@index([customerTierId])
   @@index([organizationId])
   @@map("price_lists")
 }

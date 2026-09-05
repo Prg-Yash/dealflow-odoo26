@@ -20,9 +20,17 @@ import {
   Package,
   ShieldCheck,
   Check,
+  Sparkles,
+  TrendingUp,
+  Zap,
 } from "lucide-react";
 import { SalesNav } from "@repo/ui";
-import { useCustomers, useProducts, useCreateQuotation } from "../../../../../../lib/query";
+import {
+  useCustomers,
+  useProducts,
+  useCreateQuotation,
+  useProductRecommendations,
+} from "../../../../../../lib/query";
 import { useDashboardAuth } from "../../../../layout";
 import {
   calculateQuotationRisk,
@@ -50,6 +58,7 @@ export default function NewQuotationPage() {
 
   const { data: apiCustomers, isLoading: loadingCustomers } = useCustomers();
   const { data: apiProducts, isLoading: loadingProducts } = useProducts();
+  const { data: apiRecommendations } = useProductRecommendations();
   const createQuotationMutation = useCreateQuotation();
 
   // Mode: select existing customer vs enter new customer
@@ -132,6 +141,95 @@ export default function NewQuotationPage() {
       DEFAULT_BLENDED_DISCOUNT_THRESHOLD
     );
   }, [riskLines]);
+
+  // Live upsell & cross-sell recommendation candidates for current items
+  const upsellSuggestions = useMemo(() => {
+    if (!items || items.length === 0 || !apiProducts) return [];
+    const currentProductIds = new Set(items.map((i) => i.productId));
+
+    // 1. Direct Pairing Rules from DB
+    const matchingRecs = (apiRecommendations || []).filter(
+      (rec) =>
+        rec.isActive &&
+        currentProductIds.has(rec.sourceProductId) &&
+        !currentProductIds.has(rec.recommendedProductId)
+    );
+
+    const directCandidates = matchingRecs
+      .map((rec) => {
+        const prod = apiProducts.find((p) => p.id === rec.recommendedProductId);
+        if (!prod) return null;
+        const margin =
+          prod.basePrice > 0 ? ((prod.basePrice - prod.costPrice) / prod.basePrice) * 100 : 0;
+        if (margin < rec.minMarginThreshold) return null; // Enforce margin floor
+        return {
+          productId: prod.id,
+          name: prod.name,
+          sku: prod.sku,
+          category: prod.category?.name || "Accessory",
+          basePrice: prod.basePrice,
+          costPrice: prod.costPrice,
+          marginPercent: Math.round(margin),
+          score: rec.coPurchaseScore,
+          promotionalTag: rec.promotionalTag || "Frequently Bought Together",
+          isPromoted: prod.isPromoted,
+        };
+      })
+      .filter(Boolean) as any[];
+
+    // 2. If no direct pairings, surface high-margin services/accessories not yet in quote
+    const fallbackCandidates = apiProducts
+      .filter(
+        (p) =>
+          !currentProductIds.has(p.id) &&
+          !directCandidates.some((c) => c.productId === p.id) &&
+          (p.category?.type === "SERVICE" || p.isPromoted || p.category?.type === "SUBSCRIPTION")
+      )
+      .map((p) => {
+        const margin = p.basePrice > 0 ? ((p.basePrice - p.costPrice) / p.basePrice) * 100 : 0;
+        return {
+          productId: p.id,
+          name: p.name,
+          sku: p.sku,
+          category: p.category?.name || "Service",
+          basePrice: p.basePrice,
+          costPrice: p.costPrice,
+          marginPercent: Math.round(margin),
+          score: p.isPromoted ? 9.0 : 7.0,
+          promotionalTag: p.isPromoted ? "Promoted Deal Booster" : "Recommended Support Add-on",
+          isPromoted: p.isPromoted,
+        };
+      })
+      .filter((c) => c.marginPercent >= 20);
+
+    return [...directCandidates, ...fallbackCandidates].slice(0, 4);
+  }, [items, apiProducts, apiRecommendations]);
+
+  const handleAddSuggestion = (sug: any) => {
+    const prod = apiProducts?.find((p) => p.id === sug.productId);
+    if (!prod) return;
+
+    const existing = items.find((it) => it.productId === prod.id);
+    if (existing) {
+      setItems((prev) =>
+        prev.map((it) => (it.productId === prod.id ? { ...it, quantity: it.quantity + 1 } : it))
+      );
+    } else {
+      const newItem: LineItemState = {
+        id: `line-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        productId: prod.id,
+        name: prod.name,
+        description: prod.description || prod.name,
+        category: prod.category?.name || "Standard",
+        categoryCeiling: (prod.category as any)?.ceilingLimit ?? DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
+        quantity: 1,
+        unitPrice: prod.basePrice,
+        costPrice: prod.costPrice,
+        discountPercent: 0,
+      };
+      setItems((prev) => [...prev, newItem]);
+    }
+  };
 
   // Handle adding product from organization's real catalog
   const handleAddProduct = () => {
@@ -653,6 +751,73 @@ export default function NewQuotationPage() {
                 </span>
               </div>
             </div>
+
+            {/* 3. Upsell & Cross-Sell Suggestions */}
+            {upsellSuggestions.length > 0 && (
+              <div className="bg-linear-to-br from-indigo-50/50 via-white to-sky-50/40 rounded-2xl p-6 border border-indigo-100/80 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-600/10 text-indigo-600 flex items-center justify-center">
+                      <Sparkles size={16} />
+                    </div>
+                    <div>
+                      <h2 className="text-sm font-bold text-slate-900">
+                        Intelligent Upsell &amp; Cross-Sell Recommendations
+                      </h2>
+                      <p className="text-[11px] text-slate-500">
+                        AI &amp; Margin-governed add-ons to lift deal size and strengthen blended margin.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/60 px-2.5 py-1 rounded-full flex items-center gap-1">
+                    <Zap size={12} className="text-amber-500 fill-amber-500" />
+                    {upsellSuggestions.length} Recommended
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {upsellSuggestions.map((sug) => (
+                    <div
+                      key={sug.productId}
+                      className="bg-white p-4 rounded-xl border border-slate-200/80 hover:border-indigo-300 hover:shadow-md transition-all flex flex-col justify-between gap-3 group"
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                            {sug.promotionalTag}
+                          </span>
+                          <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded flex items-center gap-1">
+                            <TrendingUp size={11} />
+                            {sug.marginPercent}% margin
+                          </span>
+                        </div>
+                        <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                          {sug.name}
+                        </h4>
+                        <p className="text-[11px] text-slate-400 font-mono">SKU: {sug.sku} • {sug.category}</p>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                        <div>
+                          <div className="text-xs font-extrabold text-slate-900">
+                            ₹{sug.basePrice.toLocaleString()}
+                          </div>
+                          <div className="text-[10px] text-slate-400">Co-purchase score: {sug.score}/10</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleAddSuggestion(sug)}
+                          className="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+                        >
+                          <Plus size={13} />
+                          <span>Add to Quote</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ── RIGHT: Live Economics & Submission (4 cols) ── */}
