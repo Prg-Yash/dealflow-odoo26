@@ -1,5 +1,17 @@
 export type RefundRule = "PRORATED" | "FULL" | "NO_REFUND";
 
+export interface ProrationScheduleResult {
+  deltaQuantity: number;
+  unitPrice: number;
+  cycleLengthDays: number;
+  daysElapsed: number;
+  daysRemaining: number;
+  proratedAmount: number;
+  isExpansion: boolean;
+  isReduction: boolean;
+  adjustmentType: "INVOICE" | "CREDIT_NOTE" | "NO_CHARGE";
+}
+
 /**
  * Pure billing engine proration calculation.
  *
@@ -30,6 +42,61 @@ export function prorate(
 
   const rawAmount = deltaQty * unitPrice * (daysRemaining / cycleLengthDays);
   return Math.round(rawAmount * 100) / 100;
+}
+
+/**
+ * Calculates a complete mid-cycle proration schedule for subscription line alterations.
+ */
+export function calculateProrationSchedule(
+  oldQty: number,
+  newQty: number,
+  unitPrice: number,
+  periodStart: Date,
+  periodEnd: Date,
+  changeDate: Date = new Date()
+): ProrationScheduleResult {
+  const msInDay = 1000 * 60 * 60 * 24;
+  const cycleLengthDays = Math.max(
+    1,
+    Math.round((periodEnd.getTime() - periodStart.getTime()) / msInDay)
+  );
+  const daysElapsed = Math.max(
+    0,
+    Math.round((changeDate.getTime() - periodStart.getTime()) / msInDay)
+  );
+  const clampedElapsed = Math.min(daysElapsed, cycleLengthDays);
+  const daysRemaining = Math.max(0, cycleLengthDays - clampedElapsed);
+
+  const proratedAmount = prorate(
+    oldQty,
+    newQty,
+    unitPrice,
+    cycleLengthDays,
+    clampedElapsed
+  );
+
+  const deltaQuantity = newQty - oldQty;
+  const isExpansion = deltaQuantity > 0;
+  const isReduction = deltaQuantity < 0;
+
+  let adjustmentType: "INVOICE" | "CREDIT_NOTE" | "NO_CHARGE" = "NO_CHARGE";
+  if (proratedAmount > 0) {
+    adjustmentType = "INVOICE";
+  } else if (proratedAmount < 0) {
+    adjustmentType = "CREDIT_NOTE";
+  }
+
+  return {
+    deltaQuantity,
+    unitPrice,
+    cycleLengthDays,
+    daysElapsed: clampedElapsed,
+    daysRemaining,
+    proratedAmount,
+    isExpansion,
+    isReduction,
+    adjustmentType,
+  };
 }
 
 /**

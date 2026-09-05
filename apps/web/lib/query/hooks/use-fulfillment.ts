@@ -121,6 +121,83 @@ export function useUpdateShipmentStatus() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fulfillment.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.billing.all });
     },
   });
 }
+
+/**
+ * Mutation: Waterfall auto-split allocation
+ */
+export function useAutoSplit() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body: { quotationId?: string; fulfillmentOrderId?: string; notes?: string }) =>
+      api.post<{ success: boolean; message: string; data: any }>("/api/fulfillment/auto-split", body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.fulfillment.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.quotations.all });
+    },
+  });
+}
+
+/**
+ * Mutation: Manual shipment line override with strict stock validation
+ */
+export function useManualOverride() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body: {
+      shipmentLineId: string;
+      targetWarehouseId?: string;
+      requestedQuantity: number;
+      notes?: string;
+    }) => api.post<{ success: boolean; message: string; data: any }>("/api/fulfillment/override", body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.fulfillment.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+    },
+  });
+}
+
+/**
+ * Mutation: Mid-fulfillment restock ERP receipt webhook
+ */
+export function useRestock() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body: {
+      warehouseId: string;
+      productId: string;
+      variantId?: string;
+      quantityReceived: number;
+      referenceNumber?: string;
+      notes?: string;
+    }) => api.post<{ success: boolean; message: string; data: any }>("/api/inventory/restock", body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.fulfillment.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+    },
+  });
+}
+
+/**
+ * Mutation: Consolidate active backorder
+ */
+export function useConsolidateBackorder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (backorderId: string) =>
+      api.post(`/api/backorders/${backorderId}/consolidate`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.fulfillment.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+    },
+  });
+}
+

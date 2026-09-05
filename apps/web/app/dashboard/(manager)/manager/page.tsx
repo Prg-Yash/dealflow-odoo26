@@ -20,9 +20,6 @@ import {
 } from "lucide-react";
 import { BrandLogo } from "@repo/ui";
 import {
-  INITIAL_MANAGER_APPROVALS,
-  INITIAL_DEAL_ANOMALIES,
-  INITIAL_REP_METRICS,
   type ManagerApprovalRequest,
   type DealAnomalyRecord,
   type ApprovalStatus,
@@ -30,6 +27,7 @@ import {
 import {
   useQuotations,
   useDealAnomalies,
+  useStalledQuotations,
   useMembers,
   useUpdateQuotationStage,
 } from "../../../../lib/query";
@@ -37,97 +35,121 @@ import {
 export default function ManagerDashboardPage() {
   const [activeView, setActiveView] = useState<"approvals" | "telemetry" | "team">("approvals");
 
-  // Live TanStack Query Hooks
-  const { data: apiQuotes } = useQuotations({ stage: "PENDING_APPROVAL" });
-  const { data: apiAnomalies } = useDealAnomalies();
-  const { data: apiMembers } = useMembers();
+  // Live TanStack Query Hooks (Database Driven)
+  const { data: allQuotes, isLoading: isLoadingQuotes, refetch: refetchQuotes } = useQuotations();
+  const { data: apiAnomalies, isLoading: isLoadingAnomalies, refetch: refetchAnomalies } = useDealAnomalies();
+  const { data: stalledQuotes } = useStalledQuotations();
+  const { data: apiMembers, isLoading: isLoadingMembers } = useMembers();
   const updateStageMutation = useUpdateQuotationStage();
 
-  const initialApprovals: ManagerApprovalRequest[] = apiQuotes && apiQuotes.length > 0
-    ? apiQuotes.map((q) => ({
-        id: q.id,
-        quoteId: q.quoteNumber || q.id,
-        account: q.customer?.name || "Enterprise Account",
-        accountTier: (((q.customer as any)?.tier?.name as any) || "Gold") as any,
-        repName: q.salesRep?.user?.name || "Account Executive",
-        repInitials: (q.salesRep?.user?.name || "AE").split(" ").map((s: string) => s[0]).join("").slice(0, 2).toUpperCase(),
-        dealSize: q.grandTotal || 0,
-        discountRequested: q.discountPercent || 15,
-        thresholdMax: 10,
-        marginProjected: q.grossMarginPercent || 40,
-        targetMargin: 45,
-        reason: q.notes || "Volume discount exception requested.",
-        status: (q.stage === "APPROVED" ? "APPROVED" : q.stage === "CANCELLED" ? "REJECTED" : "PENDING") as ApprovalStatus,
-        submittedAt: new Date(q.createdAt).toLocaleDateString(),
-        slaHoursLeft: 24,
-        blendedRiskScore: q.blendedRiskScore || 15,
-        escalationLevel: "SALES_MANAGER",
-        pdfFileName: `${q.quoteNumber || "Quote"}-Exec.pdf`,
-        pdfFileSize: "1.4 MB",
-        pdfHash: "sha256-verified",
-        lineItems: [],
-        workflowSteps: [],
-        auditLogs: [],
-      }))
-    : INITIAL_MANAGER_APPROVALS;
-
-  const anomaliesList = apiAnomalies?.anomalies || (Array.isArray(apiAnomalies) ? apiAnomalies : []);
-  const initialAnomalies: DealAnomalyRecord[] = anomaliesList.length > 0
-    ? anomaliesList.map((a: any) => ({
-        id: a.quotationId || a.id || "anom-1",
-        quoteId: a.quoteNumber || "QT-1042",
-        account: a.customerName || "Strategic Account",
-        accountInitials: (a.customerName || "SA").slice(0, 2).toUpperCase(),
-        repName: a.salesRepName || a.repName || "Account Rep",
-        dealValue: a.dealSize || 75000,
-        riskGaugePercent: a.blendedRiskScore || 25,
-        riskLevel: (a.severity === "HIGH" || a.severity === "CRITICAL" ? "high" : a.severity === "LOW" ? "low" : "medium") as "high" | "medium" | "low",
-        anomalyType: a.isStalledAnomaly ? ("Stalled Deal" as const) : ("Discount Breach" as const),
-        idleDays: a.daysSinceLastActivity || 3,
-        actionStatus: "flagged" as const,
-        details: a.recommendation || `Discount deviation: +${a.discountDeviation || 5}% against historical average`,
-      }))
-    : INITIAL_DEAL_ANOMALIES;
-
-  const [approvals, setApprovals] = useState<ManagerApprovalRequest[]>(initialApprovals);
-  const [anomalies, setAnomalies] = useState<DealAnomalyRecord[]>(initialAnomalies);
+  const [approvals, setApprovals] = useState<ManagerApprovalRequest[]>([]);
+  const [anomalies, setAnomalies] = useState<DealAnomalyRecord[]>([]);
 
   useEffect(() => {
-    if (apiQuotes && apiQuotes.length > 0) {
+    if (allQuotes) {
       setApprovals(
-        apiQuotes.map((q) => ({
-          id: q.id,
-          quoteId: q.quoteNumber || q.id,
-          account: q.customer?.name || "Enterprise Account",
-          accountTier: (((q.customer as any)?.tier?.name as any) || "Gold") as any,
-          repName: q.salesRep?.user?.name || "Account Executive",
-          repInitials: (q.salesRep?.user?.name || "AE").split(" ").map((s: string) => s[0]).join("").slice(0, 2).toUpperCase(),
-          dealSize: q.grandTotal || 0,
-          discountRequested: q.discountPercent || 15,
-          thresholdMax: 10,
-          marginProjected: q.grossMarginPercent || 40,
-          targetMargin: 45,
-          reason: q.notes || "Volume discount exception requested.",
-          status: (q.stage === "APPROVED" ? "APPROVED" : q.stage === "CANCELLED" ? "REJECTED" : "PENDING") as ApprovalStatus,
-          submittedAt: new Date(q.createdAt).toLocaleDateString(),
-          slaHoursLeft: 24,
-          blendedRiskScore: q.blendedRiskScore || 15,
-          escalationLevel: "SALES_MANAGER",
-          pdfFileName: `${q.quoteNumber || "Quote"}-Exec.pdf`,
-          pdfFileSize: "1.4 MB",
-          pdfHash: "sha256-verified",
-          lineItems: [],
-          workflowSteps: [],
-          auditLogs: [],
-        }))
+        allQuotes.map((q) => {
+          const discountPct =
+            q.discountPercent ??
+            (q.subtotal > 0 && q.discountTotal ? Math.round((q.discountTotal / q.subtotal) * 100) : 0);
+          const marginPct =
+            q.grossMarginPercent ??
+            (q.grandTotal > 0 && q.grossMargin ? Math.round((q.grossMargin / q.grandTotal) * 100) : 40);
+
+          const isPending = q.stage === "PENDING_APPROVAL" || q.approvalStatus === "PENDING";
+          const isApproved = q.stage === "APPROVED" || q.stage === "CONFIRMED" || q.approvalStatus === "APPROVED";
+          const isRejected = q.stage === "CANCELLED" || q.approvalStatus === "REJECTED";
+
+          const status: ApprovalStatus = isApproved
+            ? "APPROVED"
+            : isRejected
+            ? "REJECTED"
+            : isPending
+            ? "PENDING"
+            : "PENDING";
+
+          return {
+            id: q.id,
+            quoteId: q.quoteNumber || q.id,
+            account: q.customer?.name || q.customer?.companyName || "Enterprise Account",
+            accountTier: (((q.customer as any)?.tier?.name as any) || "Gold") as any,
+            repName: q.salesRep?.user?.name || "Account Executive",
+            repInitials: (q.salesRep?.user?.name || "AE")
+              .split(" ")
+              .map((s: string) => s[0])
+              .join("")
+              .slice(0, 2)
+              .toUpperCase(),
+            dealSize: q.grandTotal || 0,
+            discountRequested: discountPct,
+            thresholdMax: 15,
+            marginProjected: marginPct,
+            targetMargin: 45,
+            reason: q.notes || "Commercial discount exception requested.",
+            status,
+            submittedAt: new Date(q.createdAt).toLocaleDateString(),
+            slaHoursLeft: 24,
+            blendedRiskScore: q.blendedRiskScore || 15,
+            escalationLevel: q.requiresFinanceApproval ? "SALES_MANAGER_AND_FINANCE" : "SALES_MANAGER",
+            pdfFileName: `${q.quoteNumber || "Quote"}-Exec.pdf`,
+            pdfFileSize: "1.2 MB",
+            pdfHash: "sha256-verified",
+            lineItems: (q.lines || []).map((l: any, idx: number) => ({
+              id: l.id || `line-${idx}`,
+              sku: l.product?.sku || `SKU-${idx + 1}`,
+              name: l.product?.name || l.description || "Product Item",
+              category: (l.itemType === "HARDWARE" ? "Hardware" : l.itemType === "SERVICE" ? "Services" : "SaaS License") as any,
+              quantity: l.quantity || 1,
+              listPrice: l.unitPrice || 0,
+              appliedDiscountPercent: l.discountPercent || 0,
+              policyCapPercent: 15,
+              netPrice: l.netPrice || (l.unitPrice ? l.unitPrice * (1 - (l.discountPercent || 0) / 100) * (l.quantity || 1) : 0),
+              isBreached: (l.discountPercent || 0) > 15,
+              breachDelta: Math.max(0, (l.discountPercent || 0) - 15),
+            })),
+            workflowSteps: [
+              {
+                id: "ws-1",
+                stepNumber: 1,
+                nodeTitle: "Sales Rep Submit",
+                role: "Sales Rep",
+                assigneeName: q.salesRep?.user?.name || "Account Executive",
+                status: "completed",
+                actionedAt: new Date(q.createdAt).toLocaleDateString(),
+                actionNote: "Submitted for approval",
+              },
+              {
+                id: "ws-2",
+                stepNumber: 2,
+                nodeTitle: "Sales Director",
+                role: "Sales Manager",
+                assigneeName: "Elena Vance",
+                status: isApproved ? "completed" : "active",
+                actionedAt: isApproved || isRejected ? "Recently" : undefined,
+                actionNote: isApproved ? "Approved exception" : isRejected ? "Rejected" : "Pending signoff",
+              },
+            ],
+            auditLogs: [
+              {
+                id: `log-${q.id}`,
+                actor: q.salesRep?.user?.name || "Account Executive",
+                role: "Sales Rep",
+                action: "SUBMITTED",
+                timestamp: new Date(q.createdAt).toLocaleDateString(),
+                note: `Submitted quote ${q.quoteNumber || q.id} for commercial signoff.`,
+              },
+            ],
+          };
+        })
       );
     }
-  }, [apiQuotes]);
+  }, [allQuotes]);
 
   useEffect(() => {
-    if (anomaliesList && anomaliesList.length > 0) {
+    const list = apiAnomalies?.anomalies || (Array.isArray(apiAnomalies) ? apiAnomalies : []);
+    if (list && list.length > 0) {
       setAnomalies(
-        anomaliesList.map((a: any) => ({
+        list.map((a: any) => ({
           id: a.quotationId || a.id || "anom-1",
           quoteId: a.quoteNumber || "QT-1042",
           account: a.customerName || "Strategic Account",
@@ -135,15 +157,21 @@ export default function ManagerDashboardPage() {
           repName: a.salesRepName || a.repName || "Account Rep",
           dealValue: a.dealSize || 75000,
           riskGaugePercent: a.blendedRiskScore || 25,
-          riskLevel: (a.severity === "HIGH" || a.severity === "CRITICAL" ? "high" : a.severity === "LOW" ? "low" : "medium") as "high" | "medium" | "low",
+          riskLevel: (a.severity === "HIGH" || a.severity === "CRITICAL"
+            ? "high"
+            : a.severity === "LOW"
+            ? "low"
+            : "medium") as "high" | "medium" | "low",
           anomalyType: a.isStalledAnomaly ? ("Stalled Deal" as const) : ("Discount Breach" as const),
           idleDays: a.daysSinceLastActivity || 3,
           actionStatus: "flagged" as const,
           details: a.recommendation || `Discount deviation: +${a.discountDeviation || 5}% against historical average`,
         }))
       );
+    } else {
+      setAnomalies([]);
     }
-  }, [anomaliesList]);
+  }, [apiAnomalies]);
   const [approvalFilter, setApprovalFilter] = useState<"pending" | "all">("pending");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -392,9 +420,23 @@ export default function ManagerDashboardPage() {
                   </div>
                 </div>
                 <div className="mt-3">
-                  <div className="text-3xl font-black text-[#0f172a] tracking-tight">112.4%</div>
+                  <div className="text-3xl font-black text-[#0f172a] tracking-tight">
+                    {allQuotes && allQuotes.length > 0
+                      ? `${(
+                          ((allQuotes
+                            .filter((q) => q.stage === "CONFIRMED" || q.stage === "APPROVED")
+                            .reduce((sum, q) => sum + (q.grandTotal || 0), 0)) /
+                            1500000) *
+                          100
+                        ).toFixed(1)}%`
+                      : "0.0%"}
+                  </div>
                   <div className="text-xs text-emerald-600 font-semibold mt-1">
-                    +₹544,700 closed this quarter
+                    ₹{((allQuotes || [])
+                      .filter((q) => q.stage === "CONFIRMED" || q.stage === "APPROVED")
+                      .reduce((sum, q) => sum + (q.grandTotal || 0), 0))
+                      .toLocaleString()}{" "}
+                    closed to date
                   </div>
                 </div>
               </div>
@@ -413,7 +455,7 @@ export default function ManagerDashboardPage() {
                     ₹{totalExceptionsValue.toLocaleString()}
                   </div>
                   <div className="text-xs text-slate-500 font-medium mt-1">
-                    Across {pendingApprovals.length} pending bids • Avg 20.0% concession
+                    Across {pendingApprovals.length} pending bids
                   </div>
                 </div>
               </div>
@@ -428,9 +470,15 @@ export default function ManagerDashboardPage() {
                   </div>
                 </div>
                 <div className="mt-3">
-                  <div className="text-3xl font-black text-emerald-600 tracking-tight">49.2%</div>
+                  <div className="text-3xl font-black text-emerald-600 tracking-tight">
+                    {(allQuotes && allQuotes.length > 0
+                      ? allQuotes.reduce((sum, q) => sum + (q.grossMarginPercent || 40), 0) / allQuotes.length
+                      : 45.0
+                    ).toFixed(1)}
+                    %
+                  </div>
                   <div className="text-xs text-slate-500 font-medium mt-1">
-                    Above 45.0% enterprise policy floor
+                    Company gross margin average
                   </div>
                 </div>
               </div>
@@ -803,72 +851,132 @@ export default function ManagerDashboardPage() {
 
             {/* Team Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {INITIAL_REP_METRICS.map((rep) => (
-                <div
-                  key={rep.id}
-                  className="bg-white rounded-2xl border border-black/[0.06] shadow-xs p-6 flex flex-col justify-between space-y-5"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-10 h-10 rounded-full ${rep.avatarBg} text-white font-extrabold text-sm flex items-center justify-center shadow-xs`}
-                      >
-                        {rep.initials}
-                      </div>
-                      <div>
-                        <div className="font-bold text-sm text-[#0f172a]">{rep.name}</div>
-                        <div className="text-[11px] text-slate-400">{rep.email}</div>
-                      </div>
-                    </div>
+              {apiMembers && apiMembers.length > 0 ? (
+                apiMembers.map((m, idx) => {
+                  const repName = m.name || m.user?.name || "Account Executive";
+                  const repEmail = m.email || m.user?.email || "rep@dealflow.ai";
+                  const initials = repName
+                    .split(" ")
+                    .map((s: string) => s[0])
+                    .join("")
+                    .slice(0, 2)
+                    .toUpperCase();
 
-                    <span
-                      className={`px-2.5 py-1 rounded-full text-xs font-black ${
-                        rep.pacing >= 100
-                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                          : "bg-amber-50 text-amber-700 border border-amber-200"
-                      }`}
+                  const repQuotes = (allQuotes || []).filter(
+                    (q) => q.salesRepId === m.id || q.salesRep?.user?.name === repName || (q.salesRep as any)?.id === m.id
+                  );
+
+                  const closed = repQuotes
+                    .filter((q) => q.stage === "CONFIRMED" || q.stage === "APPROVED")
+                    .reduce((sum, q) => sum + (q.grandTotal || 0), 0);
+
+                  const pipeline = repQuotes
+                    .filter((q) => q.stage === "DRAFT" || q.stage === "PENDING_APPROVAL" || q.stage === "NEGOTIATION")
+                    .reduce((sum, q) => sum + (q.grandTotal || 0), 0);
+
+                  const activeDeals = repQuotes.filter(
+                    (q) => q.stage === "DRAFT" || q.stage === "PENDING_APPROVAL" || q.stage === "NEGOTIATION"
+                  ).length;
+
+                  const totalQuotesWithDiscount = repQuotes.filter(
+                    (q) => q.discountPercent !== undefined && q.discountPercent > 0
+                  );
+                  const historicalAvgDiscount =
+                    totalQuotesWithDiscount.length > 0
+                      ? Math.round(
+                          totalQuotesWithDiscount.reduce((sum, q) => sum + (q.discountPercent || 0), 0) /
+                            totalQuotesWithDiscount.length
+                        )
+                      : 10;
+
+                  const quota = (m as any).quotaTarget || 500000;
+                  const pacing = quota > 0 ? Math.round((closed / quota) * 100) : 0;
+                  const commissionRate = (m as any).commissionRate || 10;
+
+                  const bgColors = [
+                    "bg-indigo-600",
+                    "bg-emerald-600",
+                    "bg-sky-600",
+                    "bg-amber-600",
+                    "bg-purple-600",
+                    "bg-rose-600",
+                  ];
+                  const avatarBg = bgColors[idx % bgColors.length];
+
+                  return (
+                    <div
+                      key={m.id}
+                      className="bg-white rounded-2xl border border-black/[0.06] shadow-xs p-6 flex flex-col justify-between space-y-5"
                     >
-                      {rep.pacing}% Pacing
-                    </span>
-                  </div>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-10 h-10 rounded-full ${avatarBg} text-white font-extrabold text-sm flex items-center justify-center shadow-xs`}
+                          >
+                            {initials}
+                          </div>
+                          <div>
+                            <div className="font-bold text-sm text-[#0f172a]">{repName}</div>
+                            <div className="text-[11px] text-slate-400">{repEmail}</div>
+                          </div>
+                        </div>
 
-                  {/* Attainment Progress Bar */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs font-semibold text-slate-600">
-                      <span>Closed: ₹{rep.closed.toLocaleString()}</span>
-                      <span className="text-slate-400 font-normal">Quota: ₹{rep.quota.toLocaleString()}</span>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${
-                          rep.pacing >= 100 ? "bg-[#ff5e3a]" : "bg-amber-500"
-                        }`}
-                        style={{ width: `${Math.min(rep.pacing, 100)}%` }}
-                      />
-                    </div>
-                  </div>
+                        <span
+                          className={`px-2.5 py-1 rounded-full text-xs font-black ${
+                            pacing >= 100
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : "bg-amber-50 text-amber-700 border border-amber-200"
+                          }`}
+                        >
+                          {pacing}% Pacing
+                        </span>
+                      </div>
 
-                  {/* Rep Metrics Strip */}
-                  <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100 text-xs">
-                    <div>
-                      <div className="text-[10px] text-slate-400 uppercase font-bold">Active Pipeline</div>
-                      <div className="font-mono font-bold text-slate-800">₹{rep.pipeline.toLocaleString()}</div>
+                      {/* Attainment Progress Bar */}
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs font-semibold text-slate-600">
+                          <span>Closed: ₹{closed.toLocaleString()}</span>
+                          <span className="text-slate-400 font-normal">Quota: ₹{quota.toLocaleString()}</span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              pacing >= 100 ? "bg-[#ff5e3a]" : "bg-amber-500"
+                            }`}
+                            style={{ width: `${Math.min(pacing, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Rep Metrics Strip */}
+                      <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100 text-xs">
+                        <div>
+                          <div className="text-[10px] text-slate-400 uppercase font-bold">Active Pipeline</div>
+                          <div className="font-mono font-bold text-slate-800">₹{pipeline.toLocaleString()}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-slate-400 uppercase font-bold">Commission</div>
+                          <div className="font-mono font-bold text-emerald-600">{commissionRate}%</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-slate-400 uppercase font-bold">Active Deals</div>
+                          <div className="font-bold text-slate-800">{activeDeals} Deals</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-slate-400 uppercase font-bold">Hist Avg Discount</div>
+                          <div className="font-mono font-bold text-slate-700">{historicalAvgDiscount}%</div>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-[10px] text-slate-400 uppercase font-bold">Commission</div>
-                      <div className="font-mono font-bold text-emerald-600">{rep.commissionRate}%</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-slate-400 uppercase font-bold">Active Deals</div>
-                      <div className="font-bold text-slate-800">{rep.activeDeals} Deals</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-slate-400 uppercase font-bold">Hist Avg Discount</div>
-                      <div className="font-mono font-bold text-slate-700">{rep.historicalAvgDiscount}%</div>
-                    </div>
-                  </div>
+                  );
+                })
+              ) : (
+                <div className="col-span-full py-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-100">
+                  <Users size={32} className="mx-auto mb-2 text-slate-300" />
+                  <p className="font-semibold text-slate-700">No Sales Representatives Registered</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Team members will appear here once added to the organization.</p>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}

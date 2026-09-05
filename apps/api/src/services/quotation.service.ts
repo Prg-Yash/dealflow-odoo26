@@ -277,7 +277,10 @@ export async function getQuotationById(
   id: string
 ) {
   const quotation = await prisma.quotation.findFirst({
-    where: { id, organizationId: orgId },
+    where: {
+      OR: [{ id }, { quoteNumber: id }],
+      organizationId: orgId,
+    },
     include: {
       customer: { include: { tier: true } },
       salesRep: { include: { user: true } },

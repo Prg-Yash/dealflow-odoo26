@@ -158,3 +158,95 @@ test("Suite 6: Multi-Tenant Compound Unique Scoping", async () => {
   });
   assert.ok(Array.isArray(quotations), "Quotations query scoped by orgId must succeed");
 });
+
+test("Suite 7: Waterfall Warehouse Scoring & 100% Single-Shipment Preference", async () => {
+  // Warehouse A: Cheaper shipping (weight 1.0) but only 5 units in stock
+  // Warehouse B: Slightly higher shipping (weight 1.5) but has 20 units in stock
+  // Customer demands 15 units.
+  // Warehouse B should be ranked FIRST because it fulfills 100% in a single shipment!
+  const warehouses: fulfillmentEngine.WarehouseCandidate[] = [
+    { id: "wh-cheap-partial", name: "Cheap Depot", shippingCostWeight: 1.0 },
+    { id: "wh-full-capacity", name: "Full Depot", shippingCostWeight: 1.5 },
+  ];
+
+  const stock = {
+    "wh-cheap-partial": 5,
+    "wh-full-capacity": 20,
+  };
+
+  const splitResult = fulfillmentEngine.splitLine(15, warehouses, stock);
+  assert.equal(splitResult.allocatedQuantity, 15, "Should allocate all 15 units");
+  assert.equal(splitResult.backorderQuantity, 0, "Zero backorder");
+  assert.equal(splitResult.allocations.length, 1, "Should prefer single shipment over multi-parcel split");
+  assert.equal(
+    splitResult.allocations[0]?.warehouseId,
+    "wh-full-capacity",
+    "100% capacity warehouse should be picked first to prevent parcel fragmentation"
+  );
+  assert.equal(splitResult.allocations[0]?.quantity, 15, "Full 15 units allocated from wh-full-capacity");
+});
+
+test("Suite 8: Deficit Shortage & Backorder Allocation", async () => {
+  const warehouses: fulfillmentEngine.WarehouseCandidate[] = [
+    { id: "wh-1", name: "Depot 1", shippingCostWeight: 1.0 },
+    { id: "wh-2", name: "Depot 2", shippingCostWeight: 1.2 },
+  ];
+
+  // Total available = 4 + 3 = 7 units. Demand = 10 units.
+  const stock = {
+    "wh-1": 4,
+    "wh-2": 3,
+  };
+
+  const splitResult = fulfillmentEngine.splitLine(10, warehouses, stock);
+  assert.equal(splitResult.allocatedQuantity, 7, "Should allocate all 7 available units");
+  assert.equal(splitResult.backorderQuantity, 3, "Shortage of 3 units should be flagged for backorder");
+  assert.equal(splitResult.estimatedShipmentCount, 2, "2 shipments required for split depots");
+});
+
+test("Suite 9: Mid-Cycle Subscription Proration Schedule & Cancellation Refunds", async () => {
+  const periodStart = new Date("2026-09-01T00:00:00Z");
+  const periodEnd = new Date("2026-10-01T00:00:00Z"); // 30 days
+  const changeDate = new Date("2026-09-16T00:00:00Z"); // 15 days elapsed, 15 days remaining
+
+  // Expansion: Upgrade from 10 seats to 20 seats ($50/seat)
+  const expansionSchedule = billingEngine.calculateProrationSchedule(
+    10,
+    20,
+    50,
+    periodStart,
+    periodEnd,
+    changeDate
+  );
+
+  assert.equal(expansionSchedule.deltaQuantity, 10, "Delta seats = +10");
+  assert.equal(expansionSchedule.isExpansion, true, "Is expansion");
+  assert.equal(expansionSchedule.adjustmentType, "INVOICE", "Expansion generates INVOICE");
+  assert.equal(expansionSchedule.proratedAmount, 250, "Prorated charge: 10 seats * $50 * (15/30) = $250");
+
+  // Reduction: Downgrade from 20 seats to 12 seats ($50/seat)
+  const reductionSchedule = billingEngine.calculateProrationSchedule(
+    20,
+    12,
+    50,
+    periodStart,
+    periodEnd,
+    changeDate
+  );
+
+  assert.equal(reductionSchedule.deltaQuantity, -8, "Delta seats = -8");
+  assert.equal(reductionSchedule.isReduction, true, "Is reduction");
+  assert.equal(reductionSchedule.adjustmentType, "CREDIT_NOTE", "Reduction generates CREDIT_NOTE");
+  assert.equal(reductionSchedule.proratedAmount, -200, "Prorated credit: -8 seats * $50 * (15/30) = -$200");
+
+  // Refund on cancellation
+  const proratedRefund = billingEngine.refund(1000, 15, 30, "PRORATED");
+  assert.equal(proratedRefund, 500, "Half-cycle refund should be $500");
+
+  const fullRefund = billingEngine.refund(1000, 15, 30, "FULL");
+  assert.equal(fullRefund, 1000, "Full refund should be $1000");
+
+  const noRefund = billingEngine.refund(1000, 15, 30, "NO_REFUND");
+  assert.equal(noRefund, 0, "No refund should be $0");
+});
+

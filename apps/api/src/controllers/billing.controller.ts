@@ -4,6 +4,39 @@ import type { TenantRequest } from "../middleware/tenant.js";
 import * as billingService from "../services/billing.service.js";
 
 // =============================================================================
+// Phase 3: Hybrid Invoicing & Subscriptions (POST /api/billing/generate)
+// =============================================================================
+
+export const generateHybridBilling = asyncHandler(
+  async (req: TenantRequest, res: Response) => {
+    const result = await billingService.generateHybridBilling(
+      req.orgId,
+      req.body
+    );
+    return res.status(200).json({
+      success: true,
+      message: "Hybrid billing and subscription entities generated successfully.",
+      data: result,
+    });
+  }
+);
+
+export const generateShipmentInvoice = asyncHandler(
+  async (req: TenantRequest, res: Response) => {
+    const shipmentId = req.params.id || req.body.shipmentId;
+    const result = await billingService.generateShipmentInvoice(
+      req.orgId,
+      shipmentId as string
+    );
+    return res.status(200).json({
+      success: true,
+      message: "Fulfillment shipment invoice generated successfully.",
+      data: result,
+    });
+  }
+);
+
+// =============================================================================
 // Quotation Confirmation (Hybrid Invoicing Trigger)
 // =============================================================================
 
@@ -38,25 +71,20 @@ export const getSubscription = asyncHandler(
 
 export const listSubscriptions = asyncHandler(
   async (req: TenantRequest, res: Response) => {
-    const result = await billingService.listSubscriptions(
+    const subscriptions = await billingService.listSubscriptions(
       req.orgId,
       req.query as any
     );
     return res.json({
       success: true,
-      data: result.subscriptions,
-      meta: {
-        total: result.total,
-        page: result.page,
-        totalPages: result.totalPages,
-      },
+      data: subscriptions,
     });
   }
 );
 
 export const updateSubscriptionLine = asyncHandler(
   async (req: TenantRequest, res: Response) => {
-    const result = await billingService.updateSubscriptionLineQuantity(
+    const result = await billingService.updateSubscriptionLine(
       req.orgId,
       req.params.id as string,
       req.params.lineId as string,
@@ -64,12 +92,7 @@ export const updateSubscriptionLine = asyncHandler(
     );
     return res.json({
       success: true,
-      message:
-        result.proratedDelta > 0
-          ? "Seat count increased. Prorated adjustment invoice issued."
-          : result.proratedDelta < 0
-            ? "Seat count reduced. Credit note issued for unused fraction."
-            : "No quantity change.",
+      message: result.message,
       data: result,
     });
   }
@@ -96,20 +119,13 @@ export const cancelSubscription = asyncHandler(
 
 export const listInvoices = asyncHandler(
   async (req: TenantRequest, res: Response) => {
-    const result = await billingService.listInvoices(
+    const invoices = await billingService.listInvoices(
       req.orgId,
-      req.query as any,
-      req.user?.role,
-      req.user?.customerProfile?.id
+      req.query as any
     );
     return res.json({
       success: true,
-      data: result.invoices,
-      meta: {
-        total: result.total,
-        page: result.page,
-        totalPages: result.totalPages,
-      },
+      data: invoices,
     });
   }
 );
@@ -118,9 +134,7 @@ export const getInvoice = asyncHandler(
   async (req: TenantRequest, res: Response) => {
     const invoice = await billingService.getInvoiceById(
       req.orgId,
-      req.params.id as string,
-      req.user?.role,
-      req.user?.customerProfile?.id
+      req.params.id as string
     );
     return res.json({ success: true, data: invoice });
   }
@@ -150,20 +164,13 @@ export const recordPayment = asyncHandler(
 
 export const listCreditNotes = asyncHandler(
   async (req: TenantRequest, res: Response) => {
-    const result = await billingService.listCreditNotes(
+    const creditNotes = await billingService.listCreditNotes(
       req.orgId,
-      req.query as any,
-      req.user?.role,
-      req.user?.customerProfile?.id
+      req.query as any
     );
     return res.json({
       success: true,
-      data: result.creditNotes,
-      meta: {
-        total: result.total,
-        page: result.page,
-        totalPages: result.totalPages,
-      },
+      data: creditNotes,
     });
   }
 );

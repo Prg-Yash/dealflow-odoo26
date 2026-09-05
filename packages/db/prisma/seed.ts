@@ -181,6 +181,7 @@ async function main() {
     },
   ];
 
+  const createdUsers: Record<string, any> = {};
   for (const u of seedUsers) {
     const user = await prisma.user.upsert({
       where: { email: u.email },
@@ -199,16 +200,18 @@ async function main() {
         emailVerified: true,
       },
     });
+    createdUsers[u.email] = user;
+    createdUsers[u.id] = user;
 
     await prisma.account.upsert({
-      where: { id: `acc-${u.id}` },
+      where: { id: `acc-${user.id}` },
       update: {
         password: hashedPassword,
         userId: user.id,
         issuer: "local:credential",
       },
       create: {
-        id: `acc-${u.id}`,
+        id: `acc-${user.id}`,
         accountId: user.id,
         providerId: "credential",
         issuer: "local:credential",
@@ -222,8 +225,13 @@ async function main() {
 
   // 5. Staff Role Profiles & Hierarchy
   console.log("\n[4/8] Configuring Staff Profiles & Hierarchy...");
+  const managerUser = createdUsers["manager.elena@dealflow360.com"] || createdUsers["usr-mgr-01"];
+  const repAlexUser = createdUsers["rep.alex@dealflow360.com"] || createdUsers["usr-rep-01"];
+  const repSarahUser = createdUsers["rep.sarah@dealflow360.com"] || createdUsers["usr-rep-02"];
+  const financeUser = createdUsers["finance.marcus@dealflow360.com"] || createdUsers["usr-fin-01"];
+
   const salesManager = await prisma.salesManager.upsert({
-    where: { userId: "usr-mgr-01" },
+    where: { userId: managerUser.id },
     update: {
       organizationId: org.id,
       department: "Enterprise Solutions",
@@ -231,7 +239,7 @@ async function main() {
     },
     create: {
       id: "sm-01",
-      userId: "usr-mgr-01",
+      userId: managerUser.id,
       organizationId: org.id,
       department: "Enterprise Solutions",
       approvalThreshold: 15.0,
@@ -239,7 +247,7 @@ async function main() {
   });
 
   const salesRepAlex = await prisma.salesRepresentative.upsert({
-    where: { userId: "usr-rep-01" },
+    where: { userId: repAlexUser.id },
     update: {
       organizationId: org.id,
       managerId: salesManager.id,
@@ -249,7 +257,7 @@ async function main() {
     },
     create: {
       id: "sr-alex",
-      userId: "usr-rep-01",
+      userId: repAlexUser.id,
       organizationId: org.id,
       managerId: salesManager.id,
       commissionRate: 8.5,
@@ -259,7 +267,7 @@ async function main() {
   });
 
   const salesRepSarah = await prisma.salesRepresentative.upsert({
-    where: { userId: "usr-rep-02" },
+    where: { userId: repSarahUser.id },
     update: {
       organizationId: org.id,
       managerId: salesManager.id,
@@ -269,7 +277,7 @@ async function main() {
     },
     create: {
       id: "sr-sarah",
-      userId: "usr-rep-02",
+      userId: repSarahUser.id,
       organizationId: org.id,
       managerId: salesManager.id,
       commissionRate: 9.0,
@@ -279,7 +287,7 @@ async function main() {
   });
 
   await prisma.financeOpsUser.upsert({
-    where: { userId: "usr-fin-01" },
+    where: { userId: financeUser.id },
     update: {
       organizationId: org.id,
       department: "Global Revenue Operations",
@@ -289,7 +297,7 @@ async function main() {
     },
     create: {
       id: "fin-01",
-      userId: "usr-fin-01",
+      userId: financeUser.id,
       organizationId: org.id,
       department: "Global Revenue Operations",
       canApproveHighRisk: true,
@@ -312,7 +320,7 @@ async function main() {
       paymentTerms: "Net 30",
       tierId: tiers.GOLD.id,
       salesRepId: salesRepAlex.id,
-      portalUserId: "usr-cust-01",
+      portalUserId: createdUsers["buyer@acmecorp.com"]?.id ?? null,
       billingAddress: "100 Enterprise Blvd, Suite 400, Chicago, IL 60601",
       shippingAddress: "100 Enterprise Blvd, Dock B, Chicago, IL 60601",
     },
@@ -326,7 +334,7 @@ async function main() {
       paymentTerms: "Net 30",
       tierId: tiers.SILVER.id,
       salesRepId: salesRepSarah.id,
-      portalUserId: "usr-cust-02",
+      portalUserId: createdUsers["procurement@betaindustries.com"]?.id ?? null,
       billingAddress: "450 Innovation Parkway, Austin, TX 78701",
       shippingAddress: "450 Innovation Parkway, Receiving Dock, Austin, TX 78701",
     },
@@ -340,6 +348,7 @@ async function main() {
       paymentTerms: "Due on Receipt",
       tierId: tiers.BRONZE.id,
       salesRepId: salesRepAlex.id,
+      portalUserId: null,
       billingAddress: "78 Wall Street, 22nd Floor, New York, NY 10005",
       shippingAddress: "78 Wall Street, New York, NY 10005",
     },
@@ -353,7 +362,7 @@ async function main() {
       paymentTerms: "Net 60",
       tierId: tiers.PLATINUM.id,
       salesRepId: salesRepSarah.id,
-      portalUserId: "usr-cust-04",
+      portalUserId: createdUsers["finance@quantumleaplabs.ai"]?.id ?? null,
       billingAddress: "1200 Silicon Way, Palo Alto, CA 94301",
       shippingAddress: "1200 Silicon Way, Tech Dock 4, Palo Alto, CA 94301",
     },
@@ -638,33 +647,42 @@ async function main() {
 
   const products: Record<string, any> = {};
   for (const p of productsData) {
-    products[p.sku] = await prisma.product.upsert({
-      where: { organizationId_sku: { organizationId: org.id, sku: p.sku } },
-      update: {
-        name: p.name,
-        description: p.description,
-        categoryId: p.categoryId,
-        basePrice: p.basePrice,
-        costPrice: p.costPrice,
-        unit: p.unit,
-        taxRate: p.taxRate,
-        isPromoted: p.isPromoted,
-        isActive: true,
-      },
-      create: {
-        sku: p.sku,
-        name: p.name,
-        description: p.description,
-        categoryId: p.categoryId,
-        basePrice: p.basePrice,
-        costPrice: p.costPrice,
-        unit: p.unit,
-        taxRate: p.taxRate,
-        isPromoted: p.isPromoted,
-        organizationId: org.id,
-        isActive: true,
-      },
+    const existing = await prisma.product.findFirst({
+      where: { organizationId: org.id, sku: p.sku },
     });
+
+    if (existing) {
+      products[p.sku] = await prisma.product.update({
+        where: { id: existing.id },
+        data: {
+          name: p.name,
+          description: p.description,
+          categoryId: p.categoryId,
+          basePrice: p.basePrice,
+          costPrice: p.costPrice,
+          unit: p.unit,
+          taxRate: p.taxRate,
+          isPromoted: p.isPromoted,
+          isActive: true,
+        },
+      });
+    } else {
+      products[p.sku] = await prisma.product.create({
+        data: {
+          sku: p.sku,
+          name: p.name,
+          description: p.description,
+          categoryId: p.categoryId,
+          basePrice: p.basePrice,
+          costPrice: p.costPrice,
+          unit: p.unit,
+          taxRate: p.taxRate,
+          isPromoted: p.isPromoted,
+          organizationId: org.id,
+          isActive: true,
+        },
+      });
+    }
   }
 
   // Stock Quantities (Enabling split fulfillment demonstration)

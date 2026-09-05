@@ -237,7 +237,7 @@ export function useSubmitPortalComment(portalToken: string) {
 /**
  * Mutation: Customer confirms quotation with one click
  */
-export function useConfirmQuotation(portalToken: string) {
+export function useConfirmPortalQuotation(portalToken: string) {
   const queryClient = useQueryClient();
 
   return useMutation({

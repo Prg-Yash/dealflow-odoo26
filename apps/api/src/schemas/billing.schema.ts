@@ -20,6 +20,7 @@ export const UpdateSubscriptionLineSchema = z.object({
 
 export const CancelSubscriptionSchema = z.object({
   refundRule: z.enum(["PRORATED", "FULL", "NO_REFUND"]).optional().default("PRORATED"),
+  reason: z.string().optional(),
   notes: z.string().optional(),
   asOfDate: z.coerce.date().optional(),
 });
@@ -35,6 +36,7 @@ export const RecordPaymentSchema = z.object({
 export const QueryInvoicesSchema = z.object({
   customerId: z.string().optional(),
   subscriptionId: z.string().optional(),
+  quotationId: z.string().optional(),
   status: z.nativeEnum(InvoiceStatus).optional(),
   page: z.coerce.number().int().positive().optional().default(1),
   limit: z.coerce.number().int().positive().max(100).optional().default(20),

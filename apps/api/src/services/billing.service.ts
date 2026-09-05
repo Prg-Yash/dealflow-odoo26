@@ -7,10 +7,16 @@ import {
   InvoiceStatus,
   CreditNoteStatus,
   PaymentStatus,
-  UserRole,
+  ShipmentStatus,
+  type Prisma,
 } from "@repo/db";
 import { AppError } from "../middleware/error.js";
-import { prorate, refund, calculateMrrArr } from "../lib/billing-engine.js";
+import {
+  prorate,
+  calculateProrationSchedule,
+  refund,
+  calculateMrrArr,
+} from "../lib/billing-engine.js";
 import type {
   ConfirmQuotationInput,
   UpdateSubscriptionLineInput,
@@ -24,21 +30,21 @@ import type {
 // Helper ID / Number Generators
 // =============================================================================
 
-async function generateSubscriptionNumber(): Promise<string> {
+export async function generateSubscriptionNumber(): Promise<string> {
   const count = await prisma.subscription.count();
   const year = new Date().getFullYear();
   const rand = Math.floor(1000 + Math.random() * 9000);
   return `SUB-${year}-${String(count + 1).padStart(4, "0")}-${rand}`;
 }
 
-async function generateInvoiceNumber(): Promise<string> {
+export async function generateInvoiceNumber(): Promise<string> {
   const count = await prisma.invoice.count();
   const year = new Date().getFullYear();
   const rand = Math.floor(1000 + Math.random() * 9000);
   return `INV-${year}-${String(count + 1).padStart(4, "0")}-${rand}`;
 }
 
-async function generateCreditNoteNumber(): Promise<string> {
+export async function generateCreditNoteNumber(): Promise<string> {
   const count = await prisma.creditNote.count();
   const year = new Date().getFullYear();
   const rand = Math.floor(1000 + Math.random() * 9000);
@@ -62,14 +68,31 @@ function calculateCycleEnd(start: Date, interval: BillingInterval): Date {
 }
 
 // =============================================================================
-// Quotation Confirmation & Hybrid Invoicing
+// Phase 3: Hybrid Invoicing & Subscriptions (Decoupled Billing Engine)
 // =============================================================================
 
-export async function confirmQuotation(
+export interface GenerateHybridBillingInput {
+  quotationId: string;
+  billingInterval?: BillingInterval;
+  startDate?: Date;
+  notes?: string;
+}
+
+/**
+ * Phase 3: Decouple physical goods from recurring SaaS contracts.
+ *
+ * 1. Separation: Identifies all QuotationLine items with itemType === "SUBSCRIPTION".
+ *    Creates a Subscription record and SubscriptionLine records immediately upon order confirmation.
+ * 2. Invoicing Decoupling: For recurring SaaS, generates initial cycle recurring invoice.
+ *    For physical HARDWARE goods, does NOT invoice immediately; instead waits for shipment dispatch.
+ * 3. One-Time Services: Invoices one-time professional services (if any exist).
+ */
+export async function generateHybridBilling(
   orgId: string,
-  quotationId: string,
-  input?: ConfirmQuotationInput
+  input: GenerateHybridBillingInput
 ) {
+  const { quotationId, notes } = input;
+
   const quotation = await prisma.quotation.findFirst({
     where: { id: quotationId, organizationId: orgId },
     include: {
@@ -86,240 +109,398 @@ export async function confirmQuotation(
   }
 
   if (quotation.lines.length === 0) {
-    throw new AppError(400, "EMPTY_QUOTATION", "Cannot confirm quotation with no lines.");
+    throw new AppError(400, "EMPTY_QUOTATION", "Cannot generate billing for quotation with no lines.");
   }
 
-  // Allow confirmation from valid active stages
-  if (quotation.stage === QuoteStage.CANCELLED) {
-    throw new AppError(400, "INVALID_STAGE", "Cannot confirm a cancelled quotation.");
-  }
-
-  // Idempotency check: if already confirmed, check existing records
-  if (quotation.stage === QuoteStage.CONFIRMED) {
-    const existingSubscription = await prisma.subscription.findFirst({
-      where: { quotationId, organizationId: orgId },
-      include: { lines: true },
-    });
-    const existingInvoice = await prisma.invoice.findFirst({
-      where: { quotationId, organizationId: orgId },
-      include: { lines: true },
-    });
-    if (existingSubscription || existingInvoice) {
-      return {
-        quotation,
-        subscription: existingSubscription,
-        invoice: existingInvoice,
-      };
-    }
-  }
-
-  // Separate recurring vs one-time lines
+  // Separate recurring vs physical hardware vs one-time services
   const recurringLines = quotation.lines.filter(
     (line) => line.itemType === CategoryType.SUBSCRIPTION
   );
-  const oneTimeLines = quotation.lines.filter(
-    (line) =>
-      line.itemType === CategoryType.HARDWARE ||
-      line.itemType === CategoryType.SERVICE
+  const hardwareLines = quotation.lines.filter(
+    (line) => line.itemType === CategoryType.HARDWARE
+  );
+  const serviceLines = quotation.lines.filter(
+    (line) => line.itemType === CategoryType.SERVICE
   );
 
-  const billingInterval = input?.billingInterval ?? BillingInterval.MONTHLY;
-  const startDate = input?.startDate ?? new Date();
+  const billingInterval = input.billingInterval ?? BillingInterval.MONTHLY;
+  const startDate = input.startDate ?? new Date();
   const endDate = calculateCycleEnd(startDate, billingInterval);
 
-  let subscriptionNumber = "";
-  if (recurringLines.length > 0) {
-    subscriptionNumber = await generateSubscriptionNumber();
-  }
-
-  let invoiceNumber = "";
-  if (oneTimeLines.length > 0) {
-    invoiceNumber = await generateInvoiceNumber();
-  }
-
   return prisma.$transaction(async (tx) => {
-    // 1. Update quotation to CONFIRMED
-    const updatedQuotation = await tx.quotation.update({
-      where: { id: quotationId },
-      data: { stage: QuoteStage.CONFIRMED },
-    });
-
     let createdSubscription = null;
-    let createdInvoice = null;
+    let createdSaaSInvoice = null;
+    let createdServiceInvoice = null;
 
-    // 2. Create Subscription for recurring lines
+    // 1. Create Subscription for recurring SaaS lines immediately
     if (recurringLines.length > 0) {
-      const totalRecurringAmount = recurringLines.reduce(
-        (sum, line) => sum + line.netPrice,
-        0
-      );
-      const { mrr, arr } = calculateMrrArr(totalRecurringAmount, billingInterval);
-
-      createdSubscription = await tx.subscription.create({
-        data: {
-          subscriptionNumber,
-          quotationId: quotation.id,
-          customerId: quotation.customerId,
-          organizationId: orgId,
-          status: SubscriptionStatus.ACTIVE,
-          billingInterval,
-          currentPeriodStart: startDate,
-          currentPeriodEnd: endDate,
-          nextBillingDate: endDate,
-          currentMrr: mrr,
-          currentArr: arr,
-          notes: input?.notes ?? `Created from Quotation ${quotation.quoteNumber}`,
-          lines: {
-            create: recurringLines.map((line) => ({
-              quotationLineId: line.id,
-              productId: line.productId,
-              variantId: line.variantId,
-              quantity: line.quantity,
-              unitPrice: line.unitPrice,
-              discountPercent: line.discountPercent,
-              recurringAmount: line.netPrice,
-            })),
-          },
-        },
-        include: {
-          lines: { include: { product: true, variant: true } },
-          customer: true,
-        },
+      const existingSub = await tx.subscription.findFirst({
+        where: { quotationId: quotation.id, organizationId: orgId },
+        include: { lines: true },
       });
+
+      if (!existingSub) {
+        const subscriptionNumber = await generateSubscriptionNumber();
+
+        let recurringTotal = 0;
+        const subLinesData = recurringLines.map((line) => {
+          const gross = line.unitPrice * line.quantity;
+          const discount = gross * (line.discountPercent / 100);
+          const recurringAmount = gross - discount;
+          recurringTotal += recurringAmount;
+
+          return {
+            quotationLineId: line.id,
+            productId: line.productId,
+            variantId: line.variantId,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            discountPercent: line.discountPercent,
+            recurringAmount: Math.round(recurringAmount * 100) / 100,
+          };
+        });
+
+        const { mrr, arr } = calculateMrrArr(recurringTotal, billingInterval);
+
+        createdSubscription = await tx.subscription.create({
+          data: {
+            subscriptionNumber,
+            quotationId: quotation.id,
+            customerId: quotation.customerId,
+            organizationId: orgId,
+            status: SubscriptionStatus.ACTIVE,
+            billingInterval,
+            currentPeriodStart: startDate,
+            currentPeriodEnd: endDate,
+            nextBillingDate: endDate,
+            currentMrr: mrr,
+            currentArr: arr,
+            autoRenew: true,
+            notes: notes || `SaaS subscription agreement for quotation ${quotation.quoteNumber}`,
+            lines: {
+              create: subLinesData,
+            },
+          },
+          include: { lines: true },
+        });
+
+        // Generate Period 1 SaaS invoice
+        const saasInvoiceNumber = await generateInvoiceNumber();
+        const subtotal = Math.round(recurringTotal * 100) / 100;
+        const net15DueDate = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000);
+
+        createdSaaSInvoice = await tx.invoice.create({
+          data: {
+            invoiceNumber: saasInvoiceNumber,
+            quotationId: quotation.id,
+            subscriptionId: createdSubscription.id,
+            customerId: quotation.customerId,
+            organizationId: orgId,
+            status: InvoiceStatus.ISSUED,
+            issueDate: new Date(),
+            dueDate: net15DueDate,
+            paymentTerms: "Net 15",
+            subtotal,
+            discountTotal: 0.0,
+            taxTotal: 0.0,
+            totalAmount: subtotal,
+            amountPaid: 0.0,
+            amountRemaining: subtotal,
+            notes: `Recurring SaaS invoice (Period 1: ${billingInterval}).`,
+            lines: {
+              create: recurringLines.map((line) => {
+                const gross = line.unitPrice * line.quantity;
+                const discount = gross * (line.discountPercent / 100);
+                const net = gross - discount;
+                return {
+                  quotationLineId: line.id,
+                  productId: line.productId,
+                  variantId: line.variantId,
+                  description: line.description || line.product.name,
+                  quantity: line.quantity,
+                  unitPrice: line.unitPrice,
+                  discountPercent: line.discountPercent,
+                  totalAmount: Math.round(net * 100) / 100,
+                  isRecurring: true,
+                };
+              }),
+            },
+          },
+          include: { lines: true },
+        });
+      } else {
+        createdSubscription = existingSub;
+      }
     }
 
-    // 3. Create Invoice for one-time lines
-    if (oneTimeLines.length > 0) {
-      const subtotal = oneTimeLines.reduce(
-        (sum, line) => sum + line.unitPrice * line.quantity,
-        0
-      );
-      const discountTotal = oneTimeLines.reduce(
-        (sum, line) => sum + line.discountAmount,
-        0
-      );
-      const totalAmount = oneTimeLines.reduce((sum, line) => sum + line.netPrice, 0);
-
-      const issueDate = new Date();
-      const dueDate = new Date(issueDate.getTime());
-      dueDate.setDate(dueDate.getDate() + 30);
-
-      createdInvoice = await tx.invoice.create({
-        data: {
-          invoiceNumber,
-          quotationId: quotation.id,
-          customerId: quotation.customerId,
-          organizationId: orgId,
-          status: InvoiceStatus.ISSUED,
-          issueDate,
-          dueDate,
-          paymentTerms: input?.paymentTerms ?? "Net 30",
-          subtotal: Math.round(subtotal * 100) / 100,
-          discountTotal: Math.round(discountTotal * 100) / 100,
-          taxTotal: 0,
-          totalAmount: Math.round(totalAmount * 100) / 100,
-          amountPaid: 0,
-          amountRemaining: Math.round(totalAmount * 100) / 100,
-          notes: `One-time invoice for Quotation ${quotation.quoteNumber}`,
-          lines: {
-            create: oneTimeLines.map((line) => ({
-              quotationLineId: line.id,
-              productId: line.productId,
-              variantId: line.variantId,
-              description:
-                line.description || line.product.name || "One-time item",
-              quantity: line.quantity,
-              unitPrice: line.unitPrice,
-              discountPercent: line.discountPercent,
-              totalAmount: line.netPrice,
-              isRecurring: false,
-            })),
-          },
-        },
-        include: {
-          lines: { include: { product: true, variant: true } },
-          customer: true,
-        },
+    // 2. One-Time Professional Services Invoicing (if any exist)
+    if (serviceLines.length > 0) {
+      const existingServiceInv = await tx.invoice.findFirst({
+        where: { quotationId: quotation.id, subscriptionId: null, notes: { contains: "Professional Services" } },
       });
+
+      if (!existingServiceInv) {
+        const serviceInvoiceNumber = await generateInvoiceNumber();
+        let serviceSubtotal = 0;
+        let serviceDiscountTotal = 0;
+
+        for (const line of serviceLines) {
+          const gross = line.unitPrice * line.quantity;
+          const discount = gross * (line.discountPercent / 100);
+          serviceSubtotal += gross;
+          serviceDiscountTotal += discount;
+        }
+
+        const serviceTotal = Math.round((serviceSubtotal - serviceDiscountTotal) * 100) / 100;
+        const net30DueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+        createdServiceInvoice = await tx.invoice.create({
+          data: {
+            invoiceNumber: serviceInvoiceNumber,
+            quotationId: quotation.id,
+            customerId: quotation.customerId,
+            organizationId: orgId,
+            status: InvoiceStatus.ISSUED,
+            issueDate: new Date(),
+            dueDate: net30DueDate,
+            paymentTerms: "Net 30",
+            subtotal: Math.round(serviceSubtotal * 100) / 100,
+            discountTotal: Math.round(serviceDiscountTotal * 100) / 100,
+            taxTotal: 0.0,
+            totalAmount: serviceTotal,
+            amountPaid: 0.0,
+            amountRemaining: serviceTotal,
+            notes: `Commercial invoice for Professional Services on quotation ${quotation.quoteNumber}.`,
+            lines: {
+              create: serviceLines.map((line) => {
+                const gross = line.unitPrice * line.quantity;
+                const discount = gross * (line.discountPercent / 100);
+                const net = gross - discount;
+                return {
+                  quotationLineId: line.id,
+                  productId: line.productId,
+                  variantId: line.variantId,
+                  description: line.description || line.product.name,
+                  quantity: line.quantity,
+                  unitPrice: line.unitPrice,
+                  discountPercent: line.discountPercent,
+                  totalAmount: Math.round(net * 100) / 100,
+                  isRecurring: false,
+                };
+              }),
+            },
+          },
+          include: { lines: true },
+        });
+      } else {
+        createdServiceInvoice = existingServiceInv;
+      }
     }
 
     return {
-      quotation: updatedQuotation,
+      message: "Hybrid billing generated successfully.",
       subscription: createdSubscription,
-      invoice: createdInvoice,
+      saasInvoice: createdSaaSInvoice,
+      serviceInvoice: createdServiceInvoice,
+      physicalGoodsSummary: {
+        hardwareLinesCount: hardwareLines.length,
+        invoicingPolicy: "Fulfillment-Triggered Invoicing: Physical goods will be invoiced upon shipment dispatch (SHIPPED status).",
+      },
     };
   });
 }
 
 // =============================================================================
-// Subscription Management & Proration
+// Phase 3: Fulfillment-Triggered Invoicing for Physical Goods
 // =============================================================================
 
-export async function getSubscriptionById(orgId: string, subscriptionId: string) {
-  const subscription = await prisma.subscription.findFirst({
-    where: { id: subscriptionId, organizationId: orgId },
+/**
+ * Generates an Invoice and InvoiceLines strictly for physical hardware items
+ * contained in a dispatched Shipment package (triggered on SHIPPED status).
+ *
+ * Any unfulfilled items sitting in Backorder remain un-invoiced until dispatched.
+ */
+export async function generateShipmentInvoice(orgId: string, shipmentId: string) {
+  const shipment = await prisma.shipment.findFirst({
+    where: { id: shipmentId },
     include: {
-      customer: true,
+      fulfillmentOrder: {
+        include: {
+          quotation: {
+            include: { customer: true, lines: true },
+          },
+        },
+      },
       lines: {
-        include: { product: true, variant: true },
+        include: {
+          product: true,
+          quotationLine: true,
+        },
       },
-      invoices: {
-        include: { lines: true, payments: true },
-        orderBy: { createdAt: "desc" },
-      },
-      creditNotes: {
-        orderBy: { createdAt: "desc" },
-      },
+      warehouse: true,
     },
   });
 
-  if (!subscription) {
-    throw new AppError(404, "NOT_FOUND", "Subscription not found.");
+  if (!shipment || shipment.fulfillmentOrder.organizationId !== orgId) {
+    throw new AppError(404, "NOT_FOUND", "Shipment not found.");
   }
 
-  return subscription;
-}
-
-export async function listSubscriptions(
-  orgId: string,
-  query?: {
-    customerId?: string;
-    status?: SubscriptionStatus;
-    page?: number;
-    limit?: number;
+  if (
+    shipment.status !== ShipmentStatus.SHIPPED &&
+    shipment.status !== ShipmentStatus.DELIVERED
+  ) {
+    throw new AppError(
+      400,
+      "INVALID_SHIPMENT_STATUS",
+      `Invoices can only be generated for SHIPPED or DELIVERED shipments (current status: ${shipment.status}).`
+    );
   }
-) {
-  const page = query?.page ?? 1;
-  const limit = query?.limit ?? 20;
-  const skip = (page - 1) * limit;
 
-  const where: any = { organizationId: orgId };
-  if (query?.customerId) where.customerId = query.customerId;
-  if (query?.status) where.status = query.status;
+  // Check if invoice for this shipment package already exists
+  const existingInv = await prisma.invoice.findFirst({
+    where: {
+      quotationId: shipment.fulfillmentOrder.quotationId,
+      organizationId: orgId,
+      notes: { contains: shipment.shipmentNumber },
+    },
+    include: { lines: true },
+  });
 
-  const [total, subscriptions] = await Promise.all([
-    prisma.subscription.count({ where }),
-    prisma.subscription.findMany({
-      where,
-      include: {
-        customer: true,
-        lines: { include: { product: true } },
+  if (existingInv) {
+    return {
+      message: "Invoice already exists for this shipment package.",
+      invoice: existingInv,
+    };
+  }
+
+  const invoiceNumber = await generateInvoiceNumber();
+  const net30DueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+  let subtotal = 0;
+  let discountTotal = 0;
+  const invoiceLinesData = [];
+
+  for (const shipLine of shipment.lines) {
+    const qLine = shipLine.quotationLine;
+    const unitPrice = qLine?.unitPrice ?? 0;
+    const discountPercent = qLine?.discountPercent ?? 0;
+    const gross = unitPrice * shipLine.quantity;
+    const discount = gross * (discountPercent / 100);
+    const net = gross - discount;
+
+    subtotal += gross;
+    discountTotal += discount;
+
+    invoiceLinesData.push({
+      quotationLineId: shipLine.quotationLineId,
+      productId: shipLine.productId,
+      variantId: shipLine.variantId,
+      description: `[Dispatched from ${shipment.warehouse.name}] ${shipLine.product.name} (Shipment: ${shipment.shipmentNumber})`,
+      quantity: shipLine.quantity,
+      unitPrice,
+      discountPercent,
+      totalAmount: Math.round(net * 100) / 100,
+      isRecurring: false,
+    });
+  }
+
+  const totalAmount = Math.round((subtotal - discountTotal) * 100) / 100;
+
+  const invoice = await prisma.invoice.create({
+    data: {
+      invoiceNumber,
+      quotationId: shipment.fulfillmentOrder.quotationId,
+      customerId: shipment.fulfillmentOrder.quotation.customerId,
+      organizationId: orgId,
+      status: InvoiceStatus.ISSUED,
+      issueDate: new Date(),
+      dueDate: net30DueDate,
+      paymentTerms: "Net 30",
+      subtotal: Math.round(subtotal * 100) / 100,
+      discountTotal: Math.round(discountTotal * 100) / 100,
+      taxTotal: 0.0,
+      totalAmount,
+      amountPaid: 0.0,
+      amountRemaining: totalAmount,
+      notes: `Fulfillment-Triggered invoice for dispatched shipment ${shipment.shipmentNumber} (Carrier: ${shipment.carrier || "Standard Freight"}, Tracking: ${shipment.trackingNumber || "N/A"}).`,
+      lines: {
+        create: invoiceLinesData,
       },
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: limit,
-    }),
-  ]);
+    },
+    include: { lines: true },
+  });
 
   return {
-    subscriptions,
-    total,
-    page,
-    totalPages: Math.ceil(total / limit),
+    message: `Fulfillment invoice ${invoice.invoiceNumber} generated successfully for shipment ${shipment.shipmentNumber}.`,
+    invoice,
+    shipment: {
+      id: shipment.id,
+      shipmentNumber: shipment.shipmentNumber,
+      warehouseName: shipment.warehouse.name,
+      dispatchedItemsCount: shipment.lines.length,
+    },
   };
 }
 
-export async function updateSubscriptionLineQuantity(
+// =============================================================================
+// Quotation Confirmation (Centralized Hybrid Entrypoint)
+// =============================================================================
+
+export async function confirmQuotation(
+  orgId: string,
+  quotationId: string,
+  input?: ConfirmQuotationInput
+) {
+  // 1. Update quotation stage to CONFIRMED
+  await prisma.quotation.update({
+    where: { id: quotationId, organizationId: orgId },
+    data: { stage: QuoteStage.CONFIRMED },
+  });
+
+  // 2. Generate decoupled hybrid billing
+  const billingResult = await generateHybridBilling(orgId, {
+    quotationId,
+    billingInterval: input?.billingInterval,
+    startDate: input?.startDate,
+  });
+
+  // 3. Trigger Waterfall Auto-Split Fulfillment on hardware lines (if any exist)
+  let fulfillmentResult = null;
+  const quotationWithLines = await prisma.quotation.findFirst({
+    where: { id: quotationId, organizationId: orgId },
+    include: {
+      customer: true,
+      lines: { include: { product: true } },
+    },
+  });
+
+  const hasHardware = quotationWithLines?.lines.some(
+    (l) => l.itemType === CategoryType.HARDWARE
+  );
+
+  if (hasHardware) {
+    try {
+      const { autoSplitFulfillment } = await import("./fulfillment.service.js");
+      fulfillmentResult = await autoSplitFulfillment(orgId, { quotationId });
+    } catch (err) {
+      console.warn("Auto-split fulfillment deferred or skipped:", err);
+    }
+  }
+
+  return {
+    quotation: quotationWithLines,
+    subscription: billingResult.subscription,
+    invoice: billingResult.saasInvoice || billingResult.serviceInvoice,
+    billingSummary: billingResult,
+    fulfillment: fulfillmentResult,
+  };
+}
+
+// =============================================================================
+// Subscription Line Mid-Cycle Alterations & Proration
+// =============================================================================
+
+export async function updateSubscriptionLine(
   orgId: string,
   subscriptionId: string,
   lineId: string,
@@ -328,7 +509,8 @@ export async function updateSubscriptionLineQuantity(
   const subscription = await prisma.subscription.findFirst({
     where: { id: subscriptionId, organizationId: orgId },
     include: {
-      lines: true,
+      customer: true,
+      lines: { include: { product: true } },
     },
   });
 
@@ -339,98 +521,111 @@ export async function updateSubscriptionLineQuantity(
   if (subscription.status !== SubscriptionStatus.ACTIVE) {
     throw new AppError(
       400,
-      "INVALID_STATUS",
-      `Cannot modify subscription with status ${subscription.status}.`
+      "SUBSCRIPTION_NOT_ACTIVE",
+      `Cannot alter lines on a subscription with status: ${subscription.status}.`
     );
   }
 
   const line = subscription.lines.find((l) => l.id === lineId);
   if (!line) {
-    throw new AppError(404, "NOT_FOUND", "Subscription line not found.");
+    throw new AppError(404, "LINE_NOT_FOUND", "Subscription line not found.");
   }
 
   const oldQty = line.quantity;
   const newQty = input.quantity;
 
-  if (oldQty === newQty) {
+  if (newQty <= 0) {
+    throw new AppError(400, "INVALID_QUANTITY", "Quantity must be greater than 0.");
+  }
+
+  if (newQty === oldQty) {
     return {
+      message: "No quantity change requested.",
       subscription,
-      updatedLine: line,
-      proratedDelta: 0,
-      adjustmentInvoice: null,
-      creditNote: null,
+      proration: null,
     };
   }
 
-  // Cycle details
-  const periodStart = subscription.currentPeriodStart;
-  const periodEnd = subscription.currentPeriodEnd;
-  const cycleLengthDays = Math.max(
-    1,
-    Math.round((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24))
-  );
-
-  const asOf = input.asOfDate ?? new Date();
-  const daysElapsed = Math.max(
-    0,
-    Math.round((asOf.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24))
-  );
-
-  const effectiveUnitPrice =
-    line.unitPrice * (1 - line.discountPercent / 100);
-
-  const proratedDelta = prorate(
+  const now = new Date();
+  const prorationSchedule = calculateProrationSchedule(
     oldQty,
     newQty,
-    effectiveUnitPrice,
-    cycleLengthDays,
-    daysElapsed
+    line.unitPrice,
+    subscription.currentPeriodStart,
+    subscription.currentPeriodEnd,
+    now
   );
 
-  let newInvoiceNumber = "";
-  if (newQty > oldQty && proratedDelta > 0) {
-    newInvoiceNumber = await generateInvoiceNumber();
-  }
-
-  let newCreditNoteNumber = "";
-  if (newQty < oldQty && proratedDelta < 0) {
-    newCreditNoteNumber = await generateCreditNoteNumber();
-  }
-
   return prisma.$transaction(async (tx) => {
-    let adjustmentInvoice = null;
-    let creditNote = null;
+    // 1. Update subscription line quantity & recurring amount
+    const gross = line.unitPrice * newQty;
+    const discount = gross * (line.discountPercent / 100);
+    const newRecurringAmount = Math.round((gross - discount) * 100) / 100;
 
-    // A quantity increase creates an immediate InvoiceLine/adjustment for the prorated delta
-    if (newQty > oldQty && proratedDelta > 0) {
-      adjustmentInvoice = await tx.invoice.create({
+    const updatedLine = await tx.subscriptionLine.update({
+      where: { id: lineId },
+      data: {
+        quantity: newQty,
+        recurringAmount: newRecurringAmount,
+      },
+    });
+
+    // 2. Recalculate MRR and ARR for the entire subscription
+    const allLines = await tx.subscriptionLine.findMany({
+      where: { subscriptionId: subscription.id },
+    });
+    const totalRecurring = allLines.reduce(
+      (sum, l) => (l.id === lineId ? sum + newRecurringAmount : sum + l.recurringAmount),
+      0
+    );
+
+    const { mrr, arr } = calculateMrrArr(totalRecurring, subscription.billingInterval);
+
+    const updatedSubscription = await tx.subscription.update({
+      where: { id: subscription.id },
+      data: {
+        currentMrr: mrr,
+        currentArr: arr,
+      },
+      include: { lines: true },
+    });
+
+    let generatedInvoice = null;
+    let generatedCreditNote = null;
+
+    // 3. Issue Prorated Invoice for Seat Expansion
+    if (prorationSchedule.adjustmentType === "INVOICE") {
+      const invoiceNumber = await generateInvoiceNumber();
+      const dueDate = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000);
+
+      generatedInvoice = await tx.invoice.create({
         data: {
-          invoiceNumber: newInvoiceNumber,
+          invoiceNumber,
           subscriptionId: subscription.id,
           customerId: subscription.customerId,
           organizationId: orgId,
           status: InvoiceStatus.ISSUED,
-          issueDate: asOf,
-          dueDate: asOf,
-          paymentTerms: "Due on Receipt",
-          subtotal: proratedDelta,
-          discountTotal: 0,
-          taxTotal: 0,
-          totalAmount: proratedDelta,
-          amountPaid: 0,
-          amountRemaining: proratedDelta,
-          notes: `Prorated adjustment: +${newQty - oldQty} seats (${cycleLengthDays - daysElapsed}/${cycleLengthDays} days remaining)`,
+          issueDate: now,
+          dueDate,
+          paymentTerms: "Net 15",
+          subtotal: prorationSchedule.proratedAmount,
+          discountTotal: 0.0,
+          taxTotal: 0.0,
+          totalAmount: prorationSchedule.proratedAmount,
+          amountPaid: 0.0,
+          amountRemaining: prorationSchedule.proratedAmount,
+          notes: `Mid-cycle prorated expansion: Added ${prorationSchedule.deltaQuantity} seats of ${line.product.name} (${prorationSchedule.daysRemaining}/${prorationSchedule.cycleLengthDays} days remaining).`,
           lines: {
             create: [
               {
                 productId: line.productId,
                 variantId: line.variantId,
-                description: `Prorated seat expansion (+${newQty - oldQty} seats, ${cycleLengthDays - daysElapsed}/${cycleLengthDays} days remaining)`,
-                quantity: newQty - oldQty,
-                unitPrice: Math.round((proratedDelta / (newQty - oldQty)) * 100) / 100,
-                discountPercent: 0,
-                totalAmount: proratedDelta,
-                isRecurring: true,
+                description: `Prorated adjustment: +${prorationSchedule.deltaQuantity} ${line.product.name} seats`,
+                quantity: prorationSchedule.deltaQuantity,
+                unitPrice: line.unitPrice,
+                discountPercent: line.discountPercent,
+                totalAmount: prorationSchedule.proratedAmount,
+                isRecurring: false,
               },
             ],
           },
@@ -439,80 +634,47 @@ export async function updateSubscriptionLineQuantity(
       });
     }
 
-    // A quantity decrease creates a CreditNote via the unusedDays formula
-    if (newQty < oldQty && proratedDelta < 0) {
-      const creditAmount = Math.abs(proratedDelta);
-      creditNote = await tx.creditNote.create({
+    // 4. Issue Credit Note for Seat Reduction / Downgrade
+    if (prorationSchedule.adjustmentType === "CREDIT_NOTE") {
+      const creditNoteNumber = await generateCreditNoteNumber();
+      const creditAmount = Math.abs(prorationSchedule.proratedAmount);
+
+      generatedCreditNote = await tx.creditNote.create({
         data: {
-          creditNoteNumber: newCreditNoteNumber,
+          creditNoteNumber,
           subscriptionId: subscription.id,
           customerId: subscription.customerId,
           organizationId: orgId,
-          amount: creditAmount,
-          reason: `Mid-cycle seat reduction proration: ${oldQty} -> ${newQty} seats (${cycleLengthDays - daysElapsed}/${cycleLengthDays} days remaining)`,
           status: CreditNoteStatus.ISSUED,
+          amount: creditAmount,
+          reason: `Mid-cycle prorated reduction: Removed ${Math.abs(prorationSchedule.deltaQuantity)} seats of ${line.product.name} (${prorationSchedule.daysRemaining}/${prorationSchedule.cycleLengthDays} days remaining).`,
         },
       });
     }
 
-    // Update the subscription line
-    const updatedLineRecurringAmount = Math.round(
-      effectiveUnitPrice * newQty * 100
-    ) / 100;
-
-    const updatedLine = await tx.subscriptionLine.update({
-      where: { id: lineId },
-      data: {
-        quantity: newQty,
-        recurringAmount: updatedLineRecurringAmount,
-      },
-    });
-
-    // Recompute subscription total recurring amount, MRR, ARR
-    const allLines = subscription.lines.map((l) =>
-      l.id === lineId ? { ...l, recurringAmount: updatedLineRecurringAmount } : l
-    );
-    const newTotalRecurring = allLines.reduce(
-      (sum, l) => sum + l.recurringAmount,
-      0
-    );
-    const { mrr, arr } = calculateMrrArr(
-      newTotalRecurring,
-      subscription.billingInterval
-    );
-
-    const updatedSubscription = await tx.subscription.update({
-      where: { id: subscriptionId },
-      data: {
-        currentMrr: mrr,
-        currentArr: arr,
-      },
-      include: {
-        lines: { include: { product: true } },
-        customer: true,
-        invoices: true,
-        creditNotes: true,
-      },
-    });
-
     return {
+      message: `Subscription line updated successfully from ${oldQty} to ${newQty} seats.`,
       subscription: updatedSubscription,
       updatedLine,
-      proratedDelta,
-      adjustmentInvoice,
-      creditNote,
+      proration: prorationSchedule,
+      generatedInvoice,
+      generatedCreditNote,
     };
   });
 }
 
+// =============================================================================
+// Subscription Cancellation & Refunds
+// =============================================================================
+
 export async function cancelSubscription(
   orgId: string,
   subscriptionId: string,
-  input?: CancelSubscriptionInput
+  input: CancelSubscriptionInput
 ) {
   const subscription = await prisma.subscription.findFirst({
     where: { id: subscriptionId, organizationId: orgId },
-    include: { lines: true },
+    include: { lines: { include: { product: true } } },
   });
 
   if (!subscription) {
@@ -523,164 +685,94 @@ export async function cancelSubscription(
     throw new AppError(400, "ALREADY_CANCELLED", "Subscription is already cancelled.");
   }
 
-  const periodStart = subscription.currentPeriodStart;
-  const periodEnd = subscription.currentPeriodEnd;
-  const cycleLengthDays = Math.max(
-    1,
-    Math.round((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24))
-  );
+  const refundRule = input.refundRule ?? "PRORATED";
+  const now = new Date();
 
-  const asOf = input?.asOfDate ?? new Date();
-  const daysElapsed = Math.max(
-    0,
-    Math.round((asOf.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24))
-  );
+  const cycleLengthMs = subscription.currentPeriodEnd.getTime() - subscription.currentPeriodStart.getTime();
+  const daysInCycle = Math.max(1, Math.round(cycleLengthMs / (1000 * 60 * 60 * 24)));
+  const elapsedMs = now.getTime() - subscription.currentPeriodStart.getTime();
+  const daysElapsed = Math.max(0, Math.round(elapsedMs / (1000 * 60 * 60 * 24)));
 
-  const totalCyclePaid = subscription.lines.reduce(
-    (sum, l) => sum + l.recurringAmount,
-    0
-  );
-
-  const refundRule = input?.refundRule ?? "PRORATED";
-  const refundAmount = refund(totalCyclePaid, daysElapsed, cycleLengthDays, refundRule);
-
-  let creditNoteNumber = "";
-  if (refundAmount > 0) {
-    creditNoteNumber = await generateCreditNoteNumber();
-  }
+  const totalCycleCharge = subscription.lines.reduce((s, l) => s + l.recurringAmount, 0);
+  const refundAmount = refund(totalCycleCharge, daysElapsed, daysInCycle, refundRule);
 
   return prisma.$transaction(async (tx) => {
-    let creditNote = null;
+    const updatedSub = await tx.subscription.update({
+      where: { id: subscription.id },
+      data: {
+        status: SubscriptionStatus.CANCELLED,
+        autoRenew: false,
+        notes: `${subscription.notes ? subscription.notes + " | " : ""}Cancelled on ${now.toISOString()}. Reason: ${input.reason || input.notes || "Customer requested cancellation."}`,
+      },
+    });
 
+    let creditNote = null;
     if (refundAmount > 0) {
+      const creditNoteNumber = await generateCreditNoteNumber();
       creditNote = await tx.creditNote.create({
         data: {
           creditNoteNumber,
           subscriptionId: subscription.id,
           customerId: subscription.customerId,
           organizationId: orgId,
-          amount: refundAmount,
-          reason: `Subscription cancellation refund: ${cycleLengthDays - daysElapsed}/${cycleLengthDays} days unused (${refundRule})`,
           status: CreditNoteStatus.ISSUED,
+          amount: refundAmount,
+          reason: `Prorated refund upon cancellation (${daysInCycle - daysElapsed}/${daysInCycle} days remaining). Reason: ${input.reason || input.notes || "Subscription cancelled"}`,
         },
       });
     }
 
-    const updatedSubscription = await tx.subscription.update({
-      where: { id: subscriptionId },
-      data: {
-        status: SubscriptionStatus.CANCELLED,
-        currentMrr: 0,
-        currentArr: 0,
-        notes: [
-          subscription.notes,
-          `Cancelled on ${asOf.toISOString()}`,
-          input?.notes,
-        ]
-          .filter(Boolean)
-          .join(" | "),
-      },
-      include: {
-        lines: true,
-        creditNotes: true,
-      },
-    });
-
     return {
-      subscription: updatedSubscription,
-      creditNote,
+      message: "Subscription cancelled successfully.",
+      subscription: updatedSub,
       refundAmount,
+      creditNote,
     };
   });
 }
 
 // =============================================================================
-// Invoices CRUD & Settlements
+// Invoices & Payments Querying
 // =============================================================================
 
-export async function listInvoices(
-  orgId: string,
-  query: QueryInvoicesInput,
-  userRole?: UserRole,
-  customerProfileId?: string
-) {
-  const page = query.page ?? 1;
-  const limit = query.limit ?? 20;
-  const skip = (page - 1) * limit;
-
-  const where: any = { organizationId: orgId };
-
-  // Customer portal constraint: can only see own invoices
-  if (userRole === UserRole.CUSTOMER) {
-    if (!customerProfileId) {
-      throw new AppError(403, "FORBIDDEN", "Customer profile not linked.");
-    }
-    where.customerId = customerProfileId;
-  } else if (query.customerId) {
-    where.customerId = query.customerId;
-  }
-
-  if (query.subscriptionId) where.subscriptionId = query.subscriptionId;
-  if (query.status) where.status = query.status;
-
-  const [total, invoices] = await Promise.all([
-    prisma.invoice.count({ where }),
-    prisma.invoice.findMany({
-      where,
-      include: {
-        customer: true,
-        lines: { include: { product: true } },
-        payments: true,
-        creditNotes: true,
-      },
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: limit,
-    }),
-  ]);
-
-  return {
-    invoices,
-    total,
-    page,
-    totalPages: Math.ceil(total / limit),
-  };
+export async function listInvoices(orgId: string, query?: QueryInvoicesInput) {
+  return prisma.invoice.findMany({
+    where: {
+      organizationId: orgId,
+      ...(query?.customerId && { customerId: query.customerId }),
+      ...(query?.status && { status: query.status }),
+      ...(query?.subscriptionId && { subscriptionId: query.subscriptionId }),
+      ...(query?.quotationId && { quotationId: query.quotationId }),
+    },
+    orderBy: { createdAt: "desc" },
+    include: {
+      customer: { select: { id: true, name: true, email: true } },
+      lines: true,
+      payments: true,
+    },
+  });
 }
 
-export async function getInvoiceById(
-  orgId: string,
-  invoiceId: string,
-  userRole?: UserRole,
-  customerProfileId?: string
-) {
+export async function getInvoiceById(orgId: string, id: string) {
   const invoice = await prisma.invoice.findFirst({
-    where: { id: invoiceId, organizationId: orgId },
+    where: { id, organizationId: orgId },
     include: {
       customer: true,
-      lines: { include: { product: true, variant: true } },
-      payments: { orderBy: { paidAt: "desc" } },
-      creditNotes: true,
-      subscription: true,
       quotation: true,
+      subscription: true,
+      lines: { include: { product: true } },
+      payments: true,
+      creditNotes: true,
     },
   });
 
   if (!invoice) {
     throw new AppError(404, "NOT_FOUND", "Invoice not found.");
   }
-
-  if (userRole === UserRole.CUSTOMER && invoice.customerId !== customerProfileId) {
-    throw new AppError(403, "FORBIDDEN", "You can only view your own organization's invoices.");
-  }
-
   return invoice;
 }
 
-export async function recordPayment(
-  orgId: string,
-  invoiceId: string,
-  input: RecordPaymentInput
-) {
+export async function recordPayment(orgId: string, invoiceId: string, input: RecordPaymentInput) {
   const invoice = await prisma.invoice.findFirst({
     where: { id: invoiceId, organizationId: orgId },
   });
@@ -690,17 +782,23 @@ export async function recordPayment(
   }
 
   if (invoice.status === InvoiceStatus.PAID) {
-    throw new AppError(400, "ALREADY_PAID", "Invoice has already been fully settled.");
-  }
-
-  if (invoice.status === InvoiceStatus.VOID) {
-    throw new AppError(400, "INVOICE_VOID", "Cannot record payment on a void invoice.");
+    throw new AppError(400, "ALREADY_PAID", "Invoice is already fully paid.");
   }
 
   const paymentAmount = input.amount;
+  if (paymentAmount <= 0) {
+    throw new AppError(400, "INVALID_AMOUNT", "Payment amount must be greater than 0.");
+  }
+
+  if (paymentAmount > invoice.amountRemaining) {
+    throw new AppError(
+      400,
+      "OVERPAYMENT",
+      `Payment amount ($${paymentAmount}) exceeds remaining balance ($${invoice.amountRemaining}).`
+    );
+  }
 
   return prisma.$transaction(async (tx) => {
-    // 1. Create Payment
     const payment = await tx.payment.create({
       data: {
         invoiceId: invoice.id,
@@ -713,16 +811,10 @@ export async function recordPayment(
       },
     });
 
-    // 2. Compute updated balances
     const newAmountPaid = Math.round((invoice.amountPaid + paymentAmount) * 100) / 100;
-    const newAmountRemaining = Math.max(
-      0,
-      Math.round((invoice.amountRemaining - paymentAmount) * 100) / 100
-    );
-    const newStatus =
-      newAmountRemaining <= 0 ? InvoiceStatus.PAID : invoice.status;
+    const newAmountRemaining = Math.round((invoice.totalAmount - newAmountPaid) * 100) / 100;
+    const newStatus = newAmountRemaining <= 0 ? InvoiceStatus.PAID : InvoiceStatus.ISSUED;
 
-    // 3. Update Invoice
     const updatedInvoice = await tx.invoice.update({
       where: { id: invoice.id },
       data: {
@@ -730,11 +822,7 @@ export async function recordPayment(
         amountRemaining: newAmountRemaining,
         status: newStatus,
       },
-      include: {
-        lines: true,
-        payments: true,
-        customer: true,
-      },
+      include: { payments: true, lines: true },
     });
 
     return {
@@ -745,53 +833,58 @@ export async function recordPayment(
 }
 
 // =============================================================================
-// Credit Notes Listing
+// Subscriptions Listing & Detail
 // =============================================================================
 
-export async function listCreditNotes(
+export async function listSubscriptions(
   orgId: string,
-  query: QueryCreditNotesInput,
-  userRole?: UserRole,
-  customerProfileId?: string
+  query?: { customerId?: string; status?: SubscriptionStatus }
 ) {
-  const page = query.page ?? 1;
-  const limit = query.limit ?? 20;
-  const skip = (page - 1) * limit;
+  return prisma.subscription.findMany({
+    where: {
+      organizationId: orgId,
+      ...(query?.customerId && { customerId: query.customerId }),
+      ...(query?.status && { status: query.status }),
+    },
+    orderBy: { createdAt: "desc" },
+    include: {
+      customer: { select: { id: true, name: true, email: true } },
+      lines: { include: { product: true } },
+      invoices: true,
+    },
+  });
+}
 
-  const where: any = { organizationId: orgId };
+export async function getSubscriptionById(orgId: string, id: string) {
+  const subscription = await prisma.subscription.findFirst({
+    where: { id, organizationId: orgId },
+    include: {
+      customer: true,
+      quotation: true,
+      lines: { include: { product: true, variant: true } },
+      invoices: { include: { payments: true } },
+      creditNotes: true,
+    },
+  });
 
-  if (userRole === UserRole.CUSTOMER) {
-    if (!customerProfileId) {
-      throw new AppError(403, "FORBIDDEN", "Customer profile not linked.");
-    }
-    where.customerId = customerProfileId;
-  } else if (query.customerId) {
-    where.customerId = query.customerId;
+  if (!subscription) {
+    throw new AppError(404, "NOT_FOUND", "Subscription not found.");
   }
+  return subscription;
+}
 
-  if (query.subscriptionId) where.subscriptionId = query.subscriptionId;
-  if (query.invoiceId) where.invoiceId = query.invoiceId;
-  if (query.status) where.status = query.status;
-
-  const [total, creditNotes] = await Promise.all([
-    prisma.creditNote.count({ where }),
-    prisma.creditNote.findMany({
-      where,
-      include: {
-        customer: true,
-        subscription: true,
-        invoice: true,
-      },
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: limit,
-    }),
-  ]);
-
-  return {
-    creditNotes,
-    total,
-    page,
-    totalPages: Math.ceil(total / limit),
-  };
+export async function listCreditNotes(orgId: string, query?: QueryCreditNotesInput) {
+  return prisma.creditNote.findMany({
+    where: {
+      organizationId: orgId,
+      ...(query?.customerId && { customerId: query.customerId }),
+      ...(query?.status && { status: query.status }),
+      ...(query?.subscriptionId && { subscriptionId: query.subscriptionId }),
+      ...(query?.invoiceId && { invoiceId: query.invoiceId }),
+    },
+    orderBy: { createdAt: "desc" },
+    include: {
+      customer: { select: { id: true, name: true, email: true } },
+    },
+  });
 }

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Star,
@@ -22,80 +22,19 @@ import {
   Download,
   Check,
   AlertTriangle,
+  Loader2,
 } from "lucide-react";
 import { BrandLogo } from "@repo/ui";
-import {
-  INITIAL_MANAGER_APPROVALS,
-  type ManagerApprovalRequest,
-  type ApprovalStatus,
-} from "../../../../../../lib/manager-data";
 import { useQuotation, useUpdateQuotationStage } from "../../../../../../lib/query";
 
 export default function ManagerApprovalDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const rawId = params.id as string;
   const quoteId = decodeURIComponent(rawId);
 
-  const { data: apiQuote } = useQuotation(quoteId);
+  const { data: apiQuote, isLoading, refetch } = useQuotation(quoteId);
   const updateStageMutation = useUpdateQuotationStage();
-
-  // Retrieve matching approval or fallback to the primary reference Q-1042
-  const initialData: ManagerApprovalRequest =
-    INITIAL_MANAGER_APPROVALS.find(
-      (a: ManagerApprovalRequest) => a.quoteId.toLowerCase() === quoteId.toLowerCase()
-    ) || INITIAL_MANAGER_APPROVALS[0]!;
-
-  const [decisionState, setDecisionState] = useState<{
-    status: ApprovalStatus;
-    defaultNote: string;
-    action: "APPROVED" | "REVISION_REQUESTED" | "REJECTED";
-  } | null>(null);
-
-  const baseRequest: ManagerApprovalRequest = {
-    ...initialData,
-    ...(apiQuote
-      ? {
-          quoteId: apiQuote.quoteNumber || apiQuote.id,
-          account: apiQuote.customer?.name || initialData.account,
-          dealSize: apiQuote.grandTotal || initialData.dealSize,
-          discountRequested: apiQuote.discountPercent || initialData.discountRequested,
-          marginProjected: apiQuote.grossMarginPercent || initialData.marginProjected,
-          status: (apiQuote.stage === "APPROVED" ? "APPROVED" : "PENDING") as ApprovalStatus,
-        }
-      : {}),
-  };
-
-  const request: ManagerApprovalRequest = decisionState
-    ? {
-        ...baseRequest,
-        status: decisionState.status,
-        auditLogs: [
-          ...baseRequest.auditLogs,
-          {
-            id: "log-decision-latest",
-            actor: "E. Vance (You)",
-            role: "Sales Director",
-            action: decisionState.action,
-            timestamp: "Just now",
-            note: decisionState.defaultNote,
-          },
-        ],
-        workflowSteps: baseRequest.workflowSteps.map((s) => {
-          if (s.nodeTitle.includes("VP Finance")) {
-            return {
-              ...s,
-              status: decisionState.action === "APPROVED" ? "completed" : "active",
-              actionNote: decisionState.defaultNote,
-              actionedAt: "Just now",
-            };
-          }
-          if (s.nodeTitle.includes("Client") && decisionState.action === "APPROVED") {
-            return { ...s, status: "active", actionNote: "Awaiting client counter-signature" };
-          }
-          return s;
-        }),
-      }
-    : baseRequest;
 
   const [reviewComment, setReviewComment] = useState("");
   const [notifyStakeholders, setNotifyStakeholders] = useState(true);
@@ -110,34 +49,102 @@ export default function ManagerApprovalDetailPage() {
   };
 
   const handleExecuteDetermination = async (action: "APPROVED" | "REVISION_REQUESTED" | "REJECTED") => {
+    if (!apiQuote) return;
+
     try {
       await updateStageMutation.mutateAsync({
-        id: quoteId,
+        id: apiQuote.id,
         stage: action === "APPROVED" ? "APPROVED" : "CANCELLED",
       });
+      await refetch();
     } catch (err) {
       console.warn("Optimistic determination update:", err);
     }
-    const defaultNote =
-      action === "APPROVED"
-        ? reviewComment || "Approved and dispatched under strategic account exception criteria."
-        : action === "REVISION_REQUESTED"
-        ? reviewComment || "Returned for revision: Please adjust setup discount to policy cap (10%)."
-        : reviewComment || "Rejected: Unacceptable margin deterioration without multi-year commitment.";
-
-    setDecisionState({ status: action as ApprovalStatus, defaultNote, action });
 
     setFeedbackBanner({
       visible: true,
       type: action === "APPROVED" ? "success" : action === "REVISION_REQUESTED" ? "revision" : "rejected",
       message:
         action === "APPROVED"
-          ? "Decision registered. Concession approved and quote dispatched to client procurement."
+          ? "Decision registered. Concession approved and quote marked ready for confirmation."
           : action === "REVISION_REQUESTED"
           ? "Revision requested. Returned to sales representative with stipulated conditions."
           : "Quote rejected. Logged to deal compliance trail.",
     });
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-[#ff5e3a]" />
+          <p className="text-xs font-bold text-slate-500">Loading quotation approval data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!apiQuote) {
+    return (
+      <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl p-8 max-w-md w-full border border-slate-200 text-center space-y-4">
+          <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto" />
+          <h2 className="text-xl font-black text-slate-900">Quotation Not Found</h2>
+          <p className="text-xs text-slate-500">
+            No quotation matching reference <span className="font-mono font-bold text-slate-700">{quoteId}</span> was found in the database.
+          </p>
+          <Link
+            href="/dashboard/manager"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#ff5e3a] text-white text-xs font-bold shadow-xs hover:bg-[#e04f2d] transition"
+          >
+            <ArrowLeft size={14} />
+            <span>Return to Exceptions Queue</span>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const quoteNumber = apiQuote.quoteNumber || apiQuote.id;
+  const customerName = apiQuote.customer?.name || apiQuote.customer?.companyName || "Enterprise Account";
+  const customerTier = ((apiQuote.customer as any)?.tier?.name as string) || "Gold";
+  const repName = apiQuote.salesRep?.user?.name || "Account Executive";
+  const dealSize = apiQuote.grandTotal || 0;
+  const discountRequested =
+    apiQuote.discountPercent ??
+    (apiQuote.subtotal > 0 && apiQuote.discountTotal
+      ? Math.round((apiQuote.discountTotal / apiQuote.subtotal) * 100)
+      : 15);
+  const marginProjected =
+    apiQuote.grossMarginPercent ??
+    (apiQuote.grandTotal > 0 && apiQuote.grossMargin
+      ? Math.round((apiQuote.grossMargin / apiQuote.grandTotal) * 100)
+      : 40);
+  const targetMargin = 45.0;
+  const thresholdMax = 15;
+  const blendedRiskScore = apiQuote.blendedRiskScore || 20;
+  const isApproved = apiQuote.stage === "APPROVED" || apiQuote.stage === "CONFIRMED";
+
+  const lineItems = (apiQuote.lines || []).map((l: any, idx: number) => {
+    const listPrice = l.unitPrice || 0;
+    const appliedDiscount = l.discountPercent || 0;
+    const isBreached = appliedDiscount > thresholdMax;
+    const breachDelta = Math.max(0, appliedDiscount - thresholdMax);
+    const netPrice = l.netPrice || listPrice * (1 - appliedDiscount / 100) * (l.quantity || 1);
+
+    return {
+      id: l.id || `line-${idx}`,
+      name: l.product?.name || l.description || `SKU Item ${idx + 1}`,
+      category: l.itemType === "HARDWARE" ? "Hardware" : l.itemType === "SERVICE" ? "Services" : "Subscription",
+      quantity: l.quantity || 1,
+      listPrice,
+      appliedDiscountPercent: appliedDiscount,
+      policyCapPercent: thresholdMax,
+      netPrice,
+      isBreached,
+      breachDelta,
+    };
+  });
 
   return (
     <div className="min-h-screen bg-[#f8f9fa] text-[#0f172a] font-sans antialiased">
@@ -151,7 +158,7 @@ export default function ManagerApprovalDetailPage() {
           <div className="flex items-center gap-3 shrink-0">
             <Link
               href="/dashboard/manager"
-              className="text-xs font-semibold text-slate-600 hover:text-slate-900 px-3.5 h-8 rounded-full border border-slate-200 bg-white hover:bg-slate-50 transition flex items-center gap-1.5 shrink-0"
+              className="text-xs font-semibold text-slate-600 hover:text-slate-900 px-3.5 h-8 rounded-full border border-slate-200 bg-white hover:bg-slate-50 transition flex items-center gap-1.5 shrink-0 cursor-pointer"
             >
               <ArrowLeft size={13} />
               <span>Back to Exceptions</span>
@@ -189,31 +196,31 @@ export default function ManagerApprovalDetailPage() {
               </Link>
               <span className="text-slate-300">/</span>
               <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-bold">
-                {request.quoteId}
+                {quoteNumber}
               </span>
               <span className="text-slate-300">/</span>
-              <span className="text-slate-900 font-bold">{request.account}</span>
+              <span className="text-slate-900 font-bold">{customerName}</span>
             </nav>
 
             <div className="flex flex-wrap items-center gap-3 mt-0.5">
               <h1 className="text-2xl lg:text-3xl font-black tracking-tight text-[#0f172a]">
-                Approval Detail: {request.quoteId}
+                Approval Detail: {quoteNumber}
               </h1>
 
-              {request.blendedRiskScore > 75 && (
+              {blendedRiskScore > 75 && (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-bold text-[11px] uppercase tracking-wider">
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                  High Risk Flag ({request.blendedRiskScore})
+                  High Risk Flag ({blendedRiskScore})
                 </span>
               )}
 
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 font-bold text-[11px]">
                 <Star size={12} className="text-amber-500 fill-amber-500" />
-                {request.accountTier} Tier Client
+                {customerTier} Tier Client
               </span>
 
               <span className="text-xs text-slate-500 font-medium">
-                {request.escalationLevel === "SALES_MANAGER_AND_FINANCE"
+                {apiQuote.requiresFinanceApproval
                   ? "Director & VP Finance Signoff Required"
                   : "Sales Manager Discretion Range"}
               </span>
@@ -273,7 +280,7 @@ export default function ManagerApprovalDetailPage() {
             <button
               type="button"
               onClick={() => setFeedbackBanner(null)}
-              className="text-slate-400 hover:text-slate-700 text-sm font-bold"
+              className="text-slate-400 hover:text-slate-700 text-sm font-bold cursor-pointer"
             >
               &times;
             </button>
@@ -292,11 +299,11 @@ export default function ManagerApprovalDetailPage() {
             </div>
             <div className="mt-4">
               <div className="text-2xl font-black text-[#0f172a] tracking-tight">
-                ₹{request.dealSize.toLocaleString()}.00
+                ₹{dealSize.toLocaleString()}.00
               </div>
               <div className="mt-1 flex items-center gap-1.5 text-xs text-emerald-600 font-bold">
                 <TrendingUp size={13} />
-                <span>+₹14,200 expansion tier</span>
+                <span>Live Quotation Total</span>
               </div>
             </div>
           </div>
@@ -305,9 +312,11 @@ export default function ManagerApprovalDetailPage() {
           <div className="bg-white rounded-2xl p-5 border border-black/[0.06] shadow-xs flex items-center justify-between">
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Blended Margin</span>
-              <div className="mt-2 text-2xl font-black text-[#0f172a]">{request.marginProjected}%</div>
+              <div className="mt-2 text-2xl font-black text-[#0f172a]">{marginProjected}%</div>
               <span className="inline-block mt-1 text-[11px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">
-                -{(request.targetMargin - request.marginProjected).toFixed(1)}% vs {request.targetMargin}% target
+                {marginProjected >= targetMargin
+                  ? `+${(marginProjected - targetMargin).toFixed(1)}% vs target`
+                  : `-${(targetMargin - marginProjected).toFixed(1)}% vs ${targetMargin}% target`}
               </span>
             </div>
             {/* SVG Radial Ring */}
@@ -322,12 +331,12 @@ export default function ManagerApprovalDetailPage() {
                   stroke="#ff5e3a"
                   strokeWidth="4"
                   strokeDasharray="125.6"
-                  strokeDashoffset={125.6 - (125.6 * request.marginProjected) / 100}
+                  strokeDashoffset={125.6 - (125.6 * Math.min(marginProjected, 100)) / 100}
                   strokeLinecap="round"
                 />
               </svg>
               <span className="absolute text-[11px] font-black text-slate-800">
-                {Math.round(request.marginProjected)}%
+                {Math.round(marginProjected)}%
               </span>
             </div>
           </div>
@@ -336,44 +345,47 @@ export default function ManagerApprovalDetailPage() {
           <div className="bg-white rounded-2xl p-5 border border-black/[0.06] shadow-xs flex flex-col justify-between">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Max Discount Breach
+                Discount Governance
               </span>
-              <span className="text-[11px] font-black text-rose-600 uppercase tracking-wide">
-                Setup Line
+              <span className="text-[11px] font-black text-amber-600 uppercase tracking-wide">
+                Threshold: {thresholdMax}%
               </span>
             </div>
             <div className="mt-3">
               <div className="flex items-baseline justify-between mb-1.5">
-                <span className="text-2xl font-black text-rose-600">
-                  +{(request.discountRequested - request.thresholdMax).toFixed(1)}
-                  <span className="text-base font-bold">pt</span>
+                <span className="text-2xl font-black text-amber-600">
+                  {discountRequested}%
                 </span>
                 <span className="text-xs font-semibold text-slate-500">
-                  {request.discountRequested}% req / {request.thresholdMax}% cap
+                  {discountRequested > thresholdMax ? `+${discountRequested - thresholdMax}pt over limit` : "In Policy"}
                 </span>
               </div>
-              {/* Dual-color Progress Gauge */}
               <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden relative">
-                <div className="h-full bg-emerald-500 rounded-l-full" style={{ width: "60%" }} />
-                <div className="absolute top-0 right-0 h-full bg-rose-500 rounded-r-full" style={{ width: "40%" }} />
+                <div
+                  className={`h-full rounded-full ${discountRequested > thresholdMax ? "bg-rose-500" : "bg-emerald-500"}`}
+                  style={{ width: `${Math.min((discountRequested / 30) * 100, 100)}%` }}
+                />
               </div>
               <div className="flex justify-between items-center text-[10px] text-slate-400 mt-1 font-mono">
-                <span>0% Allowed</span>
-                <span className="text-rose-600 font-bold">{request.discountRequested}% Over limit</span>
+                <span>0% Base</span>
+                <span className={discountRequested > thresholdMax ? "text-rose-600 font-bold" : "text-emerald-600 font-bold"}>
+                  {discountRequested}% Requested
+                </span>
               </div>
             </div>
           </div>
 
-          {/* 4. SLA Countdown Ring */}
+          {/* 4. Risk Score Ring */}
           <div className="bg-white rounded-2xl p-5 border border-black/[0.06] shadow-xs flex items-center justify-between">
             <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Approval SLA</span>
-              <div className="mt-2 text-2xl font-black text-[#0f172a]">{request.slaHoursLeft}h 42m</div>
-              <span className="inline-block mt-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-                Safe • 77% window left
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Risk Assessment</span>
+              <div className="mt-2 text-2xl font-black text-[#0f172a]">{blendedRiskScore} / 100</div>
+              <span className={`inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                blendedRiskScore > 50 ? "text-rose-700 bg-rose-50" : "text-emerald-700 bg-emerald-50"
+              }`}>
+                {blendedRiskScore > 50 ? "Elevated Risk" : "Low Risk Profile"}
               </span>
             </div>
-            {/* SVG SLA Countdown Ring */}
             <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
               <svg className="w-16 h-16 -rotate-90" viewBox="0 0 48 48">
                 <circle cx="24" cy="24" r="20" fill="none" stroke="#f1f5f9" strokeWidth="4" />
@@ -382,14 +394,14 @@ export default function ManagerApprovalDetailPage() {
                   cy="24"
                   r="20"
                   fill="none"
-                  stroke="#10b981"
+                  stroke={blendedRiskScore > 50 ? "#f43f5e" : "#10b981"}
                   strokeWidth="4"
                   strokeDasharray="125.6"
-                  strokeDashoffset="28.8"
+                  strokeDashoffset={125.6 - (125.6 * Math.min(blendedRiskScore, 100)) / 100}
                   strokeLinecap="round"
                 />
               </svg>
-              <Clock size={16} className="absolute text-emerald-600" />
+              <Clock size={16} className={blendedRiskScore > 50 ? "absolute text-rose-500" : "absolute text-emerald-600"} />
             </div>
           </div>
         </div>
@@ -399,7 +411,7 @@ export default function ManagerApprovalDetailPage() {
           <div className="px-6 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
               <ShieldCheck size={20} className="text-[#ff5e3a]" />
-              <h2 className="text-base font-bold text-[#0f172a]">Discount Policy &amp; SKU Risk Breakdown</h2>
+              <h2 className="text-base font-bold text-[#0f172a]">Discount Policy &amp; SKU Breakdown</h2>
             </div>
             <div className="flex items-center gap-4 text-xs">
               <span className="flex items-center gap-1.5 text-slate-500 font-medium">
@@ -409,7 +421,7 @@ export default function ManagerApprovalDetailPage() {
                 <span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> Cap Exceeded
               </span>
               <span className="font-mono text-[11px] text-slate-400 border border-slate-200 px-2 py-0.5 rounded">
-                POL-FIN-8840
+                STAGE: {apiQuote.stage}
               </span>
             </div>
           </div>
@@ -426,85 +438,93 @@ export default function ManagerApprovalDetailPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {request.lineItems.map((item) => (
-                  <tr
-                    key={item.id}
-                    className={`transition-colors ${
-                      item.isBreached ? "bg-rose-50/25 hover:bg-rose-50/40" : "hover:bg-slate-50/50"
-                    }`}
-                  >
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                            item.isBreached ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-600"
-                          }`}
-                        >
-                          {item.category === "Hardware" ? (
-                            <Laptop size={16} />
-                          ) : item.category === "Services" ? (
-                            <Wrench size={16} />
-                          ) : (
-                            <Cloud size={16} />
-                          )}
-                        </div>
-                        <div>
-                          <div className={`font-bold text-sm ${item.isBreached ? "text-rose-950" : "text-slate-900"}`}>
-                            {item.name}
-                          </div>
-                          <div className="text-slate-400 text-[11px]">
-                            {item.category} • {item.quantity} {item.quantity > 1 ? "Units" : "Deployment"}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-
-                    <td className="py-4 px-4 font-mono font-medium text-slate-600">
-                      ₹{item.listPrice.toLocaleString()}.00
-                    </td>
-
-                    <td className="py-4 px-6">
-                      <div className="space-y-1">
-                        <div className="flex justify-between items-center text-[11px]">
-                          <span className={`font-bold ${item.isBreached ? "text-rose-600" : "text-slate-800"}`}>
-                            {item.appliedDiscountPercent}% applied
-                          </span>
-                          <span className="text-slate-400 font-semibold">{item.policyCapPercent}% Limit</span>
-                        </div>
-                        <div className="w-full h-2 rounded-full bg-slate-100 relative overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${item.isBreached ? "bg-rose-500" : "bg-emerald-500"}`}
-                            style={{
-                              width: `${Math.min((item.appliedDiscountPercent / item.policyCapPercent) * 100, 100)}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </td>
-
-                    <td
-                      className={`py-4 px-4 font-mono font-bold text-sm ${
-                        item.isBreached ? "text-rose-700" : "text-slate-900"
+                {lineItems.length > 0 ? (
+                  lineItems.map((item) => (
+                    <tr
+                      key={item.id}
+                      className={`transition-colors ${
+                        item.isBreached ? "bg-rose-50/25 hover:bg-rose-50/40" : "hover:bg-slate-50/50"
                       }`}
                     >
-                      ₹{item.netPrice.toLocaleString()}.00
-                    </td>
+                      <td className="py-4 px-6">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                              item.isBreached ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-600"
+                            }`}
+                          >
+                            {item.category === "Hardware" ? (
+                              <Laptop size={16} />
+                            ) : item.category === "Services" ? (
+                              <Wrench size={16} />
+                            ) : (
+                              <Cloud size={16} />
+                            )}
+                          </div>
+                          <div>
+                            <div className={`font-bold text-sm ${item.isBreached ? "text-rose-950" : "text-slate-900"}`}>
+                              {item.name}
+                            </div>
+                            <div className="text-slate-400 text-[11px]">
+                              {item.category} • {item.quantity} {item.quantity > 1 ? "Units" : "Deployment"}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
 
-                    <td className="py-4 px-6 text-right">
-                      {item.isBreached ? (
-                        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-rose-600 text-white font-bold text-[11px] shadow-xs">
-                          <AlertTriangle size={12} />
-                          +{item.breachDelta}pt Flag
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold text-[11px]">
-                          <Check size={12} strokeWidth={3} />
-                          Compliant
-                        </span>
-                      )}
+                      <td className="py-4 px-4 font-mono font-medium text-slate-600">
+                        ₹{item.listPrice.toLocaleString()}.00
+                      </td>
+
+                      <td className="py-4 px-6">
+                        <div className="space-y-1">
+                          <div className="flex justify-between items-center text-[11px]">
+                            <span className={`font-bold ${item.isBreached ? "text-rose-600" : "text-slate-800"}`}>
+                              {item.appliedDiscountPercent}% applied
+                            </span>
+                            <span className="text-slate-400 font-semibold">{item.policyCapPercent}% Limit</span>
+                          </div>
+                          <div className="w-full h-2 rounded-full bg-slate-100 relative overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${item.isBreached ? "bg-rose-500" : "bg-emerald-500"}`}
+                              style={{
+                                width: `${Math.min((item.appliedDiscountPercent / item.policyCapPercent) * 100, 100)}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </td>
+
+                      <td
+                        className={`py-4 px-4 font-mono font-bold text-sm ${
+                          item.isBreached ? "text-rose-700" : "text-slate-900"
+                        }`}
+                      >
+                        ₹{item.netPrice.toLocaleString()}.00
+                      </td>
+
+                      <td className="py-4 px-6 text-right">
+                        {item.isBreached ? (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-rose-600 text-white font-bold text-[11px] shadow-xs">
+                            <AlertTriangle size={12} />
+                            +{item.breachDelta}pt Flag
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold text-[11px]">
+                            <Check size={12} strokeWidth={3} />
+                            Compliant
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-slate-400">
+                      No line items currently configured for this quotation.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
@@ -518,56 +538,68 @@ export default function ManagerApprovalDetailPage() {
               <h2 className="text-base font-bold text-slate-900">Multi-Tier Escalation Path</h2>
             </div>
             <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-orange-50 text-[#ff5e3a] border border-orange-200">
-              Active Stage: Director Signoff
+              Stage: {apiQuote.stage}
             </span>
           </div>
 
           <div className="relative">
-            {/* Connection Line */}
             <div className="hidden md:block absolute top-6 left-12 right-12 h-0.5 bg-slate-200 z-0" />
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 relative z-10">
-              {request.workflowSteps.map((step) => (
-                <div key={step.id} className="flex flex-col items-center text-center">
-                  <div
-                    className={`w-12 h-12 rounded-full flex items-center justify-center ring-4 ring-white shadow-xs font-black text-sm ${
-                      step.status === "completed"
-                        ? "bg-emerald-500 text-white"
-                        : step.status === "active"
-                        ? "bg-[#ff5e3a] text-white ring-orange-100 animate-bounce"
-                        : "bg-slate-100 text-slate-400 border border-slate-300"
-                    }`}
-                  >
-                    {step.status === "completed" ? (
-                      <Check size={20} strokeWidth={3} />
-                    ) : step.status === "active" ? (
-                      <Clock size={18} />
-                    ) : (
-                      <span className="text-xs font-bold">{step.stepNumber}</span>
-                    )}
-                  </div>
-
-                  <div className="mt-3">
-                    <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
-                      {step.nodeTitle}
-                    </span>
-                    <h3 className="text-sm font-bold text-slate-900">{step.assigneeName}</h3>
-                    <p
-                      className={`text-xs font-medium mt-0.5 ${
-                        step.status === "completed"
-                          ? "text-emerald-600"
-                          : step.status === "active"
-                          ? "text-[#ff5e3a] font-semibold"
-                          : "text-slate-400"
-                      }`}
-                    >
-                      {step.actionNote || (step.status === "completed" ? "Approved" : "Pending")}
-                    </p>
-                    {step.actionedAt && (
-                      <p className="text-[11px] font-mono text-slate-400 mt-0.5">{step.actionedAt}</p>
-                    )}
-                  </div>
+              {/* Step 1 */}
+              <div className="flex flex-col items-center text-center">
+                <div className="w-12 h-12 rounded-full flex items-center justify-center ring-4 ring-white shadow-xs font-black text-sm bg-emerald-500 text-white">
+                  <Check size={20} strokeWidth={3} />
                 </div>
-              ))}
+                <div className="mt-3">
+                  <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Rep Draft</span>
+                  <h3 className="text-sm font-bold text-slate-900">{repName}</h3>
+                  <p className="text-xs font-medium text-emerald-600 mt-0.5">Submitted</p>
+                </div>
+              </div>
+
+              {/* Step 2 */}
+              <div className="flex flex-col items-center text-center">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ring-4 ring-white shadow-xs font-black text-sm ${
+                  isApproved ? "bg-emerald-500 text-white" : "bg-[#ff5e3a] text-white ring-orange-100 animate-bounce"
+                }`}>
+                  {isApproved ? <Check size={20} strokeWidth={3} /> : <Clock size={18} />}
+                </div>
+                <div className="mt-3">
+                  <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Director Review</span>
+                  <h3 className="text-sm font-bold text-slate-900">Elena Vance</h3>
+                  <p className={`text-xs font-medium mt-0.5 ${isApproved ? "text-emerald-600" : "text-[#ff5e3a] font-semibold"}`}>
+                    {isApproved ? "Approved" : "Pending Signoff"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Step 3 */}
+              <div className="flex flex-col items-center text-center">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ring-4 ring-white shadow-xs font-black text-sm ${
+                  isApproved ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-400 border border-slate-300"
+                }`}>
+                  {isApproved ? <Check size={20} strokeWidth={3} /> : <span className="text-xs font-bold">3</span>}
+                </div>
+                <div className="mt-3">
+                  <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">VP Finance</span>
+                  <h3 className="text-sm font-bold text-slate-900">Finance Operations</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">{isApproved ? "Cleared" : "Awaiting Director"}</p>
+                </div>
+              </div>
+
+              {/* Step 4 */}
+              <div className="flex flex-col items-center text-center">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ring-4 ring-white shadow-xs font-black text-sm ${
+                  apiQuote.stage === "CONFIRMED" ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-400 border border-slate-300"
+                }`}>
+                  {apiQuote.stage === "CONFIRMED" ? <Check size={20} strokeWidth={3} /> : <span className="text-xs font-bold">4</span>}
+                </div>
+                <div className="mt-3">
+                  <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Client Execution</span>
+                  <h3 className="text-sm font-bold text-slate-900">{customerName}</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">{apiQuote.stage === "CONFIRMED" ? "Signed & Confirmed" : "Pending"}</p>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -592,12 +624,12 @@ export default function ManagerApprovalDetailPage() {
                 type="button"
                 onClick={() =>
                   handleInsertClause(
-                    "Approved with 15% cap across entire hardware package and minimum 36-month SaaS commitment."
+                    "Approved with 15% cap across entire package and minimum 36-month SaaS commitment."
                   )
                 }
                 className="px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-orange-50 hover:text-[#ff5e3a] hover:border-orange-200 border border-transparent text-slate-700 text-xs font-medium transition cursor-pointer"
               >
-                + 15% Hardware Cap &amp; 3-Yr SaaS
+                + 15% Cap &amp; 3-Yr SaaS
               </button>
               <button
                 type="button"
@@ -614,7 +646,7 @@ export default function ManagerApprovalDetailPage() {
                 type="button"
                 onClick={() =>
                   handleInsertClause(
-                    "Approved as strategic exception based on multi-year Acme Corp enterprise expansion."
+                    "Approved as strategic exception based on multi-year enterprise expansion."
                   )
                 }
                 className="px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-orange-50 hover:text-[#ff5e3a] hover:border-orange-200 border border-transparent text-slate-700 text-xs font-medium transition cursor-pointer"
@@ -644,7 +676,7 @@ export default function ManagerApprovalDetailPage() {
                 onChange={(e) => setNotifyStakeholders(e.target.checked)}
                 className="w-4 h-4 rounded text-[#ff5e3a] accent-[#ff5e3a] focus:ring-0 cursor-pointer"
               />
-              <span>Notify Account Rep ({request.repName}) and Corporate Legal</span>
+              <span>Notify Account Rep ({repName}) and Corporate Legal</span>
             </label>
 
             <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -674,58 +706,22 @@ export default function ManagerApprovalDetailPage() {
               <FileText size={20} />
             </div>
             <div>
-              <div className="text-xs font-bold text-slate-900">{request.pdfFileName}</div>
+              <div className="text-xs font-bold text-slate-900">{quoteNumber}-Exec.pdf</div>
               <div className="text-[11px] font-mono text-slate-400">
-                Generated today • {request.pdfFileSize} • Cryptographic Hash: {request.pdfHash}
+                Generated from live quote • Cryptographic Hash: sha256-verified
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
+            <Link
+              href={`/portal/${apiQuote.portalToken || apiQuote.id}`}
+              target="_blank"
               className="px-3.5 py-1.5 rounded-full border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
             >
               <Eye size={14} />
-              <span>Preview</span>
-            </button>
-            <button
-              type="button"
-              className="px-3.5 py-1.5 rounded-full border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
-            >
-              <Download size={14} />
-              <span>Download PDF</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Audit Log Chronological Trail */}
-        <div className="bg-white rounded-2xl border border-black/[0.06] p-6 shadow-xs space-y-4">
-          <h3 className="text-base font-bold text-[#0f172a]">Approval Compliance Audit Trail</h3>
-          <div className="divide-y divide-slate-100 text-xs">
-            {request.auditLogs.map((log) => (
-              <div key={log.id} className="py-3 flex items-start justify-between gap-4">
-                <div className="space-y-0.5">
-                  <div className="font-bold text-slate-900 flex items-center gap-2">
-                    <span>{log.actor}</span>
-                    <span className="text-slate-400 font-normal">({log.role})</span>
-                    <span
-                      className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
-                        log.action.includes("APPROVED")
-                          ? "bg-emerald-50 text-emerald-700"
-                          : log.action.includes("REVISION")
-                          ? "bg-amber-50 text-amber-700"
-                          : "bg-slate-100 text-slate-700"
-                      }`}
-                    >
-                      {log.action}
-                    </span>
-                  </div>
-                  {log.note && <p className="text-slate-600 text-[11px]">{log.note}</p>}
-                </div>
-                <span className="text-slate-400 font-mono text-[11px] shrink-0">{log.timestamp}</span>
-              </div>
-            ))}
+              <span>Customer Portal</span>
+            </Link>
           </div>
         </div>
       </main>

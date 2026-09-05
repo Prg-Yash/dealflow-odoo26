@@ -33,9 +33,28 @@ const INVOICE_READ_ROLES = [
 ];
 
 // =============================================================================
+// Direct Billing Router (/api/billing, /billing)
+// Phase 3: POST /billing/generate
+// Phase 3: POST /billing/shipment-invoice
+// =============================================================================
+export const billingRouter = Router();
+billingRouter.use(requireAuth, tenantMiddleware);
+
+billingRouter.post(
+  "/generate",
+  requireRole(...FINANCE_ROLES),
+  controller.generateHybridBilling
+);
+
+billingRouter.post(
+  "/shipment-invoice",
+  requireRole(...FINANCE_ROLES),
+  controller.generateShipmentInvoice
+);
+
+// =============================================================================
 // Subscription Router (/api/subscriptions, /subscriptions)
 // =============================================================================
-
 export const subscriptionRouter = Router();
 subscriptionRouter.use(requireAuth, tenantMiddleware);
 
@@ -68,7 +87,6 @@ subscriptionRouter.post(
 // =============================================================================
 // Invoice Router (/api/invoices, /invoices)
 // =============================================================================
-
 export const invoiceRouter = Router();
 invoiceRouter.use(requireAuth, tenantMiddleware);
 
@@ -95,13 +113,12 @@ invoiceRouter.post(
 // =============================================================================
 // Credit Note Router (/api/credit-notes, /credit-notes)
 // =============================================================================
-
 export const creditNoteRouter = Router();
 creditNoteRouter.use(requireAuth, tenantMiddleware);
 
 creditNoteRouter.get(
   "/",
-  requireRole(...FINANCE_ROLES),
+  requireRole(...STAFF_ROLES),
   validateQuery(QueryCreditNotesSchema),
   controller.listCreditNotes
 );

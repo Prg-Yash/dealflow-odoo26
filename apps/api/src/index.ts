@@ -25,15 +25,18 @@ import { productRecommendationRouter } from "./routes/product-recommendation.rou
 import { quotationRouter } from "./routes/quotation.routes.js";
 import { stockLevelRouter } from "./routes/stock-level.routes.js";
 import {
+  fulfillmentRouter,
   fulfillmentOrderRouter,
   shipmentRouter,
   backorderRouter,
 } from "./routes/fulfillment.routes.js";
 import {
+  billingRouter,
   subscriptionRouter,
   invoiceRouter,
   creditNoteRouter,
 } from "./routes/billing.routes.js";
+import { inventoryRouter } from "./routes/inventory.routes.js";
 import {
   dealHealthRouter,
   jobRouter,
@@ -129,9 +132,12 @@ app.use(["/api/discount-approval-rules", "/discount-approval-rules"], discountRu
 app.use(["/api/product-recommendations", "/product-recommendations"], productRecommendationRouter);
 app.use(["/api/quotations", "/quotations"], quotationRouter);
 app.use(["/api/stock-levels", "/stock-levels"], stockLevelRouter);
+app.use(["/api/inventory", "/inventory"], inventoryRouter);
+app.use(["/api/fulfillment", "/fulfillment"], fulfillmentRouter);
 app.use(["/api/fulfillment-orders", "/fulfillment-orders"], fulfillmentOrderRouter);
 app.use(["/api/shipments", "/shipments"], shipmentRouter);
 app.use(["/api/backorders", "/backorders"], backorderRouter);
+app.use(["/api/billing", "/billing"], billingRouter);
 app.use(["/api/subscriptions", "/subscriptions"], subscriptionRouter);
 app.use(["/api/invoices", "/invoices"], invoiceRouter);
 app.use(["/api/credit-notes", "/credit-notes"], creditNoteRouter);
