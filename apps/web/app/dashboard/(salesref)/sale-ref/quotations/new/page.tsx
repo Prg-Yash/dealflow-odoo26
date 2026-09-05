@@ -20,6 +20,9 @@ import {
   Layers,
   Sparkles,
   Info,
+  TrendingUp,
+  Zap,
+  Plus,
 } from "lucide-react";
 import { SalesNav } from "@repo/ui";
 import {
@@ -28,6 +31,7 @@ import {
   useProducts,
   useCategories,
   useCreateQuotation,
+  useProductRecommendations,
 } from "../../../../../../lib/query";
 import { useDashboardAuth } from "../../../../layout";
 import {
@@ -59,10 +63,16 @@ export default function NewQuotationPage() {
   const { data: apiCustomerTiers, isLoading: loadingTiers } = useCustomerTiers();
   const { data: apiProducts, isLoading: loadingProducts } = useProducts();
   const { data: apiCategories } = useCategories();
+  const { data: apiRecommendations } = useProductRecommendations();
   const createQuotationMutation = useCreateQuotation();
 
   // Organization Currency Symbol
-  const currencySymbol = user?.organization?.currency === "USD" ? "$" : user?.organization?.currency === "EUR" ? "€" : "₹";
+  const currencySymbol =
+    user?.organization?.currency === "USD"
+      ? "$"
+      : user?.organization?.currency === "EUR"
+        ? "€"
+        : "₹";
 
   // Mode: select existing customer vs enter new customer
   const [customerMode, setCustomerMode] = useState<"existing" | "new">("existing");
@@ -125,7 +135,9 @@ export default function NewQuotationPage() {
     if (customerMode === "existing") {
       return selectedCustomer?.tier || apiCustomerTiers?.[0];
     }
-    return apiCustomerTiers?.find((t) => t.id === selectedNewCustomerTierId) || apiCustomerTiers?.[0];
+    return (
+      apiCustomerTiers?.find((t) => t.id === selectedNewCustomerTierId) || apiCustomerTiers?.[0]
+    );
   }, [customerMode, selectedCustomer, apiCustomerTiers, selectedNewCustomerTierId]);
 
   const activeCustomerTierCeiling = activeCustomerTier?.discountCeiling ?? 10.0;
@@ -134,7 +146,9 @@ export default function NewQuotationPage() {
   useEffect(() => {
     if (customerMode === "existing") {
       if (selectedCustomer) {
-        setQuoteTitle(`${selectedCustomer.companyName || selectedCustomer.name} Commercial Proposal`);
+        setQuoteTitle(
+          `${selectedCustomer.companyName || selectedCustomer.name} Commercial Proposal`
+        );
       }
     } else {
       if (companyName || customerName) {
@@ -164,6 +178,96 @@ export default function NewQuotationPage() {
       activeCustomerTierCeiling
     );
   }, [riskLines, activeCustomerTierCeiling]);
+
+  // Live upsell & cross-sell recommendation candidates for current items
+  const upsellSuggestions = useMemo(() => {
+    if (!items || items.length === 0 || !apiProducts) return [];
+    const currentProductIds = new Set(items.map((i) => i.productId));
+
+    // 1. Direct Pairing Rules from DB
+    const matchingRecs = (apiRecommendations || []).filter(
+      (rec) =>
+        rec.isActive &&
+        currentProductIds.has(rec.sourceProductId) &&
+        !currentProductIds.has(rec.recommendedProductId)
+    );
+
+    const directCandidates = matchingRecs
+      .map((rec) => {
+        const prod = apiProducts.find((p) => p.id === rec.recommendedProductId);
+        if (!prod) return null;
+        const margin =
+          prod.basePrice > 0 ? ((prod.basePrice - prod.costPrice) / prod.basePrice) * 100 : 0;
+        if (margin < rec.minMarginThreshold) return null; // Enforce margin floor
+        return {
+          productId: prod.id,
+          name: prod.name,
+          sku: prod.sku,
+          category: prod.category?.name || "Accessory",
+          basePrice: prod.basePrice,
+          costPrice: prod.costPrice,
+          marginPercent: Math.round(margin),
+          score: rec.coPurchaseScore,
+          promotionalTag: rec.promotionalTag || "Frequently Bought Together",
+          isPromoted: prod.isPromoted,
+        };
+      })
+      .filter(Boolean) as any[];
+
+    // 2. If no direct pairings, surface high-margin services/accessories not yet in quote
+    const fallbackCandidates = apiProducts
+      .filter(
+        (p) =>
+          !currentProductIds.has(p.id) &&
+          !directCandidates.some((c) => c.productId === p.id) &&
+          (p.category?.type === "SERVICE" || p.isPromoted || p.category?.type === "SUBSCRIPTION")
+      )
+      .map((p) => {
+        const margin = p.basePrice > 0 ? ((p.basePrice - p.costPrice) / p.basePrice) * 100 : 0;
+        return {
+          productId: p.id,
+          name: p.name,
+          sku: p.sku,
+          category: p.category?.name || "Service",
+          basePrice: p.basePrice,
+          costPrice: p.costPrice,
+          marginPercent: Math.round(margin),
+          score: p.isPromoted ? 9.0 : 7.0,
+          promotionalTag: p.isPromoted ? "Promoted Deal Booster" : "Recommended Support Add-on",
+          isPromoted: p.isPromoted,
+        };
+      })
+      .filter((c) => c.marginPercent >= 20);
+
+    return [...directCandidates, ...fallbackCandidates].slice(0, 4);
+  }, [items, apiProducts, apiRecommendations]);
+
+  const handleAddSuggestion = (sug: any) => {
+    const prod = apiProducts?.find((p) => p.id === sug.productId);
+    if (!prod) return;
+
+    const existing = items.find((it) => it.productId === prod.id);
+    if (existing) {
+      setItems((prev) =>
+        prev.map((it) => (it.productId === prod.id ? { ...it, quantity: it.quantity + 1 } : it))
+      );
+    } else {
+      const newItem: LineItemState = {
+        id: `line-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        productId: prod.id,
+        name: prod.name,
+        description: prod.description || prod.name,
+        category: prod.category?.name || "Standard",
+        categoryType: prod.category?.type || "HARDWARE",
+        categoryCeiling: (prod.category as any)?.ceilingLimit ?? DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
+        quantity: 1,
+        unitPrice: prod.basePrice,
+        costPrice: prod.costPrice,
+        discountPercent: 0,
+      };
+      setItems((prev) => [...prev, newItem]);
+    }
+  };
 
   // Handle adding product from organization's real catalog
   const handleAddProduct = () => {
@@ -279,7 +383,7 @@ export default function NewQuotationPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-        }).catch(() => {});
+        }).catch(() => { });
       }
 
       router.push(`/dashboard/sale-ref/quotations/${createdQuote.id}`);
@@ -295,11 +399,11 @@ export default function NewQuotationPage() {
 
   const userInitials = user?.name
     ? user.name
-        .split(" ")
-        .map((p) => p[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase()
+      .split(" ")
+      .map((p) => p[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase()
     : "SR";
 
   return (
@@ -423,22 +527,20 @@ export default function NewQuotationPage() {
                     type="button"
                     onClick={() => setCustomerMode("existing")}
                     disabled={!apiCustomers || apiCustomers.length === 0}
-                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                      customerMode === "existing"
+                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${customerMode === "existing"
                         ? "bg-white text-[#0066cc] font-bold shadow-xs"
                         : "text-slate-600 hover:text-slate-900 disabled:opacity-50"
-                    }`}
+                      }`}
                   >
                     Select Existing ({apiCustomers?.length || 0})
                   </button>
                   <button
                     type="button"
                     onClick={() => setCustomerMode("new")}
-                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                      customerMode === "new"
+                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${customerMode === "new"
                         ? "bg-white text-[#0066cc] font-bold shadow-xs"
                         : "text-slate-600 hover:text-slate-900"
-                    }`}
+                      }`}
                   >
                     + New Customer
                   </button>
@@ -769,6 +871,73 @@ export default function NewQuotationPage() {
                 </span>
               </div>
             </div>
+
+            {/* 3. Upsell & Cross-Sell Suggestions */}
+            {upsellSuggestions.length > 0 && (
+              <div className="bg-linear-to-br from-indigo-50/50 via-white to-sky-50/40 rounded-2xl p-6 border border-indigo-100/80 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-600/10 text-indigo-600 flex items-center justify-center">
+                      <Sparkles size={16} />
+                    </div>
+                    <div>
+                      <h2 className="text-sm font-bold text-slate-900">
+                        Intelligent Upsell &amp; Cross-Sell Recommendations
+                      </h2>
+                      <p className="text-[11px] text-slate-500">
+                        AI &amp; Margin-governed add-ons to lift deal size and strengthen blended margin.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/60 px-2.5 py-1 rounded-full flex items-center gap-1">
+                    <Zap size={12} className="text-amber-500 fill-amber-500" />
+                    {upsellSuggestions.length} Recommended
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {upsellSuggestions.map((sug) => (
+                    <div
+                      key={sug.productId}
+                      className="bg-white p-4 rounded-xl border border-slate-200/80 hover:border-indigo-300 hover:shadow-md transition-all flex flex-col justify-between gap-3 group"
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                            {sug.promotionalTag}
+                          </span>
+                          <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded flex items-center gap-1">
+                            <TrendingUp size={11} />
+                            {sug.marginPercent}% margin
+                          </span>
+                        </div>
+                        <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                          {sug.name}
+                        </h4>
+                        <p className="text-[11px] text-slate-400 font-mono">SKU: {sug.sku} • {sug.category}</p>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                        <div>
+                          <div className="text-xs font-extrabold text-slate-900">
+                            ₹{sug.basePrice.toLocaleString()}
+                          </div>
+                          <div className="text-[10px] text-slate-400">Co-purchase score: {sug.score}/10</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleAddSuggestion(sug)}
+                          className="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+                        >
+                          <Plus size={13} />
+                          <span>Add to Quote</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ── RIGHT: Live Economics & Governance Thermometer (4 cols) ── */}
@@ -814,13 +983,12 @@ export default function NewQuotationPage() {
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-slate-600 font-semibold">Blended Risk Score:</span>
                   <span
-                    className={`font-black text-sm ${
-                      riskSummary.blendedScore === 0
+                    className={`font-black text-sm ${riskSummary.blendedScore === 0
                         ? "text-emerald-600"
                         : riskSummary.blendedScore <= 10
-                        ? "text-amber-600"
-                        : "text-rose-600"
-                    }`}
+                          ? "text-amber-600"
+                          : "text-rose-600"
+                      }`}
                   >
                     {riskSummary.blendedScore}%
                   </span>
@@ -829,13 +997,12 @@ export default function NewQuotationPage() {
                 {/* Thermometer Bar */}
                 <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
                   <div
-                    className={`h-full transition-all duration-300 ${
-                      riskSummary.blendedScore === 0
+                    className={`h-full transition-all duration-300 ${riskSummary.blendedScore === 0
                         ? "bg-emerald-500"
                         : riskSummary.blendedScore <= 10
-                        ? "bg-amber-500"
-                        : "bg-rose-500"
-                    }`}
+                          ? "bg-amber-500"
+                          : "bg-rose-500"
+                      }`}
                     style={{ width: `${Math.min(100, Math.max(5, riskSummary.blendedScore * 5))}%` }}
                   />
                 </div>
@@ -843,13 +1010,12 @@ export default function NewQuotationPage() {
                 {/* Condition Classification Badge & Routing Details */}
                 <div className="pt-2 border-t border-slate-200">
                   <div
-                    className={`p-2.5 rounded-lg border text-[11px] font-semibold space-y-1 ${
-                      riskSummary.classification.color === "emerald"
+                    className={`p-2.5 rounded-lg border text-[11px] font-semibold space-y-1 ${riskSummary.classification.color === "emerald"
                         ? "bg-emerald-50 text-emerald-800 border-emerald-200"
                         : riskSummary.classification.color === "amber"
-                        ? "bg-amber-50 text-amber-800 border-amber-200"
-                        : "bg-rose-50 text-rose-800 border-rose-200"
-                    }`}
+                          ? "bg-amber-50 text-amber-800 border-amber-200"
+                          : "bg-rose-50 text-rose-800 border-rose-200"
+                      }`}
                   >
                     <div className="flex items-center gap-1.5 font-bold">
                       {riskSummary.classification.color === "emerald" ? (

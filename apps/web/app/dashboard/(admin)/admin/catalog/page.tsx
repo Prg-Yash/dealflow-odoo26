@@ -57,16 +57,21 @@ import {
   useCreateCustomerTier,
   useUpdateCustomerTier,
   useDeleteCustomerTier,
+  useProductRecommendations,
+  useCreateProductRecommendation,
+  useUpdateProductRecommendation,
+  useDeleteProductRecommendation,
   type ProductData,
   type CategoryData,
   type PriceListData,
   type DiscountRuleData,
   type CustomerTierData,
+  type ProductRecommendationData,
 } from "../../../../../lib/query";
 
 export default function AdminCatalogPage() {
-  // Navigation & Sub-views: "products", "pricelists", "tiers", "categories", "approvals"
-  const [activeTab, setActiveTab] = useState<"products" | "pricelists" | "tiers" | "categories" | "approvals">("products");
+  // Navigation & Sub-views: "products", "pricelists", "tiers", "categories", "approvals", "recommendations"
+  const [activeTab, setActiveTab] = useState<"products" | "pricelists" | "tiers" | "categories" | "approvals" | "recommendations">("products");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
 
@@ -76,6 +81,7 @@ export default function AdminCatalogPage() {
   const { data: apiCustomerTiers, isLoading: isTiersLoading, refetch: refetchTiers } = useCustomerTiers();
   const { data: apiPriceLists, isLoading: isPriceListsLoading, refetch: refetchPriceLists } = usePriceLists();
   const { data: apiDiscountRules, isLoading: isRulesLoading, refetch: refetchRules } = useDiscountRules();
+  const { data: apiRecommendations, isLoading: isRecommendationsLoading, refetch: refetchRecommendations } = useProductRecommendations();
 
   // Mutations
   const createProductMutation = useCreateProduct();
@@ -95,12 +101,16 @@ export default function AdminCatalogPage() {
   const deleteDiscountRuleMutation = useDeleteDiscountRule();
   const createVariantMutation = useCreateProductVariant();
   const deleteVariantMutation = useDeleteProductVariant();
+  const createRecMutation = useCreateProductRecommendation();
+  const updateRecMutation = useUpdateProductRecommendation();
+  const deleteRecMutation = useDeleteProductRecommendation();
 
   const productsList: ProductData[] = Array.isArray(apiProducts) ? apiProducts : [];
   const categoriesList: CategoryData[] = Array.isArray(apiCategories) ? apiCategories : [];
   const tiersList: CustomerTierData[] = Array.isArray(apiCustomerTiers) ? apiCustomerTiers : [];
   const priceListsList: PriceListData[] = Array.isArray(apiPriceLists) ? apiPriceLists : [];
   const discountRulesList: DiscountRuleData[] = Array.isArray(apiDiscountRules) ? apiDiscountRules : [];
+  const recommendationsList: ProductRecommendationData[] = Array.isArray(apiRecommendations) ? apiRecommendations : [];
 
   // ══════════════════════════════════════════════════════════════════════════
   // WIREFRAME 17: Product Details & Price List Modal / Drawer State
@@ -159,8 +169,18 @@ export default function AdminCatalogPage() {
   const [editingPriceListId, setEditingPriceListId] = useState<string | null>(null);
   const [priceListName, setPriceListName] = useState("");
   const [priceListCurrency, setPriceListCurrency] = useState("INR");
-  const [priceListTierId, setPriceListTierId] = useState("");
+  const [priceListTierIds, setPriceListTierIds] = useState<string[]>([]);
   const [priceListIsDefault, setPriceListIsDefault] = useState(false);
+
+  // Recommendations & Upsell Pairing Modal State
+  const [isRecModalOpen, setIsRecModalOpen] = useState(false);
+  const [editingRecId, setEditingRecId] = useState<string | null>(null);
+  const [recSourceProductId, setRecSourceProductId] = useState("");
+  const [recTargetProductId, setRecTargetProductId] = useState("");
+  const [recCoPurchaseScore, setRecCoPurchaseScore] = useState<number>(8.5);
+  const [recPromotionalTag, setRecPromotionalTag] = useState("Frequently Bought Together");
+  const [recMinMarginThreshold, setRecMinMarginThreshold] = useState<number>(20);
+  const [recIsActive, setRecIsActive] = useState(true);
 
   // Approval Threshold Tuning State
   const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
@@ -187,8 +207,9 @@ export default function AdminCatalogPage() {
       refetchTiers(),
       refetchPriceLists(),
       refetchRules(),
+      refetchRecommendations(),
     ]);
-    showToast("Synchronized catalog, pricelists & rules.");
+    showToast("Synchronized catalog, pricelists, rules & recommendations.");
   };
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -579,13 +600,13 @@ export default function AdminCatalogPage() {
   };
 
   // ══════════════════════════════════════════════════════════════════════════
-  // GLOBAL PRICELIST & CUSTOMER TIER HANDLERS (FULL CRUD)
+  // GLOBAL PRICELIST & CUSTOMER TIER HANDLERS (MULTI-TIER SUPPORT)
   // ══════════════════════════════════════════════════════════════════════════
   const handleOpenNewPriceList = () => {
     setEditingPriceListId(null);
     setPriceListName("");
     setPriceListCurrency("INR");
-    setPriceListTierId(tiersList[0]?.id || "");
+    setPriceListTierIds(tiersList.map((t) => t.id)); // Default select all tiers
     setPriceListIsDefault(false);
     setIsPriceListModalOpen(true);
   };
@@ -594,7 +615,8 @@ export default function AdminCatalogPage() {
     setEditingPriceListId(pl.id);
     setPriceListName(pl.name);
     setPriceListCurrency(pl.currency || "INR");
-    setPriceListTierId(pl.customerTierId || "");
+    const attachedIds = pl.customerTiers?.map((t) => t.id) ?? (pl.customerTierId ? [pl.customerTierId] : []);
+    setPriceListTierIds(attachedIds);
     setPriceListIsDefault(Boolean(pl.isDefault));
     setIsPriceListModalOpen(true);
   };
@@ -612,16 +634,18 @@ export default function AdminCatalogPage() {
           body: {
             name: priceListName.trim(),
             currency: priceListCurrency,
-            customerTierId: priceListTierId ? priceListTierId : null,
+            customerTierIds: priceListTierIds,
+            customerTierId: priceListTierIds[0] || null,
             isDefault: priceListIsDefault,
           },
         });
-        showToast(`Price List "${priceListName}" updated successfully!`);
+        showToast(`Price List "${priceListName}" updated with ${priceListTierIds.length} assigned tier(s)!`);
       } else {
         await createPriceListMutation.mutateAsync({
           name: priceListName.trim(),
           currency: priceListCurrency,
-          customerTierId: priceListTierId ? priceListTierId : undefined,
+          customerTierIds: priceListTierIds,
+          customerTierId: priceListTierIds[0] || undefined,
           isDefault: priceListIsDefault,
         });
         showToast(`Price List "${priceListName}" created successfully!`);
@@ -643,6 +667,170 @@ export default function AdminCatalogPage() {
       await refetchPriceLists();
     } catch (err: any) {
       showToast(`Delete failed: ${err?.message}`);
+    }
+  };
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // UPSELL & CROSS-SELL RECOMMENDATION PAIRING HANDLERS
+  // ══════════════════════════════════════════════════════════════════════════
+  const handleOpenNewRec = () => {
+    setEditingRecId(null);
+    setRecSourceProductId(productsList[0]?.id || "");
+    setRecTargetProductId(productsList[1]?.id || productsList[0]?.id || "");
+    setRecCoPurchaseScore(8.5);
+    setRecPromotionalTag("Frequently Bought Together");
+    setRecMinMarginThreshold(20);
+    setRecIsActive(true);
+    setIsRecModalOpen(true);
+  };
+
+  const handleEditRec = (rec: ProductRecommendationData) => {
+    setEditingRecId(rec.id);
+    setRecSourceProductId(rec.sourceProductId);
+    setRecTargetProductId(rec.recommendedProductId);
+    setRecCoPurchaseScore(rec.coPurchaseScore);
+    setRecPromotionalTag(rec.promotionalTag || "Frequently Bought Together");
+    setRecMinMarginThreshold(rec.minMarginThreshold);
+    setRecIsActive(rec.isActive);
+    setIsRecModalOpen(true);
+  };
+
+  const handleSaveRec = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!recSourceProductId || !recTargetProductId) {
+      showToast("Please select both source and recommended target products.");
+      return;
+    }
+    if (recSourceProductId === recTargetProductId) {
+      showToast("Source and recommended products must be different.");
+      return;
+    }
+
+    try {
+      if (editingRecId) {
+        await updateRecMutation.mutateAsync({
+          id: editingRecId,
+          body: {
+            sourceProductId: recSourceProductId,
+            recommendedProductId: recTargetProductId,
+            coPurchaseScore: Number(recCoPurchaseScore) || 1.0,
+            promotionalTag: recPromotionalTag.trim() || null,
+            minMarginThreshold: Number(recMinMarginThreshold) || 20.0,
+            isActive: recIsActive,
+          },
+        });
+        showToast("Recommendation pairing rule updated!");
+      } else {
+        await createRecMutation.mutateAsync({
+          sourceProductId: recSourceProductId,
+          recommendedProductId: recTargetProductId,
+          coPurchaseScore: Number(recCoPurchaseScore) || 1.0,
+          promotionalTag: recPromotionalTag.trim() || undefined,
+          minMarginThreshold: Number(recMinMarginThreshold) || 20.0,
+          isActive: recIsActive,
+        });
+        showToast("Product pairing recommendation created!");
+      }
+      setIsRecModalOpen(false);
+      setEditingRecId(null);
+      await refetchRecommendations();
+    } catch (err: any) {
+      showToast(`Recommendation error: ${err?.message || "Failed to save rule"}`);
+    }
+  };
+
+  const handleDeleteRec = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this recommendation pairing rule?")) return;
+    try {
+      await deleteRecMutation.mutateAsync(id);
+      showToast("Recommendation rule deleted.");
+      await refetchRecommendations();
+    } catch (err: any) {
+      showToast(`Delete failed: ${err?.message}`);
+    }
+  };
+
+  // Smart Auto-Pairing Generator for Demo / Admin Ease
+  const handleGenerateSmartPairings = async () => {
+    if (productsList.length < 2) {
+      showToast("Need at least 2 catalog products to generate smart pairing rules.");
+      return;
+    }
+
+    let createdCount = 0;
+    try {
+      const hardwareProds = productsList.filter(
+        (p) => p.category?.type === "HARDWARE" || p.name.toLowerCase().includes("laptop") || p.name.toLowerCase().includes("server") || p.name.toLowerCase().includes("switch")
+      );
+      const serviceProds = productsList.filter(
+        (p) => p.category?.type === "SERVICE" || p.name.toLowerCase().includes("warranty") || p.name.toLowerCase().includes("support") || p.name.toLowerCase().includes("sla")
+      );
+      const accessoryProds = productsList.filter(
+        (p) => p.name.toLowerCase().includes("dock") || p.name.toLowerCase().includes("monitor") || p.name.toLowerCase().includes("cable") || p.name.toLowerCase().includes("adapter")
+      );
+
+      // 1. Pair each Hardware with Service Warranty
+      for (const hw of hardwareProds) {
+        for (const srv of serviceProds) {
+          if (hw.id !== srv.id) {
+            await createRecMutation
+              .mutateAsync({
+                sourceProductId: hw.id,
+                recommendedProductId: srv.id,
+                coPurchaseScore: 9.5,
+                promotionalTag: "3-Year Premier Support & Onsite SLA",
+                minMarginThreshold: 20,
+                isActive: true,
+              })
+              .then(() => createdCount++)
+              .catch(() => {});
+          }
+        }
+      }
+
+      // 2. Pair Hardware with Accessories
+      for (const hw of hardwareProds) {
+        for (const acc of accessoryProds) {
+          if (hw.id !== acc.id) {
+            await createRecMutation
+              .mutateAsync({
+                sourceProductId: hw.id,
+                recommendedProductId: acc.id,
+                coPurchaseScore: 8.8,
+                promotionalTag: "Frequently Bought Together",
+                minMarginThreshold: 25,
+                isActive: true,
+              })
+              .then(() => createdCount++)
+              .catch(() => {});
+          }
+        }
+      }
+
+      // Fallback: If no categorized products matched, pair first few items
+      if (createdCount === 0 && productsList.length >= 2) {
+        for (let i = 0; i < Math.min(3, productsList.length); i++) {
+          const src = productsList[i]!;
+          const target = productsList[(i + 1) % productsList.length]!;
+          await createRecMutation
+            .mutateAsync({
+              sourceProductId: src.id,
+              recommendedProductId: target.id,
+              coPurchaseScore: 8.0,
+              promotionalTag: "Recommended Commercial Add-on",
+              minMarginThreshold: 15,
+              isActive: true,
+            })
+            .then(() => createdCount++)
+            .catch(() => {});
+        }
+      }
+
+      await refetchRecommendations();
+      showToast(`✨ Generated ${createdCount} smart upsell & cross-sell pairing rules!`);
+    } catch (err: any) {
+      showToast(`Generation completed. Rules updated.`);
+      await refetchRecommendations();
     }
   };
 
@@ -782,6 +970,18 @@ export default function AdminCatalogPage() {
             >
               <GitBranch size={14} />
               <span>Approval Chains</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab(activeTab === "recommendations" ? "products" : "recommendations")}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                activeTab === "recommendations"
+                  ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                  : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+              }`}
+            >
+              <Sparkles size={14} className="text-amber-500" />
+              <span>Upsell &amp; Cross-Sell</span>
             </button>
 
             <button
@@ -1045,59 +1245,83 @@ export default function AdminCatalogPage() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {priceListsList.map((pl) => {
-                  const tierName = pl.customerTier?.name || (pl.name.toLowerCase().includes("gold") ? "Gold Strategic Tier" : pl.name.toLowerCase().includes("silver") ? "Silver Growth Partner" : pl.name.toLowerCase().includes("platinum") ? "Platinum Enterprise" : "Bronze Standard");
-                  const ceiling = pl.customerTier?.discountCeiling ?? (pl.name.toLowerCase().includes("gold") ? 15 : pl.name.toLowerCase().includes("silver") ? 10 : pl.name.toLowerCase().includes("platinum") ? 20 : 5);
-                  const isGold = pl.name.toLowerCase().includes("gold") || pl.customerTier?.code === "GOLD";
-                  const isSilver = pl.name.toLowerCase().includes("silver") || pl.customerTier?.code === "SILVER";
-                  const isPlat = pl.name.toLowerCase().includes("platinum") || pl.customerTier?.code === "PLATINUM";
+                  const assignedTiers =
+                    pl.customerTiers && pl.customerTiers.length > 0
+                      ? pl.customerTiers
+                      : pl.customerTier
+                        ? [pl.customerTier]
+                        : [];
 
                   return (
                     <div
                       key={pl.id}
-                      className={`border rounded-2xl p-5 space-y-3.5 relative group transition ${
-                        isGold
-                          ? "bg-amber-50/50 border-amber-200"
-                          : isSilver
-                            ? "bg-blue-50/50 border-blue-200"
-                            : isPlat
-                              ? "bg-purple-50/50 border-purple-200"
-                              : "bg-[#f8fafc] border-slate-200"
-                      }`}
+                      className="border border-slate-200 bg-white hover:border-slate-300 rounded-2xl p-5 space-y-3.5 relative group transition shadow-xs flex flex-col justify-between"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-900 text-sm">{pl.name}</span>
-                        <span className="px-2.5 py-0.5 rounded-full bg-slate-900 text-white text-[10px] font-bold">
-                          {pl.currency}
-                        </span>
-                      </div>
-
-                      <div className="space-y-2 text-xs text-slate-600">
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-500">Customer Tier:</span>
-                          <span className="font-bold text-slate-800">{tierName}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-500">Discount Limit:</span>
-                          <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60">
-                            Up to {ceiling}% max
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-900 text-sm">{pl.name}</span>
+                          <span className="px-2.5 py-0.5 rounded-full bg-slate-900 text-white text-[10px] font-bold font-mono">
+                            {pl.currency}
                           </span>
                         </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-500">Base Rule:</span>
-                          <span className="font-semibold text-slate-700">
-                            {ceiling === 0 ? "List Price, no adjustment" : `Base minus ${ceiling}% schedule`}
-                          </span>
+
+                        <div className="space-y-2 text-xs text-slate-600">
+                          <div>
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                              Assigned Customer Tiers ({assignedTiers.length})
+                            </span>
+                            {assignedTiers.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {assignedTiers.map((t) => {
+                                  const isGold = t.code === "GOLD" || t.name.toLowerCase().includes("gold");
+                                  const isSilver = t.code === "SILVER" || t.name.toLowerCase().includes("silver");
+                                  const isPlat = t.code === "PLATINUM" || t.name.toLowerCase().includes("platinum");
+
+                                  return (
+                                    <span
+                                      key={t.id}
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-bold ${
+                                        isGold
+                                          ? "bg-amber-50 text-amber-800 border-amber-200"
+                                          : isSilver
+                                            ? "bg-blue-50 text-blue-800 border-blue-200"
+                                            : isPlat
+                                              ? "bg-purple-50 text-purple-800 border-purple-200"
+                                              : "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                      }`}
+                                    >
+                                      <span>{t.name}</span>
+                                      <span className="opacity-75 font-mono">({t.discountCeiling}% cap)</span>
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-semibold text-[11px]">
+                                All Customer Tiers (Default Public)
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-xs">
+                            <span className="text-slate-500">Tier Pricing:</span>
+                            <span className="font-semibold text-slate-800">
+                              {assignedTiers.length > 0
+                                ? `${assignedTiers.length} tier schedule(s)`
+                                : `Base rate schedule`}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between pt-3 border-t border-slate-200/60">
+                      <div className="flex items-center justify-between pt-3 border-t border-slate-100">
                         <span className="text-[10px] text-slate-400 font-medium">
-                          {pl.isDefault ? "★ Default Catalog List" : "Tier-Specific"}
+                          {pl.isDefault ? "★ Master Catalog Rate" : "Multi-Tier Price List"}
                         </span>
                         <div className="flex items-center gap-1.5">
                           <button
                             onClick={() => handleEditPriceList(pl)}
-                            className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 rounded-lg transition cursor-pointer"
+                            className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition cursor-pointer"
                             title="Edit Price List"
                           >
                             <Edit2 size={13} />
@@ -1501,6 +1725,221 @@ export default function AdminCatalogPage() {
           </div>
         )}
 
+        {/* ══════════════════════════════════════════════════════════════════════
+            VIEW 6: UPSELL & CROSS-SELL RECOMMENDATION PAIRINGS
+        ══════════════════════════════════════════════════════════════════════ */}
+        {activeTab === "recommendations" && (
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-6 animate-in fade-in duration-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Sparkles size={18} className="text-amber-500" />
+                  <h2 className="text-base font-bold text-slate-900">Upsell &amp; Cross-Sell Suggestions Engine</h2>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Configure live product pairings, co-purchase affinity weights, and hard minimum margin floors to safeguard deal margins.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={handleGenerateSmartPairings}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                >
+                  <Sparkles size={13} />
+                  <span>✨ Generate Smart Pairings</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenNewRec}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#3b82f6] hover:bg-[#2563eb] text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                >
+                  <Plus size={14} />
+                  <span>+ Add Pairing Rule</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Explanatory Banners / Rule Principles */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-blue-50/70 border border-blue-200/80 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center gap-2 text-blue-900 font-bold text-xs">
+                  <Layers3 size={15} className="text-[#3b82f6]" />
+                  <span>Cross-Sell Attachments</span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Attaches high-margin warranties, SLA support packs, docks, and peripherals to base hardware deals.
+                </p>
+              </div>
+
+              <div className="bg-purple-50/70 border border-purple-200/80 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center gap-2 text-purple-900 font-bold text-xs">
+                  <TrendingUp size={15} className="text-purple-600" />
+                  <span>Upsell Tier Upgrades</span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Recommends higher spec/tier alternatives (e.g. Standard to Enterprise Pro) to increase average deal size (ACV).
+                </p>
+              </div>
+
+              <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center gap-2 text-emerald-900 font-bold text-xs">
+                  <ShieldCheck size={15} className="text-emerald-600" />
+                  <span>Margin Floor Gatekeeper</span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Strictly suppresses any recommendation whose live gross margin is below your defined min margin floor.
+                </p>
+              </div>
+            </div>
+
+            {/* Recommendations List / Table */}
+            {isRecommendationsLoading ? (
+              <div className="py-12 text-center text-slate-400">
+                <RefreshCw size={20} className="animate-spin mx-auto text-[#3b82f6] mb-2" />
+                <span>Loading recommendation rules...</span>
+              </div>
+            ) : recommendationsList.length === 0 ? (
+              <div className="p-8 bg-[#f8fafc] border border-dashed border-slate-300 rounded-2xl text-center space-y-3">
+                <Sparkles size={28} className="mx-auto text-amber-500" />
+                <h3 className="text-sm font-bold text-slate-800">No Recommendation Rules Configured</h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Click below to auto-generate smart pairings between catalog hardware, accessories, and warranty SLAs.
+                </p>
+                <div className="flex items-center justify-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleGenerateSmartPairings}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-xs cursor-pointer"
+                  >
+                    <Sparkles size={14} />
+                    <span>✨ Auto-Generate Smart Pairings</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenNewRec}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs cursor-pointer"
+                  >
+                    <Plus size={14} />
+                    <span>+ Custom Pairing</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Configured Recommendation Pairings ({recommendationsList.length})
+                  </span>
+                </div>
+
+                <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden text-xs shadow-2xs">
+                  {recommendationsList.map((rec) => {
+                    const source = rec.sourceProduct || productsList.find((p) => p.id === rec.sourceProductId);
+                    const target = rec.recommendedProduct || productsList.find((p) => p.id === rec.recommendedProductId);
+                    const targetBasePrice = target && typeof target.basePrice === "number" ? target.basePrice : 0;
+                    const targetCostPrice = target && typeof target.costPrice === "number" ? target.costPrice : 0;
+                    const targetMargin =
+                      targetBasePrice > 0
+                        ? Math.round(((targetBasePrice - targetCostPrice) / targetBasePrice) * 100)
+                        : 0;
+
+                    return (
+                      <div
+                        key={rec.id}
+                        className="p-4 bg-white hover:bg-slate-50/70 transition flex flex-col md:flex-row md:items-center justify-between gap-4"
+                      >
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {/* Source Product Badge */}
+                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 font-bold text-slate-900">
+                              <span className="text-[10px] uppercase font-mono text-slate-500">Trigger:</span>
+                              <span>{source?.name || rec.sourceProductId}</span>
+                            </div>
+
+                            <ArrowRight size={14} className="text-slate-400 shrink-0" />
+
+                            {/* Target Recommended Product Badge */}
+                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-50 border border-blue-200 font-bold text-blue-900">
+                              <span className="text-[10px] uppercase font-mono text-blue-600">Suggest:</span>
+                              <span>{target?.name || rec.recommendedProductId}</span>
+                              {target && (
+                                <span className="text-emerald-700 font-mono text-[11px] ml-1">
+                                  (₹{targetBasePrice.toLocaleString()})
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Tag */}
+                            {rec.promotionalTag && (
+                              <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 font-bold text-[10px]">
+                                {rec.promotionalTag}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-500 text-xs">
+                            <span>
+                              Co-Purchase Score:{" "}
+                              <strong className="text-slate-800">{rec.coPurchaseScore}/10</strong>
+                            </span>
+                            <span>
+                              Min Margin Floor:{" "}
+                              <strong className="text-orange-600">{rec.minMarginThreshold}%</strong>
+                            </span>
+                            <span>
+                              Target Live Margin:{" "}
+                              <strong
+                                className={`font-bold ${
+                                  targetMargin >= rec.minMarginThreshold
+                                    ? "text-emerald-600"
+                                    : "text-red-600"
+                                }`}
+                              >
+                                {targetMargin}%{" "}
+                                {targetMargin < rec.minMarginThreshold && "(Erosion Warning)"}
+                              </strong>
+                            </span>
+                            <span
+                              className={`px-2 py-0.2 rounded font-bold text-[10px] ${
+                                rec.isActive
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : "bg-slate-100 text-slate-500"
+                              }`}
+                            >
+                              {rec.isActive ? "● Active in Sales Drawer" : "○ Paused"}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 self-end md:self-auto shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleEditRec(rec)}
+                            className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                            title="Edit Pairing Rule"
+                          >
+                            <Edit2 size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteRec(rec.id)}
+                            className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                            title="Delete Pairing Rule"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════════
@@ -1842,33 +2281,41 @@ export default function AdminCatalogPage() {
                       <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                         {priceListsList.length > 0 ? (
                           priceListsList.map((pl) => {
-                            const discount =
-                              pl.customerTier?.discountCeiling ??
-                              (pl.name.toLowerCase().includes("gold")
-                                ? 15
-                                : pl.name.toLowerCase().includes("silver")
-                                  ? 10
-                                  : pl.name.toLowerCase().includes("platinum")
-                                    ? 20
-                                    : 5);
+                            const assignedTiers =
+                              pl.customerTiers && pl.customerTiers.length > 0
+                                ? pl.customerTiers
+                                : pl.customerTier
+                                  ? [pl.customerTier]
+                                  : [];
+
+                            const maxCeiling =
+                              assignedTiers.length > 0
+                                ? Math.max(...assignedTiers.map((t) => t.discountCeiling))
+                                : 0;
 
                             const currencySymbol =
                               pl.currency === "USD" ? "$" : pl.currency === "EUR" ? "€" : "₹";
-                            const effectiveRate = Math.round(formBasePrice * (1 - discount / 100));
-
-                            const ruleDesc =
-                              discount === 0
-                                ? "List Price, no adjustment"
-                                : `Base minus ${discount}% schedule`;
+                            const effectiveRate = Math.round(formBasePrice * (1 - maxCeiling / 100));
 
                             return (
                               <tr key={pl.id} className="hover:bg-slate-50 transition-colors">
                                 <td className="py-2.5 px-3">
-                                  <div className="flex flex-col">
+                                  <div className="flex flex-col gap-1">
                                     <span className="font-bold text-slate-900">{pl.name}</span>
-                                    {pl.customerTier?.name && (
+                                    {assignedTiers.length > 0 ? (
+                                      <div className="flex flex-wrap gap-1">
+                                        {assignedTiers.map((t) => (
+                                          <span
+                                            key={t.id}
+                                            className="px-1.5 py-0.2 rounded bg-slate-100 border border-slate-200 text-[10px] font-semibold text-slate-700"
+                                          >
+                                            {t.name} ({t.discountCeiling}%)
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : (
                                       <span className="text-[10px] text-slate-400 font-medium">
-                                        Tier: {pl.customerTier.name}
+                                        All Customer Tiers
                                       </span>
                                     )}
                                   </div>
@@ -1878,18 +2325,10 @@ export default function AdminCatalogPage() {
                                     {pl.currency || "INR"}
                                   </span>
                                 </td>
-                                <td
-                                  className={`py-2.5 px-3 font-semibold ${
-                                    discount >= 15
-                                      ? "text-purple-600"
-                                      : discount >= 10
-                                        ? "text-[#ff5e3a]"
-                                        : discount > 0
-                                          ? "text-blue-600"
-                                          : "text-slate-600"
-                                  }`}
-                                >
-                                  {ruleDesc}
+                                <td className="py-2.5 px-3 font-semibold text-slate-700">
+                                  {maxCeiling === 0
+                                    ? "List Price (0% discount)"
+                                    : `Up to ${maxCeiling}% tier discount`}
                                 </td>
                                 <td className="py-2.5 px-3 text-right font-bold text-emerald-600">
                                   {currencySymbol}
@@ -2195,11 +2634,16 @@ export default function AdminCatalogPage() {
       ══════════════════════════════════════════════════════════════════════ */}
       {isPriceListModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl border border-slate-200 max-w-md w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 my-auto">
+          <div className="bg-white rounded-3xl border border-slate-200 max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 my-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-bold text-slate-900">
-                {editingPriceListId ? "Edit Global Price List" : "Create Global Price List"}
-              </h3>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  {editingPriceListId ? "Edit Multi-Tier Price List" : "Create Multi-Tier Price List"}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Assign multiple customer tiers to this price list schedule.
+                </p>
+              </div>
               <button onClick={() => setIsPriceListModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={18} />
               </button>
@@ -2215,43 +2659,90 @@ export default function AdminCatalogPage() {
                   required
                   value={priceListName}
                   onChange={(e) => setPriceListName(e.target.value)}
-                  placeholder="e.g. Gold Tier INR Schedule"
+                  placeholder="e.g. Strategic Multi-Tier Schedule"
                   className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 outline-none focus:border-[#3b82f6]"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Currency</label>
-                  <select
-                    value={priceListCurrency}
-                    onChange={(e) => setPriceListCurrency(e.target.value)}
-                    className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 outline-none"
-                  >
-                    <option value="INR">INR (₹)</option>
-                    <option value="USD">USD ($)</option>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="GBP">GBP (£)</option>
-                    <option value="CAD">CAD ($)</option>
-                    <option value="AUD">AUD ($)</option>
-                  </select>
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Currency</label>
+                <select
+                  value={priceListCurrency}
+                  onChange={(e) => setPriceListCurrency(e.target.value)}
+                  className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 outline-none"
+                >
+                  <option value="INR">INR (₹)</option>
+                  <option value="USD">USD ($)</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="GBP">GBP (£)</option>
+                  <option value="CAD">CAD ($)</option>
+                  <option value="AUD">AUD ($)</option>
+                </select>
+              </div>
+
+              {/* Multi-Select Assigned Customer Tiers */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                    Assigned Customer Tiers ({priceListTierIds.length} of {tiersList.length} selected)
+                  </label>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setPriceListTierIds(tiersList.map((t) => t.id))}
+                      className="text-[#3b82f6] hover:underline font-semibold cursor-pointer"
+                    >
+                      Select All
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => setPriceListTierIds([])}
+                      className="text-slate-500 hover:underline font-medium cursor-pointer"
+                    >
+                      Clear All
+                    </button>
+                  </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Customer Tier</label>
-                  <select
-                    value={priceListTierId}
-                    onChange={(e) => setPriceListTierId(e.target.value)}
-                    className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 outline-none"
-                  >
-                    <option value="">Standard (All Tiers)</option>
-                    {tiersList.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name} (Max {t.discountCeiling}%)
-                      </option>
-                    ))}
-                  </select>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 bg-[#f8fafc] rounded-2xl border border-slate-200">
+                  {tiersList.map((tier) => {
+                    const isSelected = priceListTierIds.includes(tier.id);
+                    return (
+                      <button
+                        key={tier.id}
+                        type="button"
+                        onClick={() => {
+                          setPriceListTierIds((prev) =>
+                            prev.includes(tier.id) ? prev.filter((id) => id !== tier.id) : [...prev, tier.id]
+                          );
+                        }}
+                        className={`flex items-center justify-between p-2.5 rounded-xl border text-left text-xs transition cursor-pointer ${
+                          isSelected
+                            ? "bg-blue-50/90 border-[#3b82f6] text-blue-950 font-bold shadow-xs"
+                            : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <div
+                            className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${
+                              isSelected ? "bg-[#3b82f6] border-[#3b82f6] text-white" : "border-slate-300 bg-white"
+                            }`}
+                          >
+                            {isSelected && <Check size={11} strokeWidth={3} />}
+                          </div>
+                          <span className="truncate">{tier.name}</span>
+                        </div>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700 font-mono shrink-0 ml-1">
+                          {tier.discountCeiling}% cap
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
+                <p className="text-[11px] text-slate-400">
+                  Any customer mapped to these selected tiers will automatically use this pricing schedule.
+                </p>
               </div>
 
               <div className="flex items-center gap-2 pt-1">
@@ -2260,9 +2751,9 @@ export default function AdminCatalogPage() {
                   id="priceListDefaultCheck"
                   checked={priceListIsDefault}
                   onChange={(e) => setPriceListIsDefault(e.target.checked)}
-                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4 w-4"
+                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer"
                 />
-                <label htmlFor="priceListDefaultCheck" className="text-xs text-slate-700 font-medium select-none">
+                <label htmlFor="priceListDefaultCheck" className="text-xs text-slate-700 font-medium select-none cursor-pointer">
                   Set as default fallback catalog price list
                 </label>
               </div>
@@ -2298,6 +2789,192 @@ export default function AdminCatalogPage() {
                     className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
                   >
                     {editingPriceListId ? "Update Price List" : "Create Price List"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          UPSELL & CROSS-SELL RECOMMENDATION PAIRING MODAL
+      ══════════════════════════════════════════════════════════════════════ */}
+      {isRecModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl border border-slate-200 max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 my-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  {editingRecId ? "Edit Recommendation Pairing Rule" : "Create Recommendation Pairing Rule"}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Pair a base product with an upsell upgrade or cross-sell attachment.
+                </p>
+              </div>
+              <button onClick={() => setIsRecModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveRec} className="space-y-4 text-left">
+              {/* Source Product Selector */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                  Base / Trigger Product <span className="text-[#3b82f6]">*</span>
+                </label>
+                <select
+                  value={recSourceProductId}
+                  onChange={(e) => setRecSourceProductId(e.target.value)}
+                  className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-900 outline-none font-medium cursor-pointer"
+                >
+                  {productsList.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.sku}) &ndash; ₹{p.basePrice.toLocaleString()}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400">
+                  When a sales rep adds this product to a quotation, the engine evaluates the recommendation.
+                </p>
+              </div>
+
+              {/* Recommended Product Selector */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                  Recommended Target Product <span className="text-[#3b82f6]">*</span>
+                </label>
+                <select
+                  value={recTargetProductId}
+                  onChange={(e) => setRecTargetProductId(e.target.value)}
+                  className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-900 outline-none font-medium cursor-pointer"
+                >
+                  {productsList
+                    .filter((p) => p.id !== recSourceProductId)
+                    .map((p) => {
+                      const margin = p.basePrice > 0 ? Math.round(((p.basePrice - p.costPrice) / p.basePrice) * 100) : 0;
+                      return (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({p.sku}) &ndash; ₹{p.basePrice.toLocaleString()} ({margin}% gross margin)
+                        </option>
+                      );
+                    })}
+                </select>
+              </div>
+
+              {/* Promotional Tag Presets & Input */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                  Promotional Tag / Pairing Type
+                </label>
+                <div className="flex flex-wrap gap-1.5 mb-1.5">
+                  {[
+                    "Frequently Bought Together",
+                    "Upgrade to Pro Tier",
+                    "3-Year Premier Support / SLA",
+                    "High Margin Accessory",
+                    "Recommended Cloud Add-on",
+                  ].map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => setRecPromotionalTag(tag)}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-semibold border transition cursor-pointer ${
+                        recPromotionalTag === tag
+                          ? "bg-slate-900 text-white border-slate-900"
+                          : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  value={recPromotionalTag}
+                  onChange={(e) => setRecPromotionalTag(e.target.value)}
+                  placeholder="e.g. Frequently Bought Together"
+                  className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 outline-none focus:border-[#3b82f6]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {/* Co-Purchase Score */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                    Co-Purchase Score (1-10)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    step={0.1}
+                    value={recCoPurchaseScore}
+                    onChange={(e) => setRecCoPurchaseScore(Number(e.target.value))}
+                    className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 outline-none focus:border-[#3b82f6]"
+                  />
+                  <p className="text-[10px] text-slate-400">Higher score appears first in suggestion drawer.</p>
+                </div>
+
+                {/* Min Margin Floor % */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                    Min Margin Floor (%)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={recMinMarginThreshold}
+                    onChange={(e) => setRecMinMarginThreshold(Number(e.target.value))}
+                    className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 outline-none focus:border-[#3b82f6]"
+                  />
+                  <p className="text-[10px] text-slate-400">Suppresses candidate if margin falls below.</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="recActiveCheck"
+                  checked={recIsActive}
+                  onChange={(e) => setRecIsActive(e.target.checked)}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
+                />
+                <label htmlFor="recActiveCheck" className="text-xs text-slate-700 font-medium select-none cursor-pointer">
+                  Rule is active and currently surfacing to sales reps
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                {editingRecId ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleDeleteRec(editingRecId);
+                      setIsRecModalOpen(false);
+                    }}
+                    className="px-3 py-2 rounded-xl text-red-600 hover:bg-red-50 text-xs font-bold transition cursor-pointer"
+                  >
+                    Delete
+                  </button>
+                ) : (
+                  <div></div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsRecModalOpen(false)}
+                    className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+                  >
+                    {editingRecId ? "Update Pairing" : "Create Pairing Rule"}
                   </button>
                 </div>
               </div>
