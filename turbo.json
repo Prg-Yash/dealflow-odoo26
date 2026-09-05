@@ -19,7 +19,20 @@
     "NEXT_PUBLIC_API_URL",
     "BETTER_AUTH_SECRET",
     "BETTER_AUTH_URL",
-    "WEB_ORIGIN"
+    "WEB_ORIGIN",
+    "SMTP_HOST",
+    "SMTP_PORT",
+    "SMTP_SECURE",
+    "SMTP_USER",
+    "SMTP_PASS",
+    "SMTP_FROM",
+    "GMAIL_USER",
+    "GMAIL_APP_PASSWORD",
+    "UPSTASH_REDIS_URL",
+    "UPSTASH_REDIS_REST_URL",
+    "UPSTASH_REDIS_REST_TOKEN",
+    "UPSTASH_REDIS_TOKEN",
+    "UPSTASH_REDIS_PASSWORD"
   ],
   "tasks": {
     "db:generate": {
