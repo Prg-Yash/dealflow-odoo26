@@ -243,13 +243,12 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
     }
   }, [token, fetchQuotationData]);
 
-  // Handler: Switch Quotation
+  // Handler: Switch Quotation within Authenticated Session
   const handleSelectToken = (selectedToken: string) => {
     setToken(selectedToken);
     setTokenInput(selectedToken);
     setShowTokenSelector(false);
     setViewMode("detail");
-    router.push(`/portal?token=${encodeURIComponent(selectedToken)}`);
   };
 
   // Handler: Submit Counter-Proposal (Task 2: Counters a discount)
