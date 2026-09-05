@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Check,
@@ -91,6 +91,59 @@ export default function ManagerDashboardPage() {
 
   const [approvals, setApprovals] = useState<ManagerApprovalRequest[]>(initialApprovals);
   const [anomalies, setAnomalies] = useState<DealAnomalyRecord[]>(initialAnomalies);
+
+  useEffect(() => {
+    if (apiQuotes && apiQuotes.length > 0) {
+      setApprovals(
+        apiQuotes.map((q) => ({
+          id: q.id,
+          quoteId: q.quoteNumber || q.id,
+          account: q.customer?.name || "Enterprise Account",
+          accountTier: (((q.customer as any)?.tier?.name as any) || "Gold") as any,
+          repName: q.salesRep?.user?.name || "Account Executive",
+          repInitials: (q.salesRep?.user?.name || "AE").split(" ").map((s: string) => s[0]).join("").slice(0, 2).toUpperCase(),
+          dealSize: q.grandTotal || 0,
+          discountRequested: q.discountPercent || 15,
+          thresholdMax: 10,
+          marginProjected: q.grossMarginPercent || 40,
+          targetMargin: 45,
+          reason: q.notes || "Volume discount exception requested.",
+          status: (q.stage === "APPROVED" ? "APPROVED" : q.stage === "CANCELLED" ? "REJECTED" : "PENDING") as ApprovalStatus,
+          submittedAt: new Date(q.createdAt).toLocaleDateString(),
+          slaHoursLeft: 24,
+          blendedRiskScore: q.blendedRiskScore || 15,
+          escalationLevel: "SALES_MANAGER",
+          pdfFileName: `${q.quoteNumber || "Quote"}-Exec.pdf`,
+          pdfFileSize: "1.4 MB",
+          pdfHash: "sha256-verified",
+          lineItems: [],
+          workflowSteps: [],
+          auditLogs: [],
+        }))
+      );
+    }
+  }, [apiQuotes]);
+
+  useEffect(() => {
+    if (anomaliesList && anomaliesList.length > 0) {
+      setAnomalies(
+        anomaliesList.map((a: any) => ({
+          id: a.quotationId || a.id || "anom-1",
+          quoteId: a.quoteNumber || "QT-1042",
+          account: a.customerName || "Strategic Account",
+          accountInitials: (a.customerName || "SA").slice(0, 2).toUpperCase(),
+          repName: a.salesRepName || a.repName || "Account Rep",
+          dealValue: a.dealSize || 75000,
+          riskGaugePercent: a.blendedRiskScore || 25,
+          riskLevel: (a.severity === "HIGH" || a.severity === "CRITICAL" ? "high" : a.severity === "LOW" ? "low" : "medium") as "high" | "medium" | "low",
+          anomalyType: a.isStalledAnomaly ? ("Stalled Deal" as const) : ("Discount Breach" as const),
+          idleDays: a.daysSinceLastActivity || 3,
+          actionStatus: "flagged" as const,
+          details: a.recommendation || `Discount deviation: +${a.discountDeviation || 5}% against historical average`,
+        }))
+      );
+    }
+  }, [anomaliesList]);
   const [approvalFilter, setApprovalFilter] = useState<"pending" | "all">("pending");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -275,13 +328,8 @@ export default function ManagerDashboardPage() {
             </nav>
           </div>
 
-          {/* Right: Live Sync & Manager Profile */}
+          {/* Right: Manager Profile */}
           <div className="flex items-center gap-3 shrink-0">
-            <div className="hidden sm:flex items-center gap-1.5 px-3 h-8 rounded-full bg-emerald-50 border border-emerald-200/80 text-[11px] font-medium text-emerald-800 whitespace-nowrap">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Live Sync</span>
-            </div>
-
             <Link
               href="/profile"
               className="flex items-center gap-2.5 pl-2.5 sm:border-l sm:border-slate-200 cursor-pointer"
@@ -573,25 +621,20 @@ export default function ManagerDashboardPage() {
           </div>
         )}
 
-        {/* VIEW 2: DEAL HEALTH & ANOMALY TELEMETRY (Stitch Screen af5d58e971dc4000b593915292001ee2) */}
+        {/* VIEW 2: DEAL HEALTH DASHBOARD */}
         {activeView === "telemetry" && (
           <div className="space-y-8">
-            {/* Telemetry Control Header */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-black/[0.06] pb-6">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-[#ff5e3a] animate-pulse" />
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#ff5e3a]">
-                    Automated Surveillance
-                  </span>
-                </div>
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0f172a] tracking-tight">
-                  Deal Health &amp; Anomaly Telemetry
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-black/[0.06] pb-5">
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0f172a] tracking-tight mt-1">
+                  Deal Health and Anomaly Dashboard
                 </h1>
-                <p className="text-xs text-slate-500">
-                  Real-time pipeline surveillance, velocity anomaly tracking &amp; margin drift radar
+                <p className="text-xs text-slate-500 mt-1">
+                  Real-time flags for stalled deals and unusual discount patterns
                 </p>
               </div>
+            </div>
 
               {/* Action & Filter Bar */}
               <div className="flex flex-wrap items-center gap-3">
@@ -658,413 +701,88 @@ export default function ManagerDashboardPage() {
                   <span>{diagnosticsRan ? "Running..." : "Run Diagnostics"}</span>
                 </button>
               </div>
-            </div>
 
-            {/* 4 Visual Telemetry KPI Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
-              {/* 1. Stalled Deals with Velocity Sparkline */}
-              <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs flex flex-col justify-between">
-                <div className="flex items-center justify-between pb-3">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    Stalled Deals
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 text-[10px] font-bold border border-rose-200">
-                    &gt;7d Idle
-                  </span>
+              {/* 3 KPI Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs">
+                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Stalled Deals</h3>
+                  <p className="text-2xl font-black text-[#0f172a]">
+                    {anomalies.filter((a) => a.anomalyType === "Stalled Deal").length}{" "}
+                    <span className="text-sm font-medium text-slate-500">quotes idle 7+ days</span>
+                  </p>
                 </div>
-                <div className="flex items-baseline gap-2 pt-1 pb-4">
-                  <span className="text-3xl font-black text-[#0f172a]">14</span>
-                  <span className="text-xs text-slate-500 font-medium">Deals</span>
-                  <span className="ml-auto text-xs text-rose-600 font-bold flex items-center gap-0.5">
-                    -3.2d vel
-                  </span>
+                <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs">
+                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Discount Anomalies</h3>
+                  <p className="text-2xl font-black text-[#0f172a]">
+                    {anomalies.filter((a) => a.anomalyType === "Discount Breach").length}{" "}
+                    <span className="text-sm font-medium text-slate-500">above rep average</span>
+                  </p>
                 </div>
-
-                {/* SVG Velocity Trail Sparkline */}
-                <div className="w-full pt-1">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 pb-1.5 font-mono">
-                    <span>Velocity Trail</span>
-                    <span className="text-rose-600 font-bold">Critical Delay</span>
-                  </div>
-                  <div className="w-full h-8 overflow-hidden">
-                    <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 24">
-                      <path
-                        d="M2,6 L15,10 L30,4 L45,14 L60,9 L75,19 L90,12 L96,19"
-                        fill="none"
-                        stroke="#ff5e3a"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <circle cx="96" cy="19" r="5" fill="#ff5e3a" fillOpacity="0.25" />
-                      <circle cx="96" cy="19" r="3" fill="#ff5e3a" />
-                    </svg>
-                  </div>
+                <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs">
+                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Active Approvals</h3>
+                  <p className="text-2xl font-black text-[#0f172a]">
+                    {pendingApprovals.length}{" "}
+                    <span className="text-sm font-medium text-slate-500">pending sign-off</span>
+                  </p>
                 </div>
               </div>
 
-              {/* 2. Margin Erosion with SVG Circular Radial Gauge */}
-              <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs flex flex-col justify-between">
-                <div className="flex items-center justify-between pb-3">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    Margin Erosion
-                  </span>
-                  <span className="text-[11px] font-mono text-slate-400">Target 45.0%</span>
-                </div>
-                <div className="flex items-center justify-between pt-1">
-                  <div>
-                    <div className="text-3xl font-black text-rose-600 leading-none">-4.8%</div>
-                    <div className="text-xs text-slate-500 mt-1.5">Erosion Delta</div>
-                  </div>
-                  {/* Circular Radial Gauge */}
-                  <div className="relative w-16 h-16 shrink-0 flex items-center justify-center">
-                    <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                      <path
-                        className="text-slate-100"
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3.5"
-                      />
-                      <path
-                        className="text-[#ff5e3a]"
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeDasharray="72, 100"
-                        strokeLinecap="round"
-                        strokeWidth="3.5"
-                      />
-                    </svg>
-                    <span className="absolute text-[11px] font-bold text-slate-900">40.2%</span>
-                  </div>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-1.5 mt-4 overflow-hidden">
-                  <div className="bg-[#ff5e3a] h-full rounded-full" style={{ width: "72%" }} />
-                </div>
-              </div>
-
-              {/* 3. Discount Outliers with Histogram Graphic */}
-              <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs flex flex-col justify-between">
-                <div className="flex items-center justify-between pb-3">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    Discount Outliers
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-bold border border-amber-200">
-                    Tier Limit Alert
-                  </span>
-                </div>
-                <div className="flex items-baseline gap-2 pt-1 pb-3">
-                  <span className="text-3xl font-black text-[#0f172a]">6</span>
-                  <span className="text-xs text-slate-500 font-medium">Quotes Flagged</span>
-                </div>
-                {/* Histogram distribution graphic */}
-                <div className="w-full">
-                  <div className="flex items-end justify-between h-9 gap-1 pt-1">
-                    <div className="w-full bg-slate-200 rounded-t" style={{ height: "35%" }} />
-                    <div className="w-full bg-slate-200 rounded-t" style={{ height: "55%" }} />
-                    <div className="w-full bg-slate-200 rounded-t" style={{ height: "45%" }} />
-                    <div className="w-full bg-slate-200 rounded-t" style={{ height: "70%" }} />
-                    <div className="w-full bg-[#ff5e3a] rounded-t shadow-xs" style={{ height: "100%" }} />
-                    <div className="w-full bg-[#ff5e3a]/70 rounded-t" style={{ height: "85%" }} />
-                    <div className="w-full bg-slate-200 rounded-t" style={{ height: "30%" }} />
-                  </div>
-                  <div className="flex justify-between text-[10px] text-slate-400 font-mono mt-1">
-                    <span>&lt;10%</span>
-                    <span className="text-rose-600 font-bold">&gt;25% Cap</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* 4. SLA Bottlenecks with Tolerance Progress */}
-              <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs flex flex-col justify-between">
-                <div className="flex items-center justify-between pb-3">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    SLA Bottlenecks
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
-                    In Tolerance
-                  </span>
-                </div>
-                <div className="flex items-baseline gap-2 pt-1">
-                  <span className="text-3xl font-black text-[#0f172a]">2.4</span>
-                  <span className="text-xs text-slate-500 font-medium">Days avg wait</span>
-                </div>
-                <div className="space-y-1.5 pt-2">
-                  <div className="flex justify-between text-[11px] text-slate-500 font-mono">
-                    <span>Threshold (3.0d)</span>
-                    <span className="text-slate-900 font-bold">80% of limit</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden flex">
-                    <div className="bg-sky-500 h-full rounded-full" style={{ width: "80%" }} />
-                  </div>
-                  <div className="flex justify-between text-[10px] text-slate-400 font-mono pt-0.5">
-                    <span>Level 1: 0.8d</span>
-                    <span>Finance: 1.6d</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Main Telemetry Grid (60% Active Radar / 40% Visual Analytics) */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              {/* Left Column: Active Telemetry Data Table (7 of 12 cols) */}
-              <div className="lg:col-span-7 bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs space-y-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
-                  <div>
-                    <h2 className="text-base font-bold text-[#0f172a]">Active Telemetry &amp; Anomaly Radar</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Quotations triggering automated surveillance flags
-                    </p>
-                  </div>
-                  <div className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">
-                    Sorted: Risk Impact
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-50/80 border-b border-slate-100 font-semibold">
-                        <th className="py-3 px-4 rounded-l-xl">Quote &amp; Account</th>
-                        <th className="py-3 px-3">Risk Gauge</th>
-                        <th className="py-3 px-3">Anomaly Type</th>
-                        <th className="py-3 px-3 text-center">Idle</th>
-                        <th className="py-3 px-4 text-right rounded-r-xl">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-medium">
-                      {filteredAnomalies.map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+              {/* Table */}
+              <div className="bg-white rounded-2xl border border-black/[0.06] shadow-xs overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-50/80 border-b border-slate-100 font-semibold">
+                      <th className="py-4 px-6 rounded-tl-2xl">Deal</th>
+                      <th className="py-4 px-4">Issue</th>
+                      <th className="py-4 px-4">Flagged Risk</th>
+                      <th className="py-4 px-6 rounded-tr-2xl">Action Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {anomalies.length > 0 ? (
+                      anomalies.map((a) => (
+                        <tr key={a.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="py-4 px-6 font-bold text-slate-900">
+                            <div>{a.account}</div>
+                            <div className="text-[11px] font-mono text-slate-400">{a.quoteId} &bull; {a.repName}</div>
+                          </td>
                           <td className="py-4 px-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-orange-100 text-[#ff5e3a] font-bold text-xs flex items-center justify-center shrink-0">
-                                {item.accountInitials}
-                              </div>
-                              <div>
-                                <Link
-                                  href={`/dashboard/manager/approvals/${item.quoteId}`}
-                                  className="font-bold text-slate-900 hover:text-[#ff5e3a] transition"
-                                >
-                                  {item.quoteId}
-                                </Link>
-                                <div className="text-slate-400 text-[11px] truncate max-w-[130px]">
-                                  {item.account}
-                                </div>
-                              </div>
+                            <div className={`font-semibold ${a.riskLevel === "high" ? "text-rose-600 font-bold" : "text-slate-800"}`}>
+                              {a.details || `${a.anomalyType}: Idle ${a.idleDays} days`}
                             </div>
                           </td>
-
-                          <td className="py-4 px-3">
-                            <div className="flex flex-col gap-1 w-24">
-                              <div className="flex justify-between text-[11px] font-mono">
-                                <span
-                                  className={`font-bold ${
-                                    item.riskLevel === "high"
-                                      ? "text-rose-600"
-                                      : item.riskLevel === "medium"
-                                      ? "text-amber-600"
-                                      : "text-emerald-600"
-                                  }`}
-                                >
-                                  {item.riskGaugePercent}%
-                                </span>
-                                <span className="text-slate-400 capitalize">{item.riskLevel}</span>
-                              </div>
-                              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full ${
-                                    item.riskLevel === "high"
-                                      ? "bg-rose-500"
-                                      : item.riskLevel === "medium"
-                                      ? "bg-amber-500"
-                                      : "bg-emerald-500"
-                                  }`}
-                                  style={{ width: `${item.riskGaugePercent}%` }}
-                                />
-                              </div>
-                            </div>
+                          <td className="py-4 px-4 text-slate-500 font-mono text-[11px]">
+                            Risk: {a.riskGaugePercent}%
                           </td>
-
-                          <td className="py-4 px-3">
-                            <span
-                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                item.anomalyType === "Discount Breach"
-                                  ? "bg-rose-50 text-rose-700 border border-rose-200"
-                                  : item.anomalyType === "Margin Slip"
-                                  ? "bg-amber-50 text-amber-700 border border-amber-200"
-                                  : item.anomalyType === "Stalled Deal"
-                                  ? "bg-orange-50 text-orange-800 border border-orange-200"
-                                  : "bg-slate-100 text-slate-700 border border-slate-200"
-                              }`}
-                            >
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full ${
-                                  item.anomalyType === "Discount Breach"
-                                    ? "bg-rose-500"
-                                    : item.anomalyType === "Margin Slip"
-                                    ? "bg-amber-500"
-                                    : "bg-orange-500"
-                                }`}
-                              />
-                              {item.anomalyType}
+                          <td className="py-4 px-6 text-slate-500">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                              a.riskLevel === "high"
+                                ? "bg-rose-50 text-rose-700 border border-rose-200"
+                                : "bg-amber-50 text-amber-700 border border-amber-200"
+                            }`}>
+                              {a.actionStatus === "flagged" ? "Flagged for Review" : a.actionStatus}
                             </span>
                           </td>
-
-                          <td className="py-4 px-3 text-center font-mono font-bold text-slate-700">
-                            {item.idleDays}d
-                          </td>
-
-                          <td className="py-4 px-4 text-right">
-                            {item.actionStatus === "escalated" ? (
-                              <span className="text-[11px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">
-                                Escalated
-                              </span>
-                            ) : item.actionStatus === "nudged" ? (
-                              <span className="text-[11px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-                                Rep Nudged
-                              </span>
-                            ) : item.anomalyType === "Discount Breach" ? (
-                              <button
-                                type="button"
-                                onClick={() => handleAnomalyAction(item.id, "escalate")}
-                                className="px-3 py-1 rounded-full bg-[#ff5e3a] text-white hover:bg-[#e04f2d] text-xs font-bold transition shadow-2xs cursor-pointer"
-                              >
-                                Escalate
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleAnomalyAction(item.id, "nudge")}
-                                className="px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition cursor-pointer"
-                              >
-                                Nudge Rep
-                              </button>
-                            )}
-                          </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={4} className="py-8 text-center text-slate-400">
+                          No deal anomalies or stalled quotations detected. All deals healthy.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+              </table>
+            </div>
 
-                <div className="flex items-center justify-between pt-2 text-slate-400 text-xs font-mono border-t border-slate-100">
-                  <span>{filteredAnomalies.length} anomaly triggers in scope</span>
-                  <span className="text-[#ff5e3a] font-semibold">Continuous Telemetry Active</span>
-                </div>
-              </div>
-
-              {/* Right Column: Visual Analytics & Breakdown (5 of 12 cols) */}
-              <div className="lg:col-span-5 space-y-6">
-                {/* Visual Card 1: Anomaly Distribution by Stage (Donut + Legend) */}
-                <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs space-y-5">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-bold text-[#0f172a]">Stage Velocity Distribution</h3>
-                    <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                      Pipeline Decay
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-6 py-2">
-                    {/* SVG Donut Ring */}
-                    <div className="relative w-36 h-36 shrink-0 flex items-center justify-center">
-                      <svg className="w-full h-full -rotate-90" viewBox="0 0 42 42">
-                        <circle cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="#f1f5f9" strokeWidth="5" />
-                        {/* Negotiation: 45% */}
-                        <circle
-                          cx="21"
-                          cy="21"
-                          r="15.91549430918954"
-                          fill="transparent"
-                          stroke="#ff5e3a"
-                          strokeWidth="5"
-                          strokeDasharray="45 55"
-                          strokeDashoffset="0"
-                        />
-                        {/* Approvals: 30% */}
-                        <circle
-                          cx="21"
-                          cy="21"
-                          r="15.91549430918954"
-                          fill="transparent"
-                          stroke="#f59e0b"
-                          strokeWidth="5"
-                          strokeDasharray="30 70"
-                          strokeDashoffset="-45"
-                        />
-                        {/* Proposal: 25% */}
-                        <circle
-                          cx="21"
-                          cy="21"
-                          r="15.91549430918954"
-                          fill="transparent"
-                          stroke="#0ea5e9"
-                          strokeWidth="5"
-                          strokeDasharray="25 75"
-                          strokeDashoffset="-75"
-                        />
-                      </svg>
-                      <div className="absolute text-center">
-                        <div className="text-lg font-black text-[#0f172a]">19</div>
-                        <div className="text-[9px] text-slate-400 uppercase font-bold">Total Stalls</div>
-                      </div>
-                    </div>
-
-                    {/* Donut Legend */}
-                    <div className="space-y-2.5 w-full text-xs">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-[#ff5e3a]" />
-                          <span className="text-slate-600 font-medium">Negotiation Phase</span>
-                        </div>
-                        <span className="font-mono font-bold text-slate-900">45% (8)</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                          <span className="text-slate-600 font-medium">Manager Signoff</span>
-                        </div>
-                        <span className="font-mono font-bold text-slate-900">30% (6)</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-sky-500" />
-                          <span className="text-slate-600 font-medium">Proposal Prep</span>
-                        </div>
-                        <span className="font-mono font-bold text-slate-900">25% (5)</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Visual Card 2: Rep Anomaly Frequency Index */}
-                <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs space-y-4">
-                  <h3 className="text-base font-bold text-[#0f172a]">Rep Exception Frequency</h3>
-                  <div className="space-y-3">
-                    {INITIAL_REP_METRICS.map((rep) => (
-                      <div key={rep.id} className="p-3 rounded-xl bg-slate-50/70 border border-slate-100 flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-full ${rep.avatarBg} text-white font-black text-xs flex items-center justify-center`}>
-                            {rep.initials}
-                          </div>
-                          <div>
-                            <div className="font-bold text-xs text-slate-900">{rep.name}</div>
-                            <div className="text-[10px] text-slate-400">
-                              Hist Avg Discount: <span className="font-bold text-slate-600">{rep.historicalAvgDiscount}%</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="text-right">
-                          <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-white border border-slate-200 text-slate-700">
-                            {rep.anomaliesFlagged} Flagged Deals
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+            <div className="flex items-center gap-4 pt-4">
+              <button className="px-5 py-2.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-sm cursor-pointer transition">
+                Escalate
+              </button>
+              <button className="px-5 py-2.5 rounded-full bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold shadow-sm cursor-pointer transition">
+                Nudge Rep
+              </button>
             </div>
           </div>
         )}
@@ -1081,14 +799,6 @@ export default function ManagerDashboardPage() {
                   Track direct reports quota progress, commission structures, and deal health baselines.
                 </p>
               </div>
-
-              <Link
-                href="/dashboard/admin/team"
-                className="text-xs font-bold text-[#ff5e3a] hover:underline flex items-center gap-1"
-              >
-                <span>Manage Hierarchy in Admin</span>
-                <ArrowUpRight size={14} />
-              </Link>
             </div>
 
             {/* Team Summary Cards */}
@@ -1157,13 +867,6 @@ export default function ManagerDashboardPage() {
                       <div className="font-mono font-bold text-slate-700">{rep.historicalAvgDiscount}%</div>
                     </div>
                   </div>
-
-                  <Link
-                    href="/dashboard/admin"
-                    className="w-full py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-bold text-slate-700 text-center transition block"
-                  >
-                    View Assigned Quotes &rarr;
-                  </Link>
                 </div>
               ))}
             </div>

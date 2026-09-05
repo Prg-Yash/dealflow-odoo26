@@ -211,16 +211,8 @@ export default function AdminCatalogPage() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 p-4 rounded-xl bg-slate-900 text-white text-xs font-semibold shadow-xl flex items-center gap-2 border border-slate-700 animate-in slide-in-from-bottom-3 duration-200">
-          <Sparkles size={14} className="text-[#ff5e3a]" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
-
-      {/* Header & Breadcrumb */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-black/[0.06] pb-5">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-1">
             <Link href="/dashboard/admin" className="hover:text-slate-900">
@@ -230,7 +222,7 @@ export default function AdminCatalogPage() {
             <span className="text-[#ff5e3a]">Catalog &amp; Pricing</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            Product Catalog &amp; Pricing Governance
+            Product Dashboard
           </h1>
           <p className="text-sm text-slate-500 mt-1">
             Sellable items, commercial margin baselines, product taxonomy, and customer price tier schedules.

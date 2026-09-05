@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Check,
@@ -15,6 +15,7 @@ import {
   Package,
   TrendingDown,
   ArrowUpRight,
+  ChevronRight,
 } from "lucide-react";
 import { BrandLogo } from "@repo/ui";
 import {
@@ -25,6 +26,8 @@ import {
   type FulfillmentRecord,
   type InvoiceRecord,
   type ApprovalStatus,
+  INITIAL_SUBSCRIPTION_RECORDS,
+  type SubscriptionRecord,
 } from "../../../../lib/finance-data";
 import {
   useInvoices,
@@ -34,7 +37,7 @@ import {
 } from "../../../../lib/query";
 
 export default function FinanceDashboardPage() {
-  const [activeView, setActiveView] = useState<"approvals" | "fulfillment" | "billing">("approvals");
+  const [activeView, setActiveView] = useState<"approvals" | "fulfillment" | "subscriptions" | "invoices">("approvals");
 
   // Live TanStack Query Hooks
   const { data: apiInvoices } = useInvoices();
@@ -42,53 +45,66 @@ export default function FinanceDashboardPage() {
   const { data: apiQuotes } = useQuotations({ stage: "PENDING_APPROVAL" });
   const updateStageMutation = useUpdateQuotationStage();
 
-  const initialApprovals: FinanceApprovalRequest[] = apiQuotes && apiQuotes.length > 0
-    ? apiQuotes.map((q) => ({
-        id: q.id,
-        quoteId: q.quoteNumber || q.id,
-        account: q.customer?.name || "Corporate Client",
-        accountTier: ((q.customer as any)?.tier?.name as any) || "Gold",
-        dealSize: q.grandTotal || 0,
-        discountRequested: q.discountPercent || 15,
-        marginProjected: q.grossMarginPercent || 38,
-        targetMargin: 45.0,
-        reason: q.notes || "Standard finance approval required.",
-        status: (q.stage === "APPROVED" ? "APPROVED" : q.stage === "CANCELLED" ? "REJECTED" : "PENDING") as ApprovalStatus,
-        submittedAt: new Date(q.createdAt).toLocaleDateString(),
-        slaHoursLeft: 24,
-        blendedRiskScore: q.blendedRiskScore || 12,
-        escalationReason: `Quote escalated for ${q.discountPercent || 15}% discount threshold`,
-      }))
-    : INITIAL_FINANCE_APPROVALS;
+  const [approvals, setApprovals] = useState<FinanceApprovalRequest[]>(INITIAL_FINANCE_APPROVALS);
+  const [fulfillments, setFulfillments] = useState<FulfillmentRecord[]>(INITIAL_FULFILLMENT_RECORDS);
+  const [invoices, setInvoices] = useState<InvoiceRecord[]>(INITIAL_INVOICE_RECORDS);
+  const [subscriptions] = useState<SubscriptionRecord[]>(INITIAL_SUBSCRIPTION_RECORDS);
 
-  const initialFulfillments: FulfillmentRecord[] = apiFulfillment && apiFulfillment.length > 0
-    ? apiFulfillment.map((f) => ({
-        id: f.fulfillmentNumber,
-        quoteId: f.quotationId || "Q-1045",
-        account: "Apex Strategic Partner",
-        status: (f.status === "FULFILLED" ? "FULFILLED" : f.status === "PARTIALLY_FULFILLED" ? "PARTIALLY_FULFILLED" : "PENDING") as any,
-        warehouseSplit: (f.shipments?.length || 0) > 1,
-        itemsPending: f.lines?.reduce((acc: number, l: any) => acc + (l.pendingQuantity || 0), 0) || 0,
-        itemsTotal: f.lines?.reduce((acc: number, l: any) => acc + (l.quantity || 0), 0) || 10,
-        backorderRisk: Boolean(f.backorders && f.backorders.length > 0),
-        expectedShipDate: new Date(f.promisedDate || f.createdAt).toLocaleDateString(),
-      }))
-    : INITIAL_FULFILLMENT_RECORDS;
+  useEffect(() => {
+    if (apiQuotes && apiQuotes.length > 0) {
+      setApprovals(
+        apiQuotes.map((q) => ({
+          id: q.id,
+          quoteId: q.quoteNumber || q.id,
+          account: q.customer?.name || "Corporate Client",
+          accountTier: ((q.customer as any)?.tier?.name as any) || "Gold",
+          dealSize: q.grandTotal || 0,
+          discountRequested: q.discountPercent || 15,
+          marginProjected: q.grossMarginPercent || 38,
+          targetMargin: 45.0,
+          reason: q.notes || "Standard finance approval required.",
+          status: (q.stage === "APPROVED" ? "APPROVED" : q.stage === "CANCELLED" ? "REJECTED" : "PENDING") as ApprovalStatus,
+          submittedAt: new Date(q.createdAt).toLocaleDateString(),
+          slaHoursLeft: 24,
+          blendedRiskScore: q.blendedRiskScore || 12,
+          escalationReason: `Quote escalated for ${q.discountPercent || 15}% discount threshold`,
+        }))
+      );
+    }
+  }, [apiQuotes]);
 
-  const initialInvoices: InvoiceRecord[] = apiInvoices && apiInvoices.length > 0
-    ? apiInvoices.map((inv) => ({
-        id: inv.invoiceNumber,
-        account: "Enterprise Account",
-        amount: inv.totalAmount,
-        status: (inv.status === "PARTIALLY_PAID" ? "ISSUED" : inv.status) as any,
-        dueDate: new Date(inv.dueDate).toLocaleDateString(),
-        paymentMethod: "ACH Transfer",
-      }))
-    : INITIAL_INVOICE_RECORDS;
+  useEffect(() => {
+    if (apiFulfillment && apiFulfillment.length > 0) {
+      setFulfillments(
+        apiFulfillment.map((f) => ({
+          id: f.fulfillmentNumber,
+          quoteId: f.quotationId || "Q-1045",
+          account: "Apex Strategic Partner",
+          status: (f.status === "FULFILLED" ? "FULFILLED" : f.status === "PARTIALLY_FULFILLED" ? "PARTIALLY_FULFILLED" : "PENDING") as any,
+          warehouseSplit: (f.shipments?.length || 0) > 1,
+          itemsPending: f.lines?.reduce((acc: number, l: any) => acc + (l.pendingQuantity || 0), 0) || 0,
+          itemsTotal: f.lines?.reduce((acc: number, l: any) => acc + (l.quantity || 0), 0) || 10,
+          backorderRisk: Boolean(f.backorders && f.backorders.length > 0),
+          expectedShipDate: new Date(f.promisedDate || f.createdAt).toLocaleDateString(),
+        }))
+      );
+    }
+  }, [apiFulfillment]);
 
-  const [approvals, setApprovals] = useState<FinanceApprovalRequest[]>(initialApprovals);
-  const [fulfillments] = useState<FulfillmentRecord[]>(initialFulfillments);
-  const [invoices] = useState<InvoiceRecord[]>(initialInvoices);
+  useEffect(() => {
+    if (apiInvoices && apiInvoices.length > 0) {
+      setInvoices(
+        apiInvoices.map((inv) => ({
+          id: inv.invoiceNumber,
+          account: "Enterprise Account",
+          amount: inv.totalAmount,
+          status: (inv.status === "PARTIALLY_PAID" ? "ISSUED" : inv.status) as any,
+          dueDate: new Date(inv.dueDate).toLocaleDateString(),
+          paymentMethod: "ACH Transfer",
+        }))
+      );
+    }
+  }, [apiInvoices]);
   
   const [searchQuery, setSearchQuery] = useState("");
   const [approvalFilter, setApprovalFilter] = useState<"pending" | "all">("pending");
@@ -209,26 +225,34 @@ export default function FinanceDashboardPage() {
 
               <button
                 type="button"
-                onClick={() => setActiveView("billing")}
+                onClick={() => setActiveView("subscriptions")}
                 className={`inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 cursor-pointer ${
-                  activeView === "billing"
+                  activeView === "subscriptions"
                     ? "bg-[#ff5e3a] text-white shadow-sm"
                     : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
                 }`}
               >
-                <CreditCard size={13} className={activeView === "billing" ? "text-white" : "text-slate-500"} />
-                <span>A/R &amp; Invoicing</span>
+                <TrendingUp size={13} className={activeView === "subscriptions" ? "text-white" : "text-slate-500"} />
+                <span>Subscriptions</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveView("invoices")}
+                className={`inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 cursor-pointer ${
+                  activeView === "invoices"
+                    ? "bg-[#ff5e3a] text-white shadow-sm"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
+                }`}
+              >
+                <CreditCard size={13} className={activeView === "invoices" ? "text-white" : "text-slate-500"} />
+                <span>Invoices</span>
               </button>
             </nav>
           </div>
 
-          {/* Right: Live Sync & Isolated User Profile */}
+          {/* Right: Isolated User Profile */}
           <div className="flex items-center gap-3 shrink-0">
-            <div className="hidden sm:flex items-center gap-1.5 px-3 h-8 rounded-full bg-emerald-50 border border-emerald-200/80 text-[11px] font-medium text-emerald-800 whitespace-nowrap">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Live Sync</span>
-            </div>
-
             <Link
               href="/profile"
               className="flex items-center gap-2.5 pl-2.5 sm:border-l sm:border-slate-200 cursor-pointer"
@@ -332,7 +356,7 @@ export default function FinanceDashboardPage() {
             <div className="bg-white rounded-2xl border border-black/[0.06] shadow-xs overflow-hidden">
               <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-base font-bold text-[#0f172a]">High-Risk Exception Queue</h2>
+                  <h2 className="text-xl font-bold text-[#0f172a]">High-Risk Exception Queue</h2>
                   <p className="text-xs text-slate-400 mt-0.5">
                     Requires immediate review from Finance Operations
                   </p>
@@ -382,95 +406,110 @@ export default function FinanceDashboardPage() {
                     key={item.id}
                     className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-5 hover:bg-slate-50/60 transition"
                   >
-                    <div className="space-y-2 max-w-xl">
+                    <div className="space-y-3 w-full lg:max-w-xl">
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
                           href={`#`}
-                          className="font-mono text-xs font-bold text-[#ff5e3a] hover:underline"
+                          className="font-mono text-sm font-bold text-[#ff5e3a] hover:underline"
                         >
                           {item.quoteId}
                         </Link>
                         <span className="text-slate-300">&bull;</span>
-                        <span className="font-bold text-sm text-slate-900">{item.account}</span>
-                        <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[10px] font-bold border border-amber-200">
+                        <span className="font-bold text-base text-slate-900">{item.account}</span>
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-bold border border-amber-200">
                           {item.accountTier}
                         </span>
                         <span className="text-slate-300">&bull;</span>
-                        <span className="text-[11px] text-slate-400 font-bold uppercase tracking-wider text-rose-500">
-                          {item.escalationReason}
-                        </span>
+                      </div>
+                      
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        {item.escalationReason}
                       </div>
 
-                      <p className="text-xs text-slate-600 bg-slate-50/80 p-3 rounded-xl border border-slate-200/70">
-                        <span className="font-bold text-slate-700">Justification: </span>
+                      <p className="text-xs text-slate-600 bg-slate-50/80 px-4 py-2.5 rounded-full border border-slate-100 flex items-center">
+                        <span className="font-bold text-slate-700 mr-1.5">Justification:</span>
                         {item.reason}
                       </p>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-6">
-                      <div>
-                        <div className="text-[10px] uppercase font-bold text-slate-400">Deal Value</div>
-                        <div className="text-base font-extrabold text-slate-900 font-mono">
-                          ₹{item.dealSize.toLocaleString()}
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="text-[10px] uppercase font-bold text-slate-400">Discount Req.</div>
-                        <div className="text-base font-bold text-amber-600">
-                          {item.discountRequested}%
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="text-[10px] uppercase font-bold text-slate-400">Margin</div>
-                        <div className="text-base font-bold text-rose-600">
-                          {item.marginProjected}% <span className="text-[10px] text-slate-400 font-normal">({item.targetMargin}% flr)</span>
-                        </div>
-                      </div>
-
-                      {item.status === "PENDING" ? (
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenDecisionModal(item, "approve")}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer transition shrink-0 whitespace-nowrap"
-                          >
-                            <Check size={13} strokeWidth={3} />
-                            <span>Approve</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenDecisionModal(item, "revise")}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-amber-300 text-amber-700 hover:bg-amber-50 text-xs font-bold cursor-pointer transition shrink-0 whitespace-nowrap"
-                          >
-                            <RotateCcw size={12} />
-                            <span>Revise</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenDecisionModal(item, "reject")}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-bold cursor-pointer transition shrink-0 whitespace-nowrap"
-                          >
-                            <XCircle size={13} />
-                            <span>Reject</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-3">
-                          <span
-                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold capitalize ${
-                              item.status === "APPROVED"
-                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                : item.status === "REVISION_REQUESTED"
-                                ? "bg-amber-50 text-amber-700 border border-amber-200"
-                                : "bg-rose-50 text-rose-700 border border-rose-200"
-                            }`}
-                          >
-                            {item.status.replace("_", " ")}
+                    <div className="mt-4 lg:mt-0 shrink-0">
+                      <div className="grid grid-cols-[100px_110px_160px] gap-x-4 gap-y-3">
+                        {/* Stats Row */}
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase font-bold text-slate-400">Deal Value</span>
+                          <span className="text-lg font-extrabold text-slate-900 font-mono">
+                            ₹{item.dealSize.toLocaleString()}
                           </span>
                         </div>
-                      )}
+
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase font-bold text-slate-400">Discount Req.</span>
+                          <span className="text-lg font-bold text-amber-600 font-mono">
+                            {item.discountRequested}%
+                          </span>
+                        </div>
+
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase font-bold text-slate-400">Margin</span>
+                          <span className="text-lg font-bold text-rose-600 font-mono">
+                            {item.marginProjected}% <span className="text-[11px] text-slate-400 font-normal">({item.targetMargin}% flr)</span>
+                          </span>
+                        </div>
+
+                        {/* Actions Row */}
+                        {item.status === "PENDING" ? (
+                          <>
+                            <div className="flex justify-start items-start">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDecisionModal(item, "approve")}
+                                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#00a86b] hover:bg-[#00905a] text-white text-xs font-bold transition whitespace-nowrap"
+                              >
+                                <Check size={14} strokeWidth={3} />
+                                <span>Approve</span>
+                              </button>
+                            </div>
+                            <div className="flex justify-start items-start">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDecisionModal(item, "revise")}
+                                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white border border-amber-200 text-amber-600 hover:bg-amber-50 text-xs font-bold transition whitespace-nowrap"
+                              >
+                                <RotateCcw size={13} />
+                                <span>Revise</span>
+                              </button>
+                            </div>
+                            <div className="flex justify-start items-start">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDecisionModal(item, "reject")}
+                                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-bold transition whitespace-nowrap"
+                              >
+                                <XCircle size={14} />
+                                <span>Reject</span>
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div />
+                            <div />
+                            <div className="flex justify-end items-start mt-1">
+                              <span
+                                className={`inline-flex items-center px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+                                  item.status === "APPROVED"
+                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                    : item.status === "REVISION_REQUESTED"
+                                    ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                    : "bg-rose-50 text-rose-700 border border-rose-100"
+                                }`}
+                              >
+                                {item.status.replace("_", " ")}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -500,20 +539,24 @@ export default function FinanceDashboardPage() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {fulfillments.map((order) => (
-                <div key={order.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                <Link href={`/dashboard/finance/fulfillment/${order.id}`} key={order.id} className="block group">
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between group-hover:border-[#ff5e3a]/30 group-hover:shadow-md transition-all cursor-pointer">
                   <div className="flex justify-between items-start mb-4">
                     <div>
                       <div className="text-xs font-bold text-[#ff5e3a] font-mono">{order.id}</div>
                       <div className="text-lg font-extrabold text-slate-900 mt-1">{order.account}</div>
                       <div className="text-xs text-slate-500 mt-1">Quote Origin: {order.quoteId}</div>
                     </div>
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                      order.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                      order.status === 'PARTIALLY_FULFILLED' ? 'bg-sky-50 text-sky-700 border-sky-200' :
-                      'bg-slate-100 text-slate-600 border-slate-200'
-                    }`}>
-                      {order.status.replace('_', ' ')}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                        order.status === 'PENDING' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                        order.status === 'PARTIALLY_FULFILLED' ? 'bg-sky-50 text-sky-700 border-sky-200' :
+                        'bg-slate-100 text-slate-600 border-slate-200'
+                      }`}>
+                        {order.status.replace('_', ' ')}
+                      </span>
+                      <ChevronRight size={18} className="text-slate-300 group-hover:text-[#ff5e3a] transition-colors" />
+                    </div>
                   </div>
 
                   <div className="space-y-3">
@@ -544,13 +587,97 @@ export default function FinanceDashboardPage() {
                     </div>
                   </div>
                 </div>
+                </Link>
               ))}
             </div>
           </div>
         )}
 
-        {/* VIEW 3: BILLING & A/R */}
-        {activeView === "billing" && (
+        {/* VIEW 3: SUBSCRIPTIONS */}
+        {activeView === "subscriptions" && (
+          <div className="space-y-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-black/[0.06] pb-5">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Recurring Revenue
+                  </span>
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0f172a] tracking-tight mt-1">
+                  Subscriptions
+                </h1>
+                <p className="text-xs text-slate-500 mt-1">
+                  Every recurring plan across every customer, regardless of which order it came from.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-emerald-100/50">
+                <span className="font-black text-sm">{subscriptions.filter(s => s.status === 'Active').length}</span>
+                <span className="font-semibold">Active</span>
+              </div>
+              <div className="px-4 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-xs flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-amber-100/50">
+                <span className="font-black text-sm">{subscriptions.filter(s => s.status === 'Paused').length}</span>
+                <span className="font-semibold">Paused</span>
+              </div>
+              <div className="px-4 py-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 text-xs flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-rose-100/50">
+                <span className="font-black text-sm">{subscriptions.filter(s => s.status === 'Cancelled').length}</span>
+                <span className="font-semibold">Cancelled</span>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-black/[0.06] shadow-xs overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-50/80 border-b border-slate-100 font-semibold">
+                    <th className="py-4 px-6 rounded-l-xl">Customer</th>
+                    <th className="py-4 px-4">Plan</th>
+                    <th className="py-4 px-4">Cycle</th>
+                    <th className="py-4 px-4">Next Bill</th>
+                    <th className="py-4 px-6 text-right rounded-r-xl">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {subscriptions.map((sub) => (
+                    <tr key={sub.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="py-4 px-6">
+                        <Link href={`/dashboard/finance/subscriptions/${sub.id}`} className="font-bold text-[#ff5e3a] hover:underline cursor-pointer block">
+                          {sub.account}
+                        </Link>
+                      </td>
+                      <td className="py-4 px-4 text-slate-900 font-semibold">
+                        {sub.plan}
+                      </td>
+                      <td className="py-4 px-4 text-slate-600">
+                        {sub.cycle}
+                      </td>
+                      <td className="py-4 px-4 font-mono text-slate-700">
+                        {sub.nextBillDate}
+                      </td>
+                      <td className="py-4 px-6 text-right">
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                          sub.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                          sub.status === 'Paused' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                          'bg-rose-50 text-rose-700 border-rose-200'
+                        }`}>
+                          {sub.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="bg-amber-50 text-amber-800 p-4 rounded-xl border border-amber-200/50 text-xs font-semibold">
+              Click a subscription row to open its billing detail and proration history.
+            </div>
+          </div>
+        )}
+
+        {/* VIEW 4: INVOICING */}
+        {activeView === "invoices" && (
           <div className="space-y-8">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-black/[0.06] pb-5">
               <div>
@@ -560,11 +687,22 @@ export default function FinanceDashboardPage() {
                   </span>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0f172a] tracking-tight mt-1">
-                  Invoicing &amp; Subscriptions
+                  Invoices
                 </h1>
                 <p className="text-xs text-slate-500 mt-1">
-                  Track overdue invoices, process recurring subscriptions, and manage collections.
+                  Every invoice generated from one-time and recurring orders.
                 </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="px-4 py-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 text-xs flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-rose-100/50">
+                <span className="font-black text-sm">4</span>
+                <span className="font-semibold">Unpaid</span>
+              </div>
+              <div className="px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-emerald-100/50">
+                <span className="font-black text-sm">21</span>
+                <span className="font-semibold">Paid</span>
               </div>
             </div>
 
@@ -572,52 +710,47 @@ export default function FinanceDashboardPage() {
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-50/80 border-b border-slate-100 font-semibold">
-                    <th className="py-4 px-6 rounded-l-xl">Invoice ID / Account</th>
+                    <th className="py-4 px-6 rounded-tl-2xl">Invoice #</th>
+                    <th className="py-4 px-4">Customer</th>
                     <th className="py-4 px-4">Amount</th>
-                    <th className="py-4 px-4">Due Date</th>
                     <th className="py-4 px-4">Status</th>
-                    <th className="py-4 px-6 text-right rounded-r-xl">Actions</th>
+                    <th className="py-4 px-6 rounded-tr-2xl">Due Date</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {invoices.map((inv) => (
-                    <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors">
+                    <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors group">
                       <td className="py-4 px-6">
-                        <div className="font-bold text-[#ff5e3a] font-mono hover:underline cursor-pointer">{inv.id}</div>
-                        <div className="text-slate-900 mt-0.5">{inv.account}</div>
-                        {inv.subscriptionId && (
-                          <div className="text-[10px] text-slate-400 mt-0.5">Sub: {inv.subscriptionId}</div>
-                        )}
+                        <Link href={`/dashboard/finance/invoices/${inv.id}`} className="font-bold text-slate-900 font-mono group-hover:text-[#ff5e3a] transition-colors block">
+                          {inv.id}
+                        </Link>
+                      </td>
+                      <td className="py-4 px-4 text-slate-900 font-bold">
+                        {inv.account}
                       </td>
                       <td className="py-4 px-4 font-mono font-bold text-slate-900 text-sm">
                         ₹{inv.amount.toLocaleString()}
                       </td>
                       <td className="py-4 px-4">
-                        <div className="text-slate-800">{inv.dueDate}</div>
-                        {inv.daysOverdue && (
-                          <div className="text-rose-600 text-[10px] font-bold mt-0.5">
-                            {inv.daysOverdue} Days Overdue
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-4 px-4">
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                          inv.status === 'OVERDUE' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                          (inv.status === 'OVERDUE' || inv.status === 'ISSUED') ? 'bg-rose-50 text-rose-700 border-rose-200' :
                           inv.status === 'DRAFT' ? 'bg-slate-100 text-slate-600 border-slate-200' :
                           'bg-emerald-50 text-emerald-700 border-emerald-200'
                         }`}>
-                          {inv.status}
+                          {(inv.status === 'OVERDUE' || inv.status === 'ISSUED') ? 'Unpaid' : 'Paid'}
                         </span>
                       </td>
-                      <td className="py-4 px-6 text-right">
-                        <button className="text-[#ff5e3a] hover:text-[#cc4b2e] font-bold text-xs inline-flex items-center gap-1 cursor-pointer">
-                          View Details <ArrowUpRight size={13} />
-                        </button>
+                      <td className="py-4 px-6">
+                        <div className="text-slate-800">{inv.dueDate}</div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+            
+            <div className="bg-amber-50 text-amber-800 p-4 rounded-xl border border-amber-200/50 text-xs font-semibold shadow-xs">
+              Click an invoice row to open its full payment and delivery reconciliation detail.
             </div>
           </div>
         )}
