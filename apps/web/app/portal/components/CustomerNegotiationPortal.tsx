@@ -48,9 +48,11 @@ import { getStoredRole } from "../../../lib/roles";
 export interface PortalProps {
   initialToken?: string;
   customerEmail?: string;
+  hideNav?: boolean;
+  hideCatalogLink?: boolean;
 }
 
-export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerEmail }: PortalProps) {
+export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerEmail, hideNav = false, hideCatalogLink = false }: PortalProps) {
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState<boolean>(false);
 
@@ -641,153 +643,33 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
   const isConfirmed = quotation?.stage === "CONFIRMED" || Boolean(quotation?.signature);
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans antialiased flex flex-col justify-between">
+    <div className={`min-h-screen ${hideNav ? "bg-transparent" : "bg-[#f8fafc]"} text-slate-900 font-sans antialiased flex flex-col justify-between`}>
       {/* ── TOP NAV / HEADER (Light Mode) ── */}
-      <header className="border-b border-slate-200 bg-white sticky top-0 z-40 px-4 sm:px-8 py-3 shadow-xs">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          {/* Logo & Portal Identity */}
-          <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
-            <BrandLogo href="/" size="sm" subtitle="Customer Quotation Portal" />
-          </div>
-
-          {/* Navigation Pill Tabs (Light Mode) */}
-          <div className="flex items-center bg-slate-100 border border-slate-200 p-1 rounded-xl shadow-inner">
-            <button
-              onClick={() => setActiveTab("quotation")}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === "quotation"
-                  ? "bg-white text-slate-900 shadow-sm border border-slate-200/80"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-              }`}
-            >
-              <FileText size={14} className={activeTab === "quotation" ? "text-[#ff5e3a]" : ""} />
-              <span>My Quotations</span>
-              {customerQuotations.length > 0 && (
-                <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-slate-100 text-[10px] text-slate-700 font-mono border border-slate-300">
-                  {customerQuotations.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab("messages")}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === "messages"
-                  ? "bg-white text-slate-900 shadow-sm border border-slate-200/80"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-              }`}
-            >
-              <MessageSquare size={14} className={activeTab === "messages" ? "text-[#ff5e3a]" : ""} />
-              <span>Messages</span>
-              {quotation?.comments?.length > 0 && (
-                <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-orange-100 text-[10px] text-[#ff5e3a] font-bold">
-                  {quotation.comments.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab("profile")}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === "profile"
-                  ? "bg-white text-slate-900 shadow-sm border border-slate-200/80"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-              }`}
-            >
-              <User size={14} className={activeTab === "profile" ? "text-[#ff5e3a]" : ""} />
-              <span>Company Profile</span>
-            </button>
-          </div>
-
-          {/* Quick Quote Reference & Selector & Logout */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 relative">
-              <button
-                onClick={() => setShowTokenSelector(!showTokenSelector)}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-orange-50 border border-orange-200 text-xs font-semibold text-[#ff5e3a] hover:bg-orange-100/80 transition cursor-pointer"
-                title="Click to switch quotation reference"
-              >
-                <ShieldCheck size={14} />
-                <span className="truncate max-w-[140px] sm:max-w-[200px]">
-                  {quotation?.quoteNumber || token}
-                </span>
-                <RefreshCw size={12} className="text-slate-400" />
-              </button>
-
-              {/* Token Selector Modal Dropdown */}
-              {showTokenSelector && (
-                <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-4 space-y-3">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                    <span className="text-xs font-bold text-slate-800">Your Company Quotations</span>
-                    <button onClick={() => setShowTokenSelector(false)} className="text-slate-400 hover:text-slate-600">
-                      <X size={14} />
-                    </button>
-                  </div>
-
-                  <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
-                    {customerQuotations.map((item) => (
-                      <button
-                        key={item.id || item.portalToken || item.quoteNumber}
-                        onClick={() => handleSelectToken(item.portalToken || item.quoteNumber)}
-                        className={`w-full text-left p-2 rounded-xl text-xs flex flex-col gap-0.5 transition cursor-pointer ${
-                          token === item.portalToken || token === item.quoteNumber
-                            ? "bg-orange-50 border border-orange-200 text-[#ff5e3a]"
-                            : "hover:bg-slate-50 text-slate-700"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-slate-900">{item.quoteNumber}</span>
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100">
-                            {item.stage}
-                          </span>
-                        </div>
-                        <span className="text-[11px] text-slate-500 truncate">{item.title}</span>
-                        <span className="text-[11px] font-bold text-[#ff5e3a]">
-                          ₹{Number(item.grandTotal || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-100 flex gap-1.5">
-                    <input
-                      type="text"
-                      placeholder="Enter Token or Quote #..."
-                      value={tokenInput}
-                      onChange={(e) => setTokenInput(e.target.value)}
-                      className="flex-1 bg-[#f8fafc] border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 outline-none focus:border-[#ff5e3a]"
-                    />
-                    <button
-                      onClick={() => {
-                        if (tokenInput.trim()) handleSelectToken(tokenInput.trim());
-                      }}
-                      className="px-3 py-1.5 bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-semibold rounded-xl"
-                    >
-                      Open
-                    </button>
-                  </div>
-                </div>
-              )}
+      {!hideNav && (
+        <header className="border-b border-slate-200 bg-white sticky top-0 z-40 px-4 sm:px-8 py-3 shadow-xs">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+            {/* Logo & Portal Identity */}
+            <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
+              <BrandLogo href="/" size="sm" subtitle="Customer Quotation Portal" />
             </div>
 
-            {/* Sign Out Button */}
-            <button
-              onClick={handleSignOut}
-              disabled={loggingOut}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-red-50 border border-red-200 text-xs font-semibold text-red-600 hover:bg-red-100/90 transition-all cursor-pointer shadow-xs active:translate-y-0.5 disabled:opacity-50 shrink-0"
-              title="Sign out of Customer Portal"
-              aria-label="Sign out of Customer Portal"
-            >
-              {loggingOut ? (
-                <RefreshCw size={13} className="animate-spin text-red-500" />
-              ) : (
-                <LogOut size={13} className="text-red-500" />
-              )}
-              <span className="hidden sm:inline">{loggingOut ? "Signing out..." : "Sign Out"}</span>
-              <span className="sm:hidden">{loggingOut ? "..." : "Exit"}</span>
-            </button>
+            {/* Top Right Action & Info */}
+            <div className="flex items-center gap-3 md:gap-5 w-full md:w-auto justify-between md:justify-end">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-600">
+                <Lock size={12} className="text-[#ff5e3a]" />
+                Secure Portal
+              </div>
+              <button
+                onClick={handleSignOut}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-slate-500 hover:text-slate-900 hover:bg-slate-100 text-xs font-semibold transition"
+              >
+                <LogOut size={13} />
+                Sign Out
+              </button>
+            </div>
           </div>
-        </div>
-      </header>
-
+        </header>
+      )}
 
       {/* ── NOTIFICATION BANNER ── */}
       {notification && (
