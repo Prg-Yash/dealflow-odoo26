@@ -139,7 +139,7 @@ function RegisterForm() {
         // 3. Set stored role to customer and redirect to customer portal
         document.cookie = `demo_role=customer; path=/; max-age=86400; SameSite=Lax`;
         setStoredRole("customer");
-        router.push("/dashboard/customer");
+        router.push("/portal");
       } else {
         // Admin Mode: Call Backend Admin Registration API
         try {

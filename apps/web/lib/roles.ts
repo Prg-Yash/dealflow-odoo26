@@ -65,7 +65,7 @@ export const ROLES: Record<UserRole, RoleConfig> = {
     defaultEmail: "buyer@acmecorp.com",
     defaultName: "Johnathan Ward",
     defaultOrg: "Acme Corporation",
-    targetPath: "/dashboard/customer",
+    targetPath: "/portal",
     badgeVariant: "info",
   },
 };
@@ -110,7 +110,7 @@ export function inferRoleFromEmail(email: string): UserRole {
 }
 
 export function getRoleRedirect(role: UserRole): string {
-  if (role === "customer") return "/dashboard/customer";
+  if (role === "customer") return "/portal";
   if (role === "admin") return "/dashboard/admin";
   if (role === "sales_rep") return "/dashboard/sale-ref";
   if (role === "manager") return "/dashboard/manager";

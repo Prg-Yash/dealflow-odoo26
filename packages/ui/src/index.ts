@@ -33,4 +33,3 @@ export { QuotationBuilderCanvas } from "./components/quotation-builder-canvas";
 export { ShareQuotationModal } from "./components/share-quotation-modal";
 export { AdminNav, type AdminNavProps, type AdminNavTabItem } from "./components/admin-nav";
 export { ProfileModal, type ProfileModalProps } from "./components/profile-modal";
-export { CustomerNav, type CustomerNavProps, type NavTabItem as CustomerNavTabItem } from "./components/customer-nav";
