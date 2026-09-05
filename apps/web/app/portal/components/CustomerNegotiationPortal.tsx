@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { signOut } from "../../../lib/auth-client";
 import {
   FileText,
   MessageSquare,
@@ -36,8 +38,10 @@ import {
   TrendingUp,
   Tag,
   Eye,
-  SlidersHorizontal
+  SlidersHorizontal,
+  LogOut,
 } from "lucide-react";
+
 
 // Pre-seeded demo tokens for fast switching
 export const DEMO_TOKENS = [
@@ -84,14 +88,35 @@ export interface PortalProps {
 }
 
 export function CustomerNegotiationPortal({ initialToken = "portal-token-acme-confirmed-05" }: PortalProps) {
+  const router = useRouter();
+  const [loggingOut, setLoggingOut] = useState<boolean>(false);
+
   const [activeTab, setActiveTab] = useState<"quotation" | "messages" | "profile">("quotation");
   const [token, setToken] = useState<string>(initialToken);
   const [tokenInput, setTokenInput] = useState<string>(initialToken);
   const [showTokenSelector, setShowTokenSelector] = useState<boolean>(false);
 
+  const handleSignOut = async () => {
+    setLoggingOut(true);
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("df360_user_role");
+        document.cookie = "demo_role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      }
+      await signOut();
+      router.push("/login");
+    } catch (err) {
+      console.error("Sign out error:", err);
+      router.push("/login");
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
   // View Mode: 'list' (catalog of all customer quotes) or 'detail' (single quote negotiation)
   const [viewMode, setViewMode] = useState<"detail" | "list">("detail");
   const [displayLayout, setDisplayLayout] = useState<"grid" | "table">("grid");
+
 
   // Filter States for Quotations List
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -628,71 +653,90 @@ export function CustomerNegotiationPortal({ initialToken = "portal-token-acme-co
             </button>
           </div>
 
-          {/* Quick Demo Switcher */}
-          <div className="flex items-center gap-2 relative">
-            <button
-              onClick={() => setShowTokenSelector(!showTokenSelector)}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-slate-300 hover:border-slate-500 transition cursor-pointer"
-              title="Click to switch quotation link"
-            >
-              <ShieldCheck size={14} className="text-emerald-400" />
-              <span className="truncate max-w-[120px] sm:max-w-[180px]">{token}</span>
-              <RefreshCw size={12} className="text-slate-400" />
-            </button>
+          {/* Header Action Items (Demo Switcher & Logout Button) */}
+          <div className="flex items-center gap-2.5">
+            {/* Quick Demo Switcher */}
+            <div className="flex items-center gap-2 relative">
+              <button
+                onClick={() => setShowTokenSelector(!showTokenSelector)}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-slate-300 hover:border-slate-500 transition cursor-pointer"
+                title="Click to switch quotation link"
+              >
+                <ShieldCheck size={14} className="text-emerald-400" />
+                <span className="truncate max-w-[110px] sm:max-w-[160px]">{token}</span>
+                <RefreshCw size={12} className="text-slate-400" />
+              </button>
 
-            {/* Token Switcher Dropdown */}
-            {showTokenSelector && (
-              <div className="absolute right-0 top-11 w-80 bg-[#111726] border border-slate-700 rounded-xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95">
-                <div className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2">Switch Demo Token</div>
-                <div className="space-y-1.5 mb-3">
-                  {DEMO_TOKENS.map((dt) => (
-                    <button
-                      key={dt.token}
-                      onClick={() => {
-                        setToken(dt.token);
-                        setTokenInput(dt.token);
-                        setShowTokenSelector(false);
-                        setViewMode("detail");
-                      }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded text-xs flex items-center justify-between hover:bg-slate-800 transition cursor-pointer ${
-                        token === dt.token ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "text-slate-400"
-                      }`}
-                    >
-                      <span className="font-medium">{dt.label}</span>
-                      <span className="text-[10px] text-slate-500">{dt.stage}</span>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="border-t border-slate-800 pt-3">
-                  <label className="text-[11px] text-slate-400 block mb-1">Enter Token:</label>
-                  <div className="flex gap-1.5">
-                    <input
-                      type="text"
-                      value={tokenInput}
-                      onChange={(e) => setTokenInput(e.target.value)}
-                      placeholder="portal-token-..."
-                      className="flex-1 px-2.5 py-1 bg-slate-950 border border-slate-700 rounded text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
-                    />
-                    <button
-                      onClick={() => {
-                        if (tokenInput.trim()) {
-                          setToken(tokenInput.trim());
+              {/* Token Switcher Dropdown */}
+              {showTokenSelector && (
+                <div className="absolute right-0 top-11 w-80 bg-[#111726] border border-slate-700 rounded-xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95">
+                  <div className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2">Switch Demo Token</div>
+                  <div className="space-y-1.5 mb-3">
+                    {DEMO_TOKENS.map((dt) => (
+                      <button
+                        key={dt.token}
+                        onClick={() => {
+                          setToken(dt.token);
+                          setTokenInput(dt.token);
                           setShowTokenSelector(false);
                           setViewMode("detail");
-                        }
-                      }}
-                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded cursor-pointer"
-                    >
-                      Load
-                    </button>
+                        }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded text-xs flex items-center justify-between hover:bg-slate-800 transition cursor-pointer ${
+                          token === dt.token ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "text-slate-400"
+                        }`}
+                      >
+                        <span className="font-medium">{dt.label}</span>
+                        <span className="text-[10px] text-slate-500">{dt.stage}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="border-t border-slate-800 pt-3">
+                    <label className="text-[11px] text-slate-400 block mb-1">Enter Token:</label>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={tokenInput}
+                        onChange={(e) => setTokenInput(e.target.value)}
+                        placeholder="portal-token-..."
+                        className="flex-1 px-2.5 py-1 bg-slate-950 border border-slate-700 rounded text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
+                      />
+                      <button
+                        onClick={() => {
+                          if (tokenInput.trim()) {
+                            setToken(tokenInput.trim());
+                            setShowTokenSelector(false);
+                            setViewMode("detail");
+                          }
+                        }}
+                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded cursor-pointer"
+                      >
+                        Load
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+
+            {/* Logout Button */}
+            <button
+              onClick={handleSignOut}
+              disabled={loggingOut}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-950/40 border border-red-800/60 text-xs font-semibold text-red-300 hover:bg-red-900/60 hover:text-red-200 hover:border-red-600 transition-all cursor-pointer shadow-sm active:translate-y-0.5 disabled:opacity-50"
+              title="Sign out of Customer Portal"
+            >
+              {loggingOut ? (
+                <RefreshCw size={13} className="animate-spin text-red-400" />
+              ) : (
+                <LogOut size={13} className="text-red-400" />
+              )}
+              <span>{loggingOut ? "Logging out..." : "Log Out"}</span>
+            </button>
           </div>
         </div>
       </header>
+
 
       {/* ── NOTIFICATION BANNER ── */}
       {notification && (
@@ -1447,9 +1491,33 @@ export function CustomerNegotiationPortal({ initialToken = "portal-token-acme-co
                       </div>
                     </div>
                   </div>
+
+                  {/* Customer Portal Session Management & Log Out */}
+                  <div className="md:col-span-2 pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 bg-[#111726]/60 rounded-xl p-5 border border-slate-800">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                        <User size={20} />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-white">Customer Portal Session</h4>
+                        <p className="text-[11px] text-slate-400">
+                          Signed in as <span className="text-emerald-300 font-medium">{quotation.customer?.email || "customer@portal.local"}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleSignOut}
+                      disabled={loggingOut}
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition shadow-lg shadow-red-600/20 active:translate-y-0.5 cursor-pointer disabled:opacity-50"
+                    >
+                      {loggingOut ? <RefreshCw size={14} className="animate-spin" /> : <LogOut size={14} />}
+                      <span>{loggingOut ? "Signing Out..." : "Sign Out of Customer Portal"}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
+
           </>
         )}
       </main>

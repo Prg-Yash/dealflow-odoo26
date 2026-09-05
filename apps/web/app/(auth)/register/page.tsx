@@ -1,42 +1,91 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ArrowRight, Eye, EyeOff, User, Mail, Building2, Lock } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  ArrowRight,
+  Eye,
+  EyeOff,
+  User,
+  Mail,
+  Building2,
+  Lock,
+  Phone,
+  Coins,
+  ShieldCheck,
+  Sparkles,
+  ArrowLeftRight,
+} from "lucide-react";
 import { AuthCard } from "@repo/ui";
 import { signUp } from "../../../lib/auth-client";
-import { ALL_ROLES, setStoredRole, getRoleRedirect, type UserRole } from "../../../lib/roles";
+import { setStoredRole } from "../../../lib/roles";
 import { isValidEmail, isValidPassword, isValidName } from "../../../lib/validation";
+
+type SignupMode = "customer" | "admin";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Mode state: default is "customer"
+  const [mode, setMode] = useState<SignupMode>("customer");
+
+  // Read optional initial mode from URL search param e.g. /register?mode=admin
+  useEffect(() => {
+    const requestedMode = searchParams.get("mode") || searchParams.get("role");
+    if (requestedMode === "admin") {
+      setMode("admin");
+    } else {
+      setMode("customer");
+    }
+  }, [searchParams]);
+
+  // Form Fields
   const [fullName, setFullName] = useState("");
-  const [workEmail, setWorkEmail] = useState("");
+  const [email, setEmail] = useState("");
   const [companyName, setCompanyName] = useState("");
-  const [role, setRole] = useState<UserRole>("sales_rep");
+  const [phone, setPhone] = useState("");
+  const [currency, setCurrency] = useState("USD");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  // Field Touched State
   const [nameTouched, setNameTouched] = useState(false);
   const [emailTouched, setEmailTouched] = useState(false);
   const [companyTouched, setCompanyTouched] = useState(false);
   const [passwordTouched, setPasswordTouched] = useState(false);
+
+  // Loading and Error State
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Validation Rules
   const nameError = nameTouched && !isValidName(fullName) ? "Name must be at least 2 characters." : null;
-  const emailError = emailTouched && !isValidEmail(workEmail) ? "Please enter a valid work email address." : null;
-  const companyError = companyTouched && !isValidName(companyName) ? "Company name must be at least 2 characters." : null;
+  const emailError = emailTouched && !isValidEmail(email) ? "Please enter a valid email address." : null;
+  const companyError =
+    mode === "admin" && companyTouched && !isValidName(companyName)
+      ? "Organization name must be at least 2 characters."
+      : null;
   const passwordError = passwordTouched && !isValidPassword(password) ? "Password must be at least 8 characters." : null;
 
-  const isFormValid = isValidName(fullName) && isValidEmail(workEmail) && isValidName(companyName) && isValidPassword(password);
+  const isFormValid =
+    isValidName(fullName) &&
+    isValidEmail(email) &&
+    (mode === "customer" || isValidName(companyName)) &&
+    isValidPassword(password);
+
+  const toggleMode = () => {
+    setError(null);
+    setMode((prev) => (prev === "customer" ? "admin" : "customer"));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isFormValid) {
       setNameTouched(true);
       setEmailTouched(true);
-      setCompanyTouched(true);
+      if (mode === "admin") setCompanyTouched(true);
       setPasswordTouched(true);
       return;
     }
@@ -44,25 +93,97 @@ export default function RegisterPage() {
     setError(null);
     setLoading(true);
 
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
     try {
-      setStoredRole(role);
+      if (mode === "customer") {
+        // 1. Call Backend Customer Registration API
+        try {
+          const res = await fetch(`${apiUrl}/api/customer/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              name: fullName.trim(),
+              email: email.trim().toLowerCase(),
+              password,
+              companyName: companyName.trim() || undefined,
+              phone: phone.trim() || undefined,
+            }),
+          });
 
-      // Attempt Better Auth sign up with graceful demo fallback
-      try {
-        await signUp.email({
-          email: workEmail,
-          password,
-          name: fullName,
-        });
-      } catch (authErr) {
-        console.warn("Better Auth sign up fallback to demo mode:", authErr);
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            if (data.message) {
+              throw new Error(data.message);
+            }
+          }
+        } catch (apiErr: any) {
+          // If already registered or API returned error
+          if (apiErr.message && !apiErr.message.includes("fetch")) {
+            console.warn("API registration returned note:", apiErr.message);
+          }
+        }
+
+        // 2. Sign in or initialize Better Auth session
+        try {
+          await signUp.email({
+            email: email.trim().toLowerCase(),
+            password,
+            name: fullName.trim(),
+          });
+        } catch (authErr) {
+          console.warn("Better Auth sign up completed or fallback to demo:", authErr);
+        }
+
+        // 3. Set stored role to customer and redirect to customer portal
+        setStoredRole("customer");
+        router.push("/portal");
+      } else {
+        // Admin Mode: Call Backend Admin Registration API
+        try {
+          const res = await fetch(`${apiUrl}/api/admin/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              name: fullName.trim(),
+              email: email.trim().toLowerCase(),
+              password,
+              organizationName: companyName.trim() || "Apex Enterprise Technologies Inc",
+              currency: currency || "USD",
+            }),
+          });
+
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            if (data.message) {
+              throw new Error(data.message);
+            }
+          }
+        } catch (apiErr: any) {
+          if (apiErr.message && !apiErr.message.includes("fetch")) {
+            console.warn("Admin API registration note:", apiErr.message);
+          }
+        }
+
+        try {
+          await signUp.email({
+            email: email.trim().toLowerCase(),
+            password,
+            name: fullName.trim(),
+          });
+        } catch (authErr) {
+          console.warn("Better Auth admin sign up fallback:", authErr);
+        }
+
+        // Set stored role to admin and redirect to admin workspace
+        setStoredRole("admin");
+        router.push("/dashboard/admin");
       }
-
-      router.push(getRoleRedirect(role));
-    } catch (err) {
-      console.warn("Backend unavailable, fallback to demo mode:", err);
-      setStoredRole(role);
-      router.push(getRoleRedirect(role));
+    } catch (err: any) {
+      console.error("Registration error:", err);
+      setError(err?.message || "Registration encountered an issue. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -70,13 +191,49 @@ export default function RegisterPage() {
 
   return (
     <AuthCard
-      title="Create Account"
-      description="Join DealFlow360 to collaborate on deals and quotations"
+      title={mode === "customer" ? "Create Customer Account" : "Create Admin Workspace"}
+      description={
+        mode === "customer"
+          ? "Register as a client to review quotes, negotiate terms, and track orders"
+          : "Register as an administrator to set up your organization workspace and team"
+      }
       activeTab="signup"
       linkComponent={Link}
       footerNote={
-        <div className="text-center pt-2 border-t border-slate-100">
-          <p className="text-xs text-slate-500">
+        <div className="flex flex-col gap-3 pt-3 border-t border-slate-100">
+          {/* Prominent Mode Switcher Link / Message */}
+          <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-3 text-center transition-all hover:bg-slate-100/80">
+            {mode === "customer" ? (
+              <p className="text-xs text-slate-600 font-medium flex items-center justify-center flex-wrap gap-1">
+                <span>Looking to manage an enterprise workspace?</span>
+                <button
+                  type="button"
+                  onClick={toggleMode}
+                  className="inline-flex items-center gap-1 font-bold text-[#ff5e3a] hover:text-[#e04f2e] hover:underline cursor-pointer transition ml-1"
+                >
+                  <ShieldCheck size={14} className="text-[#ff5e3a]" />
+                  <span>Signup for admin</span>
+                  <ArrowRight size={13} />
+                </button>
+              </p>
+            ) : (
+              <p className="text-xs text-slate-600 font-medium flex items-center justify-center flex-wrap gap-1">
+                <span>Looking for client or quotation portal?</span>
+                <button
+                  type="button"
+                  onClick={toggleMode}
+                  className="inline-flex items-center gap-1 font-bold text-[#ff5e3a] hover:text-[#e04f2e] hover:underline cursor-pointer transition ml-1"
+                >
+                  <Sparkles size={14} className="text-[#ff5e3a]" />
+                  <span>Signup for customer</span>
+                  <ArrowRight size={13} />
+                </button>
+              </p>
+            )}
+          </div>
+
+          {/* Standard Login Link */}
+          <p className="text-xs text-slate-500 text-center">
             Already have an account?{" "}
             <Link href="/login" className="text-[#ff5e3a] hover:underline font-semibold transition ml-0.5">
               Log In
@@ -85,8 +242,40 @@ export default function RegisterPage() {
         </div>
       }
     >
+      {/* Role Badge Indicator */}
+      <div className="mb-2 flex items-center justify-between">
+        <div
+          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+            mode === "customer"
+              ? "bg-blue-50 text-blue-700 border border-blue-200"
+              : "bg-orange-50 text-orange-700 border border-orange-200"
+          }`}
+        >
+          {mode === "customer" ? (
+            <>
+              <Sparkles size={13} />
+              <span>Customer / Client Role (Default)</span>
+            </>
+          ) : (
+            <>
+              <ShieldCheck size={13} />
+              <span>Workspace Administrator Role</span>
+            </>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={toggleMode}
+          className="text-[11px] text-slate-500 hover:text-slate-800 font-medium inline-flex items-center gap-1 transition"
+        >
+          <ArrowLeftRight size={12} />
+          <span>Switch form</span>
+        </button>
+      </div>
+
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 mb-2">
           {error}
         </div>
       )}
@@ -96,7 +285,7 @@ export default function RegisterPage() {
         {/* Full Name */}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="fullName">
-            Full Name <span className="text-[#ff5e3a]">*</span>
+            {mode === "customer" ? "Full Name" : "Administrator Name"} <span className="text-[#ff5e3a]">*</span>
           </label>
           <div className="relative">
             <User size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -109,7 +298,7 @@ export default function RegisterPage() {
                 setFullName(e.target.value);
                 setNameTouched(true);
               }}
-              placeholder="Sarah Jenkins"
+              placeholder={mode === "customer" ? "Johnathan Ward" : "Alex Rivera"}
               className={`w-full bg-[#f8fafc] rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-[#0f172a] placeholder:text-slate-400 outline-none transition-all border ${
                 nameError
                   ? "border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-200"
@@ -120,23 +309,23 @@ export default function RegisterPage() {
           {nameError && <span className="text-[11px] text-red-500 font-medium">{nameError}</span>}
         </div>
 
-        {/* Work Email */}
+        {/* Email Address */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="workEmail">
-            Work Email <span className="text-[#ff5e3a]">*</span>
+          <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="email">
+            {mode === "customer" ? "Email Address" : "Work Email"} <span className="text-[#ff5e3a]">*</span>
           </label>
           <div className="relative">
             <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
-              id="workEmail"
+              id="email"
               type="email"
               required
-              value={workEmail}
+              value={email}
               onChange={(e) => {
-                setWorkEmail(e.target.value);
+                setEmail(e.target.value);
                 setEmailTouched(true);
               }}
-              placeholder="s.jenkins@acmetechnologies.com"
+              placeholder={mode === "customer" ? "buyer@acmecorp.com" : "admin@dealflow360.com"}
               className={`w-full bg-[#f8fafc] rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-[#0f172a] placeholder:text-slate-400 outline-none transition-all border ${
                 emailError
                   ? "border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-200"
@@ -147,23 +336,24 @@ export default function RegisterPage() {
           {emailError && <span className="text-[11px] text-red-500 font-medium">{emailError}</span>}
         </div>
 
-        {/* Company Name */}
+        {/* Company / Organization Name */}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="companyName">
-            Company Name <span className="text-[#ff5e3a]">*</span>
+            {mode === "customer" ? "Company Name (Optional)" : "Organization / Company Name"}{" "}
+            {mode === "admin" && <span className="text-[#ff5e3a]">*</span>}
           </label>
           <div className="relative">
             <Building2 size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               id="companyName"
               type="text"
-              required
+              required={mode === "admin"}
               value={companyName}
               onChange={(e) => {
                 setCompanyName(e.target.value);
                 setCompanyTouched(true);
               }}
-              placeholder="Acme Technologies, Inc."
+              placeholder={mode === "customer" ? "Acme Corporation" : "Apex Enterprise Technologies Inc"}
               className={`w-full bg-[#f8fafc] rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-[#0f172a] placeholder:text-slate-400 outline-none transition-all border ${
                 companyError
                   ? "border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-200"
@@ -174,24 +364,47 @@ export default function RegisterPage() {
           {companyError && <span className="text-[11px] text-red-500 font-medium">{companyError}</span>}
         </div>
 
-        {/* Platform Role Selector */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="roleSelect">
-            Platform Role <span className="text-[#ff5e3a]">*</span>
-          </label>
-          <select
-            id="roleSelect"
-            value={role}
-            onChange={(e) => setRole(e.target.value as UserRole)}
-            className="w-full bg-[#f8fafc] border border-slate-200 focus:border-[#ff5e3a] focus:ring-2 focus:ring-[#ff5e3a]/20 rounded-xl px-3.5 py-2.5 text-sm text-[#0f172a] outline-none transition-all cursor-pointer"
-          >
-            {ALL_ROLES.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.label} ({r.title})
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Mode specific fields: Phone for customer, Currency for admin */}
+        {mode === "customer" ? (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="phone">
+              Phone Number (Optional)
+            </label>
+            <div className="relative">
+              <Phone size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input
+                id="phone"
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+1 (555) 234-5678"
+                className="w-full bg-[#f8fafc] rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-[#0f172a] placeholder:text-slate-400 outline-none transition-all border border-slate-200 focus:border-[#ff5e3a] focus:ring-2 focus:ring-[#ff5e3a]/20"
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="currency">
+              Workspace Currency <span className="text-[#ff5e3a]">*</span>
+            </label>
+            <div className="relative">
+              <Coins size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <select
+                id="currency"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className="w-full bg-[#f8fafc] rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-[#0f172a] outline-none transition-all border border-slate-200 focus:border-[#ff5e3a] focus:ring-2 focus:ring-[#ff5e3a]/20 cursor-pointer"
+              >
+                <option value="USD">USD ($) - United States Dollar</option>
+                <option value="EUR">EUR (€) - Euro</option>
+                <option value="GBP">GBP (£) - British Pound</option>
+                <option value="INR">INR (₹) - Indian Rupee</option>
+                <option value="CAD">CAD ($) - Canadian Dollar</option>
+                <option value="AUD">AUD ($) - Australian Dollar</option>
+              </select>
+            </div>
+          </div>
+        )}
 
         {/* Create Password */}
         <div className="flex flex-col gap-1.5">
@@ -235,7 +448,13 @@ export default function RegisterPage() {
             disabled={loading || !isFormValid}
             className="w-full inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white font-semibold text-sm transition-all shadow-md shadow-[#ff5e3a]/25 active:translate-y-0.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <span>{loading ? "Creating account..." : "Create Account"}</span>
+            <span>
+              {loading
+                ? "Creating account..."
+                : mode === "customer"
+                ? "Register as Customer"
+                : "Create Admin Workspace"}
+            </span>
             <ArrowRight size={16} />
           </button>
         </div>

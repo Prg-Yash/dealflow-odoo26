@@ -212,7 +212,7 @@ model User {
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   organizationId        String?
-  role                  UserRole             @default(ADMIN)
+  role                  UserRole             @default(CUSTOMER)
 
   // Auth Relations
   accounts Account[]
