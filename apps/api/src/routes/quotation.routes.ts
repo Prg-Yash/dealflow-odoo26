@@ -2,11 +2,70 @@ import { Router } from "express";
 import { UserRole } from "@repo/db";
 import { requireAuth, requireRole } from "../middleware/auth.middleware.js";
 import { tenantMiddleware } from "../middleware/tenant.js";
+import { validateBody } from "../middleware/validate.js";
 import * as controller from "../controllers/quotation.controller.js";
+import {
+  CreateQuotationSchema,
+  CreateQuotationLineSchema,
+  UpdateQuotationLineSchema,
+} from "../schemas/quotation.schema.js";
 
 export const quotationRouter = Router();
 
 quotationRouter.use(requireAuth, tenantMiddleware);
+
+const STAFF_ROLES = [
+  UserRole.ADMIN,
+  UserRole.SALES_MANAGER,
+  UserRole.SALES_REP,
+  UserRole.FINANCE_OPS,
+];
+
+const SALES_ROLES = [
+  UserRole.SALES_REP,
+  UserRole.SALES_MANAGER,
+  UserRole.ADMIN,
+];
+
+// Quotation list and details
+quotationRouter.get("/", requireRole(...STAFF_ROLES), controller.listQuotations);
+quotationRouter.get("/:id", requireRole(...STAFF_ROLES), controller.getQuotation);
+
+// Create draft quotation
+quotationRouter.post(
+  "/",
+  requireRole(...SALES_ROLES),
+  validateBody(CreateQuotationSchema),
+  controller.createQuotation
+);
+
+// Quotation line operations (recomputes margins, overages, and blended risk)
+quotationRouter.post(
+  "/:id/lines",
+  requireRole(...SALES_ROLES),
+  validateBody(CreateQuotationLineSchema),
+  controller.addQuotationLine
+);
+
+quotationRouter.patch(
+  "/:id/lines/:lineId",
+  requireRole(...SALES_ROLES),
+  validateBody(UpdateQuotationLineSchema),
+  controller.updateQuotationLine
+);
+
+quotationRouter.delete(
+  "/:id/lines/:lineId",
+  requireRole(...SALES_ROLES),
+  controller.deleteQuotationLine
+);
+
+// Submit quotation for discount approval evaluation
+quotationRouter.post(
+  "/:id/submit",
+  requireRole(...SALES_ROLES),
+  controller.submitQuotation
+);
 
 // Live upsell & cross-sell suggestions panel
 quotationRouter.get(

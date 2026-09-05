@@ -16,6 +16,7 @@ import { priceListRouter } from "./routes/price-list.routes.js";
 import { discountRuleRouter } from "./routes/discount-rule.routes.js";
 import { productRecommendationRouter } from "./routes/product-recommendation.routes.js";
 import { quotationRouter } from "./routes/quotation.routes.js";
+import { stockLevelRouter } from "./routes/stock-level.routes.js";
 import { errorHandler } from "./middleware/error.js";
 
 const app = express();
@@ -94,6 +95,7 @@ app.use(["/api/price-lists", "/price-lists"], priceListRouter);
 app.use(["/api/discount-approval-rules", "/discount-approval-rules"], discountRuleRouter);
 app.use(["/api/product-recommendations", "/product-recommendations"], productRecommendationRouter);
 app.use(["/api/quotations", "/quotations"], quotationRouter);
+app.use(["/api/stock-levels", "/stock-levels"], stockLevelRouter);
 
 // Demo Background Job Trigger (Interacts with @repo/db)
 app.post(["/api/jobs/trigger", "/jobs/trigger"], async (req: Request, res: Response) => {
