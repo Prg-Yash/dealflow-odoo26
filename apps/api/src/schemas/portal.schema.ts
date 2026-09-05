@@ -18,8 +18,17 @@ export const CreateCounterProposalSchema = z.object({
   proposedDiscountPercent: z
     .number()
     .min(0, "Discount cannot be negative")
-    .max(100, "Discount cannot exceed 100%"),
+    .max(100, "Discount cannot exceed 100%")
+    .optional(),
+  proposedDiscount: z
+    .number()
+    .min(0, "Discount cannot be negative")
+    .max(100, "Discount cannot exceed 100%")
+    .optional(),
   customerNotes: z.string().optional().nullable(),
+  message: z.string().optional().nullable(),
+  authorName: z.string().optional(),
+  authorEmail: z.string().optional(),
   lineDiscounts: z
     .array(
       z.object({
@@ -37,11 +46,16 @@ export const ConfirmQuotationSchema = z.object({
   customerNotes: z.string().optional().nullable(),
   customerName: z.string().optional(),
   customerEmail: z.string().email("Invalid email format").optional(),
+  agreedToTerms: z.boolean().optional(),
+  notes: z.string().optional().nullable(),
 });
 
 export const SignQuotationSchema = z.object({
-  signedByName: z.string().min(1, "Signer name is required"),
-  signedByEmail: z.string().email("Valid signer email is required"),
+  signedByName: z.string().optional(),
+  signerName: z.string().optional(),
+  signedByEmail: z.string().optional(),
+  signerEmail: z.string().optional(),
+  signerTitle: z.string().optional(),
   signatureData: z.string().min(1, "Signature stroke data or base64 image is required"),
 });
 

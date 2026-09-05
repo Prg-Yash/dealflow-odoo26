@@ -19,30 +19,30 @@ export interface ConfirmQuotationResult {
   fulfillmentOrder: any | null;
 }
 
-async function generateUniqueInvoiceNumber(tx: Prisma.TransactionClient, year: number): Promise<string> {
-  const count = await tx.invoice.count();
+async function generateUniqueInvoiceNumber(tx: Prisma.TransactionClient, orgId: string, year: number): Promise<string> {
+  const count = await tx.invoice.count({ where: { organizationId: orgId } });
   let num = `INV-${year}-${String(count + 1).padStart(4, "0")}`;
-  const existing = await tx.invoice.findFirst({ where: { invoiceNumber: num } });
+  const existing = await tx.invoice.findFirst({ where: { organizationId: orgId, invoiceNumber: num } });
   if (existing) {
     num = `INV-${year}-${String(count + 1).padStart(4, "0")}-${Math.floor(1000 + Math.random() * 9000)}`;
   }
   return num;
 }
 
-async function generateUniqueSubscriptionNumber(tx: Prisma.TransactionClient, year: number): Promise<string> {
-  const count = await tx.subscription.count();
+async function generateUniqueSubscriptionNumber(tx: Prisma.TransactionClient, orgId: string, year: number): Promise<string> {
+  const count = await tx.subscription.count({ where: { organizationId: orgId } });
   let num = `SUB-${year}-${String(count + 1).padStart(4, "0")}`;
-  const existing = await tx.subscription.findFirst({ where: { subscriptionNumber: num } });
+  const existing = await tx.subscription.findFirst({ where: { organizationId: orgId, subscriptionNumber: num } });
   if (existing) {
     num = `SUB-${year}-${String(count + 1).padStart(4, "0")}-${Math.floor(1000 + Math.random() * 9000)}`;
   }
   return num;
 }
 
-async function generateUniqueFulfillmentNumber(tx: Prisma.TransactionClient, year: number): Promise<string> {
-  const count = await tx.fulfillmentOrder.count();
+async function generateUniqueFulfillmentNumber(tx: Prisma.TransactionClient, orgId: string, year: number): Promise<string> {
+  const count = await tx.fulfillmentOrder.count({ where: { organizationId: orgId } });
   let num = `FUL-${year}-${String(count + 1).padStart(4, "0")}`;
-  const existing = await tx.fulfillmentOrder.findFirst({ where: { fulfillmentNumber: num } });
+  const existing = await tx.fulfillmentOrder.findFirst({ where: { organizationId: orgId, fulfillmentNumber: num } });
   if (existing) {
     num = `FUL-${year}-${String(count + 1).padStart(4, "0")}-${Math.floor(1000 + Math.random() * 9000)}`;
   }
@@ -129,7 +129,7 @@ export async function confirmQuotation(
     });
 
     if (!existingInv) {
-      const invoiceNumber = await generateUniqueInvoiceNumber(tx, year);
+      const invoiceNumber = await generateUniqueInvoiceNumber(tx, orgId, year);
 
       let subtotal = 0;
       let discountTotal = 0;
@@ -196,7 +196,7 @@ export async function confirmQuotation(
     });
 
     if (!existingSub) {
-      const subscriptionNumber = await generateUniqueSubscriptionNumber(tx, year);
+      const subscriptionNumber = await generateUniqueSubscriptionNumber(tx, orgId, year);
 
       let currentMrr = 0;
       const subLinesData = subscriptionLines.map((line) => {
@@ -244,7 +244,7 @@ export async function confirmQuotation(
       createdSubscriptions.push(subscription);
 
       // Generate first billing cycle invoice for the subscription
-      const recurringInvoiceNumber = await generateUniqueInvoiceNumber(tx, year);
+      const recurringInvoiceNumber = await generateUniqueInvoiceNumber(tx, orgId, year);
 
       const recurringInvoice = await tx.invoice.create({
         data: {
@@ -299,7 +299,7 @@ export async function confirmQuotation(
     });
 
     if (!existingFul) {
-      const fulfillmentNumber = await generateUniqueFulfillmentNumber(tx, year);
+      const fulfillmentNumber = await generateUniqueFulfillmentNumber(tx, orgId, year);
 
       const customerAddress =
         quotation.customer.shippingAddress ||

@@ -158,12 +158,36 @@ export async function getPortalQuotation(portalToken: string) {
       }
     : null;
 
+  const allCustomerQuotations = await prisma.quotation.findMany({
+    where: { customerId: quotation.customerId, organizationId: quotation.organizationId },
+    select: {
+      id: true,
+      quoteNumber: true,
+      title: true,
+      stage: true,
+      approvalStatus: true,
+      subtotal: true,
+      discountTotal: true,
+      taxTotal: true,
+      grandTotal: true,
+      portalToken: true,
+      expiresAt: true,
+      createdAt: true,
+      updatedAt: true,
+      _count: {
+        select: { lines: true, comments: true, counterProposals: true },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
   return {
     ...quotation,
     lines: formattedLines,
     comments: formattedComments,
     counterProposals: formattedCounterProposals,
     signature: signatureData,
+    customerQuotations: allCustomerQuotations,
   };
 }
 
@@ -251,11 +275,13 @@ export async function submitCounterProposal(
     throw new AppError(400, "ALREADY_CONFIRMED", "Cannot submit counter-proposal on a confirmed order.");
   }
 
+  const discPercent = input.proposedDiscountPercent ?? input.proposedDiscount ?? 0;
+
   // Auto-calculate proposedGrandTotal if omitted
   const proposedTotal =
     input.proposedGrandTotal !== undefined && input.proposedGrandTotal !== null && input.proposedGrandTotal > 0
       ? input.proposedGrandTotal
-      : Math.round(quotation.subtotal * (1 - input.proposedDiscountPercent / 100) * 100) / 100;
+      : Math.round(quotation.subtotal * (1 - discPercent / 100) * 100) / 100;
 
   return prisma.$transaction(async (tx) => {
     // Supersede previous pending counter-proposals
@@ -276,7 +302,7 @@ export async function submitCounterProposal(
     });
 
     // If line-level proposed discounts were provided, encode into customer notes or metadata
-    let formattedNotes = input.customerNotes || "";
+    let formattedNotes = input.customerNotes || input.message || "";
     if (input.lineDiscounts && input.lineDiscounts.length > 0) {
       const lineSummary = input.lineDiscounts
         .map((ld) => `[Line ${ld.lineId}: ${ld.proposedDiscountPercent}%]`)
@@ -288,7 +314,7 @@ export async function submitCounterProposal(
       data: {
         quotationId: quotation.id,
         proposedGrandTotal: proposedTotal,
-        proposedDiscountPercent: input.proposedDiscountPercent,
+        proposedDiscountPercent: discPercent,
         customerNotes: formattedNotes || null,
         status: CounterProposalStatus.PENDING,
       },
@@ -608,12 +634,15 @@ export async function signQuotation(
   }
 
   return prisma.$transaction(async (tx) => {
+    const resolvedName = (input.signedByName || input.signerName || quotation.customer.name || "Customer Representative").trim();
+    const resolvedEmail = (input.signedByEmail || input.signerEmail || quotation.customer.email || "buyer@customer.com").trim().toLowerCase();
+
     // 1. Create QuoteSignature
     const signature = await tx.quoteSignature.create({
       data: {
         quotationId: quotation.id,
-        signedByName: input.signedByName.trim(),
-        signedByEmail: input.signedByEmail.trim().toLowerCase(),
+        signedByName: resolvedName,
+        signedByEmail: resolvedEmail,
         signatureData: input.signatureData,
         ipAddress: ipAddress || null,
         userAgent: userAgent || null,
@@ -626,8 +655,8 @@ export async function signQuotation(
       tx,
       quotation.customer,
       quotation.organizationId,
-      input.signedByName,
-      input.signedByEmail
+      resolvedName,
+      resolvedEmail
     );
 
     // 3. Centralized Phase 7 Deal Confirmation Logic
