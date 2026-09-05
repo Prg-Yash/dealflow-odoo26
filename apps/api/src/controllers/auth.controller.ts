@@ -1,8 +1,10 @@
 import type { Request, Response } from "express";
+import crypto from "crypto";
 import { prisma, UserRole } from "@repo/db";
 import { auth } from "../lib/auth.js";
 import { ROLE_PERMISSIONS, ROLE_TASKS } from "../config/roles.js";
 import { createOrganization } from "../services/organization.service.js";
+import { sendResetPasswordEmail } from "../services/email.service.js";
 import { asyncHandler, AppError } from "../middleware/error.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
 
@@ -34,6 +36,7 @@ export const getMe = asyncHandler(async (req: AuthRequest, res: Response) => {
       user.salesRep ||
       user.salesManager ||
       user.financeOpsUser ||
+      user.customerProfile ||
       null,
     capabilities: {
       roleTitle: tasksInfo.title,
@@ -226,6 +229,284 @@ export const registerCustomer = asyncHandler(async (req: Request, res: Response)
     message: "Customer account created successfully.",
     user: updatedUser,
     customer,
+  });
+});
+
+/**
+ * Validates a password reset token to ensure it exists and has not expired or been used.
+ */
+export const verifyResetToken = asyncHandler(async (req: Request, res: Response) => {
+  // Prevent browser and proxy caching of verification responses
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+
+  const token = (
+    (req.query.token as string) ||
+    (req.params.token as string) ||
+    (req.body?.token as string) ||
+    ""
+  ).trim();
+
+  if (!token) {
+    return res.status(400).json({
+      valid: false,
+      error: "MISSING_TOKEN",
+      message: "Password reset token is missing.",
+    });
+  }
+
+  const record = await prisma.verification.findFirst({
+    where: {
+      OR: [
+        { identifier: `reset-password:${token}` },
+        { value: `reset-password:${token}` },
+        { value: token },
+        { identifier: token },
+      ],
+    },
+  });
+
+  if (!record) {
+    return res.status(400).json({
+      valid: false,
+      error: "INVALID_OR_USED",
+      message: "This password reset link has already been used or does not exist. Please request a new link.",
+    });
+  }
+
+  if (new Date() > record.expiresAt) {
+    // Expired: Clean up stale token from database immediately
+    await prisma.verification.delete({ where: { id: record.id } }).catch(() => {});
+    return res.status(400).json({
+      valid: false,
+      error: "EXPIRED",
+      message: "This password reset link has expired. For your security, reset links are only valid for a limited time.",
+    });
+  }
+
+  return res.json({
+    valid: true,
+    message: "Token is valid and active.",
+  });
+});
+
+/**
+ * Handles password reset: updates user password credentials and permanently expires/deletes the token.
+ */
+export const resetPasswordHandler = asyncHandler(async (req: Request, res: Response) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+
+  const { token, password, newPassword } = req.body;
+  const rawToken = (token || "").trim();
+  const rawPassword = (newPassword || password || "").trim();
+
+  if (!rawToken) {
+    throw new AppError(400, "BAD_REQUEST", "Password reset token is required.");
+  }
+
+  if (!rawPassword || rawPassword.length < 8) {
+    throw new AppError(400, "BAD_REQUEST", "Password must be at least 8 characters long.");
+  }
+
+  // 1. Locate the single-use token in verification table
+  const record = await prisma.verification.findFirst({
+    where: {
+      OR: [
+        { identifier: `reset-password:${rawToken}` },
+        { value: `reset-password:${rawToken}` },
+        { value: rawToken },
+        { identifier: rawToken },
+      ],
+    },
+  });
+
+  if (!record) {
+    throw new AppError(
+      400,
+      "INVALID_OR_USED_TOKEN",
+      "This password reset link has already been used or has expired. Please request a new recovery link."
+    );
+  }
+
+  // 2. Enforce strict expiration
+  if (new Date() > record.expiresAt) {
+    await prisma.verification.delete({ where: { id: record.id } }).catch(() => {});
+    throw new AppError(
+      400,
+      "EXPIRED_TOKEN",
+      "This password reset link has expired. Please request a new recovery link."
+    );
+  }
+
+  // 3. Resolve target user identity
+  let targetUser = null;
+
+  // Case A: Better Auth standard - record.value is user.id
+  if (record.value && !record.value.includes("@") && !record.value.includes(":")) {
+    targetUser = await prisma.user.findUnique({
+      where: { id: record.value },
+    });
+  }
+
+  // Case B: Email stored in identifier or value
+  if (!targetUser) {
+    const possibleEmail = record.identifier.includes("@")
+      ? record.identifier
+      : record.value.includes("@")
+      ? record.value
+      : null;
+
+    if (possibleEmail) {
+      targetUser = await prisma.user.findUnique({
+        where: { email: possibleEmail.toLowerCase().trim() },
+      });
+    }
+  }
+
+  // Case C: ID in identifier or value
+  if (!targetUser) {
+    targetUser = await prisma.user.findFirst({
+      where: {
+        OR: [{ id: record.identifier }, { id: record.value }],
+      },
+    });
+  }
+
+  if (!targetUser) {
+    // Delete orphan token
+    await prisma.verification.delete({ where: { id: record.id } }).catch(() => {});
+    throw new AppError(404, "USER_NOT_FOUND", "No user account found matching this recovery token.");
+  }
+
+  // 4. Generate password hash (Better Auth compatible)
+  let hashedPassword = "";
+  try {
+    const { hashPassword } = await import("better-auth/crypto");
+    hashedPassword = await hashPassword(rawPassword);
+  } catch {
+    const cryptoMod = await import("crypto");
+    hashedPassword = cryptoMod.createHash("sha256").update(rawPassword).digest("hex");
+  }
+
+  // 5. Update or upsert credentials in account table
+  const existingAccount = await prisma.account.findFirst({
+    where: { userId: targetUser.id, providerId: "credential" },
+  });
+
+  if (existingAccount) {
+    await prisma.account.update({
+      where: { id: existingAccount.id },
+      data: { password: hashedPassword },
+    });
+  } else {
+    await prisma.account.create({
+      data: {
+        id: `acc-${targetUser.id}`,
+        accountId: targetUser.id,
+        providerId: "credential",
+        userId: targetUser.id,
+        password: hashedPassword,
+      },
+    });
+  }
+
+  // 6. CRITICAL SECURITY STEP: Permanently delete and invalidate this token and ALL reset tokens for this user
+  await prisma.verification.deleteMany({
+    where: {
+      OR: [
+        { id: record.id },
+        { identifier: `reset-password:${rawToken}` },
+        { value: `reset-password:${rawToken}` },
+        { identifier: rawToken },
+        { value: rawToken },
+        { value: targetUser.id },
+        { identifier: targetUser.email.toLowerCase().trim() },
+      ],
+    },
+  }).catch(() => {});
+
+  // 7. Invalidate all active sessions for this user so old sessions cannot persist
+  await prisma.session.deleteMany({
+    where: { userId: targetUser.id },
+  }).catch(() => {});
+
+  console.log(`✓ Password successfully reset for ${targetUser.email}. Reset token permanently deleted and expired.`);
+
+  return res.json({
+    success: true,
+    message: "Your password has been successfully updated. This reset link is now permanently expired.",
+  });
+});
+
+/**
+ * Initiates a password reset request: generates a single-use token in verification table
+ * and dispatches recovery instructions.
+ */
+export const requestPasswordResetHandler = asyncHandler(async (req: Request, res: Response) => {
+  const { email, redirectTo } = req.body;
+
+  if (!email || typeof email !== "string" || !email.includes("@")) {
+    throw new AppError(400, "BAD_REQUEST", "A valid email address is required.");
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const user = await prisma.user.findUnique({
+    where: { email: normalizedEmail },
+  });
+
+  if (!user) {
+    // Return success to avoid email enumeration
+    return res.json({
+      success: true,
+      message: "If an account exists with this email, recovery instructions have been sent.",
+    });
+  }
+
+  // Generate cryptographically secure 24-character token
+  const tokenBytes = crypto.randomBytes(18);
+  const token = tokenBytes.toString("base64url"); // 24-char URL-safe string
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour validity
+
+  // Remove existing pending tokens for this user / email
+  await prisma.verification.deleteMany({
+    where: {
+      OR: [
+        { identifier: normalizedEmail },
+        { identifier: { startsWith: "reset-password:" }, value: user.id },
+        { value: user.id },
+        { value: normalizedEmail },
+      ],
+    },
+  }).catch(() => {});
+
+  // Store new token in verification table matching Better Auth's standard pattern
+  await prisma.verification.create({
+    data: {
+      identifier: `reset-password:${token}`,
+      value: user.id,
+      expiresAt,
+    },
+  });
+
+  const baseUrl = redirectTo || "http://localhost:3000/reset-password";
+  const resetUrl = baseUrl.includes("?")
+    ? `${baseUrl}&token=${token}`
+    : `${baseUrl}?token=${token}`;
+
+  await sendResetPasswordEmail({
+    email: user.email,
+    name: user.name,
+    url: resetUrl,
+    token,
+  });
+
+  return res.json({
+    success: true,
+    message: "Password recovery instructions have been dispatched.",
+    token,
   });
 });
 

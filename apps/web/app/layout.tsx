@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import { QueryProvider } from "../lib/query/providers";
+import { ToastProvider } from "@repo/ui";
 import "./globals.css";
 
 const plusJakarta = Plus_Jakarta_Sans({
@@ -22,7 +23,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${plusJakarta.variable} font-sans antialiased bg-surface text-on-surface`}>
-        <QueryProvider>{children}</QueryProvider>
+        <QueryProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </QueryProvider>
       </body>
     </html>
   );

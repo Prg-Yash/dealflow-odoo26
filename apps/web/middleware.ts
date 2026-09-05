@@ -23,7 +23,8 @@ export function middleware(request: NextRequest) {
   const demoRole = request.cookies.get("demo_role")?.value as UserRole | undefined;
   const hasTokenQuery = searchParams.has("token") && (searchParams.get("token")?.trim().length || 0) > 0;
 
-  const isAuthenticated = hasBetterAuth || !!demoRole;
+  // Strict session authentication: internal dashboards require a valid Better Auth session token
+  const isAuthenticated = hasBetterAuth;
 
   // If visiting deprecated /portal/login -> Redirect to unified /login
   if (isPortalLogin) {
@@ -37,7 +38,12 @@ export function middleware(request: NextRequest) {
   if ((isDashboard || isProfile) && !isAuthenticated) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    return NextResponse.redirect(url);
+    const response = NextResponse.redirect(url);
+    // Clear stale role cookie when unauthenticated
+    if (demoRole && !hasBetterAuth) {
+      response.cookies.delete("demo_role");
+    }
+    return response;
   }
 
   // If attempting to access /portal without being logged in and without a token -> Redirect to unified /login
@@ -47,9 +53,9 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // 4. Authenticated User accessing Auth Pages -> Redirect to their respective home
+  // 4. Authenticated User accessing Auth Pages -> Redirect to their respective home only if session token exists
   if (isAuthPage && isAuthenticated && !hasTokenQuery) {
-    const role = demoRole || "customer";
+    const role = demoRole || "admin";
     const url = request.nextUrl.clone();
     url.pathname = getRoleRedirect(role);
     return NextResponse.redirect(url);
