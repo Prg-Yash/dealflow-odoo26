@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BrandLogo } from '@/components/brand-logo';
+import { signIn, inferRole } from '@/lib/auth';
+import { PasswordInput } from '@/components/password-input';
 
 
 // ─── Design tokens (mirrors web) ─────────────────────────────────────────────
@@ -33,7 +35,6 @@ export default function LoginScreen() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [emailTouched, setEmailTouched] = useState(false);
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -51,12 +52,11 @@ export default function LoginScreen() {
     setError(null);
     setLoading(true);
     try {
-      // TODO: wire up real auth — same pattern as web
-      await new Promise((r) => setTimeout(r, 1000));
-      await AsyncStorage.setItem('auth_email', email);
-      router.replace('/');
-    } catch {
-      setError('Invalid credentials. Please try again.');
+      await signIn(email, password);
+      await AsyncStorage.setItem('auth_role', inferRole(email));
+      router.replace('/(app)/dashboard');
+    } catch (e: any) {
+      setError(e.message ?? 'Invalid credentials. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -130,22 +130,12 @@ export default function LoginScreen() {
                   <Text style={styles.forgotLink}>Forgot password?</Text>
                 </Pressable>
               </View>
-              <View style={[
-                styles.inputRow,
-                passwordError ? styles.inputError : passwordTouched && isValidPassword(password) ? styles.inputValid : null,
-              ]}>
-                <TextInput
-                  style={styles.inputInner}
-                  placeholder="••••••••••••"
-                  placeholderTextColor="#94a3b8"
-                  value={password}
-                  onChangeText={(v) => { setPassword(v); setPasswordTouched(true); }}
-                  secureTextEntry={!showPassword}
-                />
-                <Pressable onPress={() => setShowPassword((v) => !v)} hitSlop={8} style={styles.eyeBtn}>
-                  <Text style={styles.eyeText}>{showPassword ? '🙈' : '👁'}</Text>
-                </Pressable>
-              </View>
+              <PasswordInput
+                value={password}
+                onChangeText={(v) => { setPassword(v); setPasswordTouched(true); }}
+                hasError={!!passwordError}
+                isValid={passwordTouched && isValidPassword(password)}
+              />
               {passwordError && <Text style={styles.fieldError}>{passwordError}</Text>}
             </View>
 

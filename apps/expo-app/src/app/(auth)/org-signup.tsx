@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BrandLogo } from '@/components/brand-logo';
+import { signUp } from '@/lib/auth';
+import { PasswordInput } from '@/components/password-input';
 
 const ACCENT = '#ff5e3a';
 const DARK = '#0f172a';
@@ -61,14 +63,12 @@ export default function OrgSignupScreen() {
     setError(null);
     setLoading(true);
     try {
-      // TODO: wire up real org registration — role is admin
-      await new Promise((r) => setTimeout(r, 1000));
-      await AsyncStorage.setItem('auth_email', email);
+      await signUp(email, password, fullName);
       await AsyncStorage.setItem('auth_role', 'admin');
       await AsyncStorage.setItem('auth_org', orgName);
-      router.replace('/');
-    } catch {
-      setError('Could not register organization. Please try again.');
+      router.replace('/(app)/dashboard');
+    } catch (e: any) {
+      setError(e.message ?? 'Could not register organization. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -169,22 +169,13 @@ export default function OrgSignupScreen() {
             {/* Password */}
             <View style={styles.field}>
               <Text style={styles.label}>Create Password <Text style={{ color: ACCENT }}>*</Text></Text>
-              <View style={[
-                styles.inputRow,
-                passwordError ? styles.inputError : passwordTouched && isValidPassword(password) ? styles.inputValid : null,
-              ]}>
-                <TextInput
-                  style={styles.inputInner}
-                  placeholder="Min. 8 characters"
-                  placeholderTextColor="#94a3b8"
-                  value={password}
-                  onChangeText={(v) => { setPassword(v); setPasswordTouched(true); }}
-                  secureTextEntry={!showPassword}
-                />
-                <Pressable onPress={() => setShowPassword((v) => !v)} hitSlop={8} style={styles.eyeBtn}>
-                  <Text style={styles.eyeText}>{showPassword ? '🙈' : '👁'}</Text>
-                </Pressable>
-              </View>
+              <PasswordInput
+                value={password}
+                placeholder="Min. 8 characters"
+                onChangeText={(v) => { setPassword(v); setPasswordTouched(true); }}
+                hasError={!!passwordError}
+                isValid={passwordTouched && isValidPassword(password)}
+              />
               {passwordError && <Text style={styles.fieldError}>{passwordError}</Text>}
             </View>
 
