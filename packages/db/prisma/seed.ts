@@ -8,6 +8,7 @@ import {
   ApprovalStatus,
   ApprovalLevel,
   StockMovementType,
+  CounterProposalStatus,
 } from "@prisma/client";
 
 // Load environment variables from packages/db/.env
@@ -146,6 +147,12 @@ async function main() {
       id: "usr-cust-02",
       name: "Elena Gomez",
       email: "procurement@betaindustries.com",
+      role: UserRole.CUSTOMER,
+    },
+    {
+      id: "usr-cust-04",
+      name: "Dr. Aris Thorne",
+      email: "finance@quantumleaplabs.ai",
       role: UserRole.CUSTOMER,
     },
   ];
@@ -320,6 +327,7 @@ async function main() {
       paymentTerms: "Net 60",
       tierId: tiers.PLATINUM.id,
       salesRepId: salesRepSarah.id,
+      portalUserId: "usr-cust-04",
       billingAddress: "1200 Silicon Way, Palo Alto, CA 94301",
       shippingAddress: "1200 Silicon Way, Tech Dock 4, Palo Alto, CA 94301",
     },
@@ -1517,6 +1525,75 @@ async function main() {
     },
   });
   console.log("  ✓ Credit Note [CN-2026-0001] ($340.00 - Mid-Cycle License Proration)");
+
+  // 11. Customer Negotiation Portal, Interactive Comments, Counter-Proposals & E-Signatures (Phase 8)
+  console.log("\n[11/11] Seeding Negotiation Portal Comments, Counter-Proposals & E-Signatures (Phase 8)...");
+
+  // Fetch Quotation 4 line items for line-level comments
+  const q4Lines = await prisma.quotationLine.findMany({
+    where: { quotationId: q4.id },
+    orderBy: { sortOrder: "asc" },
+  });
+  const serverLine = q4Lines.find((l) => l.productId === products["HW-SRV-01"].id) ?? q4Lines[0];
+
+  // Clean previous records on test deals
+  await (prisma as any).quotationComment.deleteMany({ where: { quotationId: q4.id } });
+  await (prisma as any).counterProposal.deleteMany({ where: { quotationId: q4.id } });
+  await (prisma as any).quoteSignature.deleteMany({ where: { quotationId: q5.id } });
+
+  // A. Customer Line-Level Comment with Proposed Discount on QT-2026-0004
+  await (prisma as any).quotationComment.create({
+    data: {
+      quotationId: q4.id,
+      quotationLineId: serverLine?.id,
+      authorId: "usr-cust-04",
+      authorRole: UserRole.CUSTOMER,
+      message: "Can you provide a 15% discount if we commit to 4 units upfront rather than 12%?",
+      proposedDiscountPercent: 15.0,
+      isResolved: false,
+      createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+    },
+  });
+
+  // B. Sales Rep Reply to Customer Comment
+  await (prisma as any).quotationComment.create({
+    data: {
+      quotationId: q4.id,
+      quotationLineId: serverLine?.id,
+      authorId: "usr-rep-02",
+      authorRole: UserRole.SALES_REP,
+      message: "We can do 15% on the servers if you accept annual prepayment on the support SLA. Please submit your counter-proposal via the portal.",
+      isResolved: true,
+      createdAt: new Date(Date.now() - 1 * 60 * 60 * 1000),
+    },
+  });
+
+  // C. Customer Counter-Proposal on QT-2026-0004
+  await (prisma as any).counterProposal.create({
+    data: {
+      quotationId: q4.id,
+      proposedGrandTotal: 20850.0,
+      proposedDiscountPercent: 14.8,
+      customerNotes: "We are requesting a total bundle price of $20,850 ($667.20 reduction) to fit our Q1 CAPEX budget.",
+      status: CounterProposalStatus.PENDING,
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+    },
+  });
+  console.log("  ✓ Quotation [QT-2026-0004] (Negotiation: 2 Comments + Pending Counter-Proposal)");
+
+  // D. Legal E-Signature on Confirmed Deal QT-2026-0005
+  await (prisma as any).quoteSignature.create({
+    data: {
+      quotationId: q5.id,
+      signedByName: "Johnathan Ward",
+      signedByEmail: "buyer@acmecorp.com",
+      signatureData: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='100'><path d='M10 80 Q 95 10 180 80 T 290 80' fill='none' stroke='#0f172a' stroke-width='3'/></svg>",
+      ipAddress: "198.51.100.42",
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      signedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    },
+  });
+  console.log("  ✓ Quotation [QT-2026-0005] (E-Signature Captured: Johnathan Ward <buyer@acmecorp.com>)");
 
   console.log("\n==================================================");
   console.log("  🎉 Seeding Completed Successfully!");
