@@ -1079,7 +1079,7 @@ export default function ManagerDashboardPage() {
                   </div>
 
                   <Link
-                    href="/dashboard/sale-ref"
+                    href="/dashboard/admin"
                     className="w-full py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-bold text-slate-700 text-center transition block"
                   >
                     View Assigned Quotes &rarr;
