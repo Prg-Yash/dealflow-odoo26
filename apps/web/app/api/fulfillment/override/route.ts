@@ -21,8 +21,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // 1. Fetch current ShipmentLine
-    const shipmentLine = await prisma.shipmentLine.findFirst({
+    // 1. Fetch current ShipmentLine or QuotationLine
+    let shipmentLine = await prisma.shipmentLine.findFirst({
       where: { id: shipmentLineId },
       include: {
         shipment: {
@@ -37,8 +37,117 @@ export async function POST(request: Request) {
     });
 
     if (!shipmentLine) {
+      // Check if ID matches a QuotationLine (pre-allocation override)
+      const quotationLine = await prisma.quotationLine.findFirst({
+        where: { id: shipmentLineId },
+        include: {
+          quotation: { include: { customer: true } },
+          product: true,
+        },
+      });
+
+      if (quotationLine) {
+        const orgId = quotationLine.quotation.organizationId;
+        const targetWh =
+          (targetWarehouseId
+            ? await prisma.warehouse.findFirst({
+                where: { id: targetWarehouseId, organizationId: orgId, isActive: true },
+              })
+            : null) ||
+          (await prisma.warehouse.findFirst({
+            where: { organizationId: orgId, isActive: true },
+            orderBy: { shippingCostWeight: "asc" },
+          }));
+
+        if (!targetWh) {
+          return NextResponse.json(
+            { success: false, error: "Target warehouse not found or is inactive." },
+            { status: 404 }
+          );
+        }
+
+        // Validate stock
+        const targetStock = await prisma.stockLevel.findFirst({
+          where: { warehouseId: targetWh.id, productId: quotationLine.productId },
+        });
+
+        const available = (targetStock?.quantityOnHand ?? 0) - (targetStock?.quantityReserved ?? 0);
+        if (available < requestedQuantity) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Insufficient stock in warehouse "${targetWh.name}": Available unreserved is ${available} (${targetStock?.quantityOnHand ?? 0} on hand, ${targetStock?.quantityReserved ?? 0} reserved), but ${requestedQuantity} was requested.`,
+            },
+            { status: 400 }
+          );
+        }
+
+        // Get or create parent fulfillment order
+        const year = new Date().getFullYear();
+        let fo = await prisma.fulfillmentOrder.findFirst({
+          where: { quotationId: quotationLine.quotationId, organizationId: orgId },
+        });
+
+        if (!fo) {
+          const count = await prisma.fulfillmentOrder.count({ where: { organizationId: orgId } });
+          fo = await prisma.fulfillmentOrder.create({
+            data: {
+              fulfillmentNumber: `FUL-${year}-${String(count + 1).padStart(4, "0")}`,
+              quotationId: quotationLine.quotationId,
+              organizationId: orgId,
+              status: "PENDING",
+              shippingAddress:
+                quotationLine.quotation.customer.shippingAddress || "Default Delivery Address",
+              notes: notes || "Manual initial allocation",
+            },
+          });
+        }
+
+        // Create or find shipment for this warehouse
+        let shipment = await prisma.shipment.findFirst({
+          where: { fulfillmentOrderId: fo.id, warehouseId: targetWh.id, status: "PENDING" },
+        });
+
+        if (!shipment) {
+          const count = await prisma.shipment.count({ where: { fulfillmentOrderId: fo.id } });
+          shipment = await prisma.shipment.create({
+            data: {
+              shipmentNumber: `SHP-${fo.fulfillmentNumber}-${count + 1}`,
+              fulfillmentOrderId: fo.id,
+              warehouseId: targetWh.id,
+              status: "PENDING",
+              shippingCost: Math.round(requestedQuantity * (targetWh.shippingCostWeight ?? 1.0) * 10) / 10,
+            },
+          });
+        }
+
+        const createdLine = await prisma.shipmentLine.create({
+          data: {
+            shipmentId: shipment.id,
+            quotationLineId: quotationLine.id,
+            productId: quotationLine.productId,
+            quantity: requestedQuantity,
+          },
+          include: { product: true },
+        });
+
+        // Reserve stock
+        if (targetStock) {
+          await prisma.stockLevel.update({
+            where: { id: targetStock.id },
+            data: { quantityReserved: targetStock.quantityReserved + requestedQuantity },
+          });
+        }
+
+        return NextResponse.json({
+          success: true,
+          message: `Allocated ${requestedQuantity} units of "${quotationLine.product.name}" to warehouse "${targetWh.name}".`,
+          data: { shipmentLine: createdLine, shipment },
+        });
+      }
+
       return NextResponse.json(
-        { success: false, error: "Shipment line not found." },
+        { success: false, error: "Shipment line or quotation line not found." },
         { status: 404 }
       );
     }

@@ -159,6 +159,8 @@ export function useManualOverride() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fulfillment.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.quotations.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.billing.all });
     },
   });
 }

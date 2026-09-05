@@ -405,7 +405,7 @@ export async function manualOverrideShipmentLine(orgId: string, input: ManualOve
     throw new AppError(400, "INVALID_QUANTITY", "Requested quantity must be greater than 0.");
   }
 
-  // 1. Fetch current ShipmentLine with shipment & warehouse
+  // 1. Fetch current ShipmentLine or QuotationLine
   const shipmentLine = await prisma.shipmentLine.findFirst({
     where: { id: shipmentLineId },
     include: {
@@ -420,7 +420,148 @@ export async function manualOverrideShipmentLine(orgId: string, input: ManualOve
     },
   });
 
-  if (!shipmentLine || shipmentLine.shipment.fulfillmentOrder.organizationId !== orgId) {
+  if (!shipmentLine) {
+    // Check if ID matches a QuotationLine (pre-allocation override)
+    const quotationLine = await prisma.quotationLine.findFirst({
+      where: { id: shipmentLineId },
+      include: {
+        quotation: { include: { customer: true } },
+        product: true,
+      },
+    });
+
+    if (!quotationLine || quotationLine.quotation.organizationId !== orgId) {
+      throw new AppError(404, "NOT_FOUND", "Shipment line or Quotation line not found.");
+    }
+
+    const targetWh =
+      (targetWarehouseId
+        ? await prisma.warehouse.findFirst({
+            where: { id: targetWarehouseId, organizationId: orgId, isActive: true },
+          })
+        : null) ||
+      (await prisma.warehouse.findFirst({
+        where: { organizationId: orgId, isActive: true },
+        orderBy: { shippingCostWeight: "asc" },
+      }));
+
+    if (!targetWh) {
+      throw new AppError(404, "WAREHOUSE_NOT_FOUND", "Target warehouse not found or is inactive.");
+    }
+
+    // Validate stock
+    const targetStock = await prisma.stockLevel.findFirst({
+      where: { warehouseId: targetWh.id, productId: quotationLine.productId },
+    });
+
+    const qtyOnHand = targetStock?.quantityOnHand ?? 0;
+    const qtyReserved = targetStock?.quantityReserved ?? 0;
+    const available = qtyOnHand - qtyReserved;
+
+    if (available < requestedQuantity) {
+      throw new AppError(
+        400,
+        "INSUFFICIENT_STOCK",
+        `Stock validation failed for warehouse "${targetWh.name}": Available unreserved quantity is ${available} (${qtyOnHand} on hand, ${qtyReserved} reserved), but ${requestedQuantity} was requested.`
+      );
+    }
+
+    const year = new Date().getFullYear();
+
+    return prisma.$transaction(async (tx) => {
+      // Find or create FulfillmentOrder
+      let fo = await tx.fulfillmentOrder.findFirst({
+        where: { quotationId: quotationLine.quotationId, organizationId: orgId },
+      });
+
+      if (!fo) {
+        const count = await tx.fulfillmentOrder.count({ where: { organizationId: orgId } });
+        fo = await tx.fulfillmentOrder.create({
+          data: {
+            fulfillmentNumber: `FUL-${year}-${String(count + 1).padStart(4, "0")}`,
+            quotationId: quotationLine.quotationId,
+            organizationId: orgId,
+            status: "PENDING",
+            shippingAddress: quotationLine.quotation.customer?.shippingAddress || "Default Delivery Address",
+            notes: notes || "Manual initial allocation",
+          },
+        });
+      }
+
+      // Reserve stock in target warehouse
+      await adjustStock({
+        organizationId: orgId,
+        warehouseId: targetWh.id,
+        productId: quotationLine.productId,
+        reservedDelta: requestedQuantity,
+        movementType: StockMovementType.ORDER_RESERVED,
+        referenceId: fo.fulfillmentNumber,
+        notes: `Manual allocation: ${notes || "Allocated via finance override"}`,
+        tx,
+      });
+
+      // Find or create shipment for target warehouse
+      let shipment = await tx.shipment.findFirst({
+        where: { fulfillmentOrderId: fo.id, warehouseId: targetWh.id, status: ShipmentStatus.PENDING },
+      });
+
+      if (!shipment) {
+        const count = await tx.shipment.count({ where: { fulfillmentOrderId: fo.id } });
+        const suffix = String.fromCharCode(65 + count);
+        shipment = await tx.shipment.create({
+          data: {
+            shipmentNumber: `SHP-${year}-${fo.fulfillmentNumber.replace("FUL-", "")}-${suffix}`,
+            fulfillmentOrderId: fo.id,
+            warehouseId: targetWh.id,
+            status: ShipmentStatus.PENDING,
+            shippingCost: targetWh.shippingCostWeight * requestedQuantity,
+          },
+        });
+      }
+
+      // Create or update ShipmentLine
+      let sLine = await tx.shipmentLine.findFirst({
+        where: { shipmentId: shipment.id, productId: quotationLine.productId },
+      });
+
+      if (sLine) {
+        sLine = await tx.shipmentLine.update({
+          where: { id: sLine.id },
+          data: { quantity: sLine.quantity + requestedQuantity },
+          include: {
+            shipment: { include: { warehouse: true, lines: { include: { product: true } } } },
+            product: true,
+          },
+        });
+      } else {
+        sLine = await tx.shipmentLine.create({
+          data: {
+            shipmentId: shipment.id,
+            quotationLineId: quotationLine.id,
+            productId: quotationLine.productId,
+            quantity: requestedQuantity,
+          },
+          include: {
+            shipment: { include: { warehouse: true, lines: { include: { product: true } } } },
+            product: true,
+          },
+        });
+      }
+
+      return {
+        message: "Shipment line allocated successfully.",
+        line: sLine,
+        validation: {
+          warehouse: targetWh.name,
+          requestedQuantity,
+          previousQuantity: 0,
+          remainingAvailableStock: available - requestedQuantity,
+        },
+      };
+    });
+  }
+
+  if (shipmentLine.shipment.fulfillmentOrder.organizationId !== orgId) {
     throw new AppError(404, "NOT_FOUND", "Shipment line not found.");
   }
 
@@ -990,6 +1131,83 @@ export async function updateShipmentStatus(
           referenceId: shipment.shipmentNumber,
           notes: `Dispatched shipment ${shipment.shipmentNumber}`,
           tx,
+        });
+      }
+
+      // Automatically generate billing invoice for dispatched shipment items
+      const existingInv = await tx.invoice.findFirst({
+        where: {
+          quotationId: shipment.fulfillmentOrder.quotationId,
+          organizationId: orgId,
+          notes: { contains: shipment.shipmentNumber },
+        },
+      });
+
+      if (!existingInv) {
+        const invCount = await tx.invoice.count();
+        const year = new Date().getFullYear();
+        const rand = Math.floor(1000 + Math.random() * 9000);
+        const invoiceNumber = `INV-${year}-${String(invCount + 1).padStart(4, "0")}-${rand}`;
+        const net30DueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+        let subtotal = 0;
+        let discountTotal = 0;
+
+        const quotation = await tx.quotation.findFirst({
+          where: { id: shipment.fulfillmentOrder.quotationId },
+          include: { lines: true, customer: true },
+        });
+
+        const invoiceLinesData = [];
+        for (const shipLine of shipment.lines) {
+          const qLine = quotation?.lines.find(
+            (ql) => ql.id === shipLine.quotationLineId || ql.productId === shipLine.productId
+          );
+          const unitPrice = qLine?.unitPrice ?? 0;
+          const discountPercent = qLine?.discountPercent ?? 0;
+          const gross = unitPrice * shipLine.quantity;
+          const discount = gross * (discountPercent / 100);
+          const net = gross - discount;
+
+          subtotal += gross;
+          discountTotal += discount;
+
+          invoiceLinesData.push({
+            quotationLineId: shipLine.quotationLineId,
+            productId: shipLine.productId,
+            variantId: shipLine.variantId,
+            description: `[Dispatched from ${shipment.warehouse.name}] ${shipLine.product.name} (Shipment: ${shipment.shipmentNumber})`,
+            quantity: shipLine.quantity,
+            unitPrice,
+            discountPercent,
+            totalAmount: Math.round(net * 100) / 100,
+            isRecurring: false,
+          });
+        }
+
+        const totalAmount = Math.round((subtotal - discountTotal) * 100) / 100;
+
+        await tx.invoice.create({
+          data: {
+            invoiceNumber,
+            quotationId: shipment.fulfillmentOrder.quotationId,
+            customerId: shipment.fulfillmentOrder.quotation.customerId,
+            organizationId: orgId,
+            status: "ISSUED" as any,
+            issueDate: new Date(),
+            dueDate: net30DueDate,
+            paymentTerms: "Net 30",
+            subtotal: Math.round(subtotal * 100) / 100,
+            discountTotal: Math.round(discountTotal * 100) / 100,
+            taxTotal: 0.0,
+            totalAmount,
+            amountPaid: 0.0,
+            amountRemaining: totalAmount,
+            notes: `Fulfillment-triggered invoice for dispatched package ${shipment.shipmentNumber} from warehouse ${shipment.warehouse.name}.`,
+            lines: {
+              create: invoiceLinesData,
+            },
+          },
         });
       }
     }

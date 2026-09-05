@@ -73,7 +73,10 @@ export async function POST(request: Request) {
     let quotation = null;
     if (quotationId) {
       quotation = await prisma.quotation.findFirst({
-        where: { id: quotationId, ...(explicitOrgId && { organizationId: explicitOrgId }) },
+        where: {
+          OR: [{ id: quotationId }, { quoteNumber: quotationId }],
+          ...(explicitOrgId && { organizationId: explicitOrgId }),
+        },
         include: {
           customer: true,
           lines: {
@@ -84,7 +87,10 @@ export async function POST(request: Request) {
       });
     } else if (fulfillmentOrderId) {
       const fo = await prisma.fulfillmentOrder.findFirst({
-        where: { id: fulfillmentOrderId, ...(explicitOrgId && { organizationId: explicitOrgId }) },
+        where: {
+          OR: [{ id: fulfillmentOrderId }, { fulfillmentNumber: fulfillmentOrderId }],
+          ...(explicitOrgId && { organizationId: explicitOrgId }),
+        },
         include: {
           quotation: {
             include: {

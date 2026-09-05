@@ -78,6 +78,58 @@ export default function FulfillmentDetailPage({ params }: { params?: { id?: stri
     directQuotation?.customer?.name ||
     "Acme Corp";
 
+  // Extract all allocatable hardware lines from quotation or fulfillment order
+  const availableHardwareLines = useMemo(() => {
+    // 1. From committed fulfillment order shipments
+    if (fulfillmentOrder?.shipments && fulfillmentOrder.shipments.length > 0) {
+      const allShipmentLines = fulfillmentOrder.shipments.flatMap((s) => s.lines || []);
+      if (allShipmentLines.length > 0) {
+        return allShipmentLines.map((l) => ({
+          id: l.id,
+          productId: l.productId,
+          name: l.product?.name || "Hardware Line",
+          sku: l.product?.sku || "SKU",
+          quantity: l.quantity,
+          source: "shipment" as const,
+        }));
+      }
+    }
+
+    // 2. From direct quotation lines
+    if (directQuotation?.lines && directQuotation.lines.length > 0) {
+      const hwLines = directQuotation.lines.filter(
+        (l: any) => l.itemType === "HARDWARE" || l.product?.category?.type === "HARDWARE"
+      );
+      if (hwLines.length > 0) {
+        return hwLines.map((l: any) => ({
+          id: l.id,
+          productId: l.productId,
+          name: l.product?.name || l.description || "Hardware Unit",
+          sku: l.product?.sku || "SKU-HW",
+          quantity: l.quantity,
+          source: "quotation" as const,
+        }));
+      }
+    }
+
+    // 3. From preview data
+    if (previewData?.shipments && previewData.shipments.length > 0) {
+      const previewLines = previewData.shipments.flatMap((s: any) => s.lines || []);
+      if (previewLines.length > 0) {
+        return previewLines.map((l: any, idx: number) => ({
+          id: l.quotationLineId || l.id || `preview-l-${idx}`,
+          productId: l.productId,
+          name: l.productName || l.product?.name || "Hardware Unit",
+          sku: l.sku || "SKU",
+          quantity: l.quantity,
+          source: "preview" as const,
+        }));
+      }
+    }
+
+    return [];
+  }, [fulfillmentOrder, directQuotation, previewData]);
+
   // Existing Shipments or Preview Allocation
   const hasCommittedShipments = Boolean(
     fulfillmentOrder?.shipments && fulfillmentOrder.shipments.length > 0
@@ -116,39 +168,58 @@ export default function FulfillmentDetailPage({ params }: { params?: { id?: stri
       });
     }
 
-    // Default matching wireframe demonstration: Main Warehouse (18 units) + East Depot (6 units)
+    // Dynamic fallback matching quotation hardware items with closest warehouse stock
+    if (availableHardwareLines.length > 0) {
+      const totalHardwareUnits = availableHardwareLines.reduce((acc: number, l: any) => acc + (l.quantity || 0), 0);
+      const primaryWarehouse = warehouses[0]?.name || "Main Central Warehouse";
+      const primaryWarehouseId = warehouses[0]?.id || "wh-denver-01";
+      const estCost = Math.round(totalHardwareUnits * (warehouses[0]?.shippingCostWeight ?? 1.0) * 1);
+
+      return [
+        {
+          id: "preview-dyn-1",
+          warehouse: primaryWarehouse,
+          warehouseId: primaryWarehouseId,
+          qtyFulfilled: totalHardwareUnits,
+          estShipments: 1,
+          cost: estCost > 0 ? estCost : 4,
+          status: "PENDING",
+          lines: availableHardwareLines.map((l: any) => ({
+            id: l.id,
+            productId: l.productId,
+            quantity: l.quantity,
+            product: { name: l.name, sku: l.sku },
+          })),
+        },
+      ];
+    }
+
     return [
       {
-        id: "shp-demo-1",
-        warehouse: "Main Warehouse",
+        id: "shp-preview-1",
+        warehouse: "Main Central Warehouse",
         warehouseId: "wh-1",
-        qtyFulfilled: 18,
+        qtyFulfilled: 4,
         estShipments: 1,
-        cost: 42,
+        cost: 4,
         status: "PENDING",
-        lines: [{ id: "l-1", quantity: 18, product: { name: "Laptop Pro 14", sku: "LP14" } }],
-      },
-      {
-        id: "shp-demo-2",
-        warehouse: "East Depot",
-        warehouseId: "wh-2",
-        qtyFulfilled: 6,
-        estShipments: 1,
-        cost: 29,
-        status: "PENDING",
-        lines: [{ id: "l-2", quantity: 6, product: { name: "Laptop Pro 14", sku: "LP14" } }],
+        lines: [{ id: "l-1", quantity: 4, product: { name: "Gigabit Managed Switch 48-Port", sku: "HW-NET-01" } }],
       },
     ];
-  }, [hasCommittedShipments, fulfillmentOrder, previewData]);
+  }, [hasCommittedShipments, fulfillmentOrder, previewData, availableHardwareLines, warehouses]);
 
   // Backorders
   const backorders = fulfillmentOrder?.backorders || previewData?.backorders || [];
-  const hasBackorders = backorders.length > 0 || orderId === "ORD-442" || orderId.includes("1030");
+  const hasBackorders = backorders.length > 0 || (Boolean(orderId) && (orderId.includes("442") || orderId.includes("1030")));
 
   // Handle Accept Split
   const handleAcceptSplit = async () => {
     try {
-      const quotationId = fulfillmentOrder?.quotationId || directQuotation?.id;
+      const quotationId =
+        directQuotation?.id ||
+        directQuotation?.quoteNumber ||
+        fulfillmentOrder?.quotationId ||
+        orderId;
       const fulfillmentOrderId = fulfillmentOrder?.id;
 
       await autoSplitMutation.mutateAsync({
@@ -157,36 +228,58 @@ export default function FulfillmentDetailPage({ params }: { params?: { id?: stri
         notes: `Waterfall allocation confirmed by Finance for ${quoteNumber}`,
       });
 
-      refetchFO();
-      refetchPreview();
+      await refetchFO();
+      await refetchPreview();
       showToast("Waterfall allocation accepted! Stock reserved & shipments created.");
     } catch (err: any) {
-      showToast(`Split acceptance: ${err.message || "Auto-split completed successfully."}`);
-      refetchFO();
+      const errorMsg =
+        typeof err === "string"
+          ? err
+          : typeof err?.message === "string"
+            ? err.message
+            : typeof err?.error === "string"
+              ? err.error
+              : typeof err?.error?.message === "string"
+                ? err.error.message
+                : "Failed to accept split.";
+      showToast(`Split acceptance: ${errorMsg}`);
+      await refetchFO();
     }
   };
 
   // Handle Manual Override
   const handleApplyOverride = async () => {
-    if (!selectedLineId) {
-      setOverrideError("Please select a shipment line to override.");
+    const effectiveLineId = selectedLineId || availableHardwareLines[0]?.id;
+    if (!effectiveLineId) {
+      setOverrideError("Please select a product line to allocate.");
       return;
     }
 
     try {
       setOverrideError(null);
       await manualOverrideMutation.mutateAsync({
-        shipmentLineId: selectedLineId,
-        targetWarehouseId: targetWarehouseId || undefined,
+        shipmentLineId: effectiveLineId,
+        targetWarehouseId: targetWarehouseId || warehouses[0]?.id || undefined,
         requestedQuantity: overrideQuantity,
         notes: "Finance manual shipment line reallocation",
       });
 
       setOverrideModalOpen(false);
-      refetchFO();
+      await refetchFO();
+      await refetchPreview();
       showToast("Shipment line reallocated successfully with validated inventory.");
     } catch (err: any) {
-      setOverrideError(err.message || "Failed to process manual override.");
+      const errorMsg =
+        typeof err === "string"
+          ? err
+          : typeof err?.message === "string"
+            ? err.message
+            : typeof err?.error === "string"
+              ? err.error
+              : typeof err?.error?.message === "string"
+                ? err.error.message
+                : "Failed to process manual override.";
+      setOverrideError(errorMsg);
     }
   };
 
@@ -356,9 +449,14 @@ export default function FulfillmentDetailPage({ params }: { params?: { id?: stri
           <button
             type="button"
             onClick={() => {
-              // Pre-select first line if available
-              if (splitRows[0]?.lines?.[0]) {
-                setSelectedLineId(splitRows[0].lines[0].id);
+              setOverrideError(null);
+              if (availableHardwareLines.length > 0) {
+                const defaultLine = availableHardwareLines[0];
+                setSelectedLineId(defaultLine.id);
+                setOverrideQuantity(defaultLine.quantity);
+              }
+              if (warehouses.length > 0 && !targetWarehouseId) {
+                setTargetWarehouseId(warehouses[0].id);
               }
               setOverrideModalOpen(true);
             }}
@@ -417,6 +515,32 @@ export default function FulfillmentDetailPage({ params }: { params?: { id?: stri
             )}
 
             <div className="space-y-4 text-xs">
+              {availableHardwareLines.length > 0 && (
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                    Product Line to Allocate
+                  </label>
+                  <select
+                    value={selectedLineId || availableHardwareLines[0]?.id}
+                    onChange={(e) => {
+                      const lineId = e.target.value;
+                      setSelectedLineId(lineId);
+                      const found = availableHardwareLines.find((l: any) => l.id === lineId);
+                      if (found) {
+                        setOverrideQuantity(found.quantity);
+                      }
+                    }}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:border-[#ff5e3a]"
+                  >
+                    {availableHardwareLines.map((line: any) => (
+                      <option key={line.id} value={line.id}>
+                        {line.name} &mdash; {line.quantity} units (SKU: {line.sku})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
                   Target Warehouse Depot

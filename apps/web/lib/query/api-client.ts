@@ -72,7 +72,18 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestOption
   }
 
   if (!response.ok || (data && typeof data === "object" && data.success === false)) {
-    const errorMessage = data?.message || data?.error || `Request failed with status ${response.status}`;
+    let errorMessage = `Request failed with status ${response.status}`;
+    if (typeof data === "string" && data.trim()) {
+      errorMessage = data;
+    } else if (data && typeof data === "object") {
+      if (typeof data.error === "string") {
+        errorMessage = data.error;
+      } else if (data.error && typeof data.error.message === "string") {
+        errorMessage = data.error.message;
+      } else if (typeof data.message === "string") {
+        errorMessage = data.message;
+      }
+    }
     throw new ApiError(errorMessage, response.status, data);
   }
 
