@@ -49,6 +49,11 @@ export interface CalculatedRiskSummary {
   isBlendedBreached: boolean;
   hasCategoryBreach: boolean;
   requiresApproval: boolean;
+  requiresManagerApproval: boolean;
+  requiresFinanceApproval: boolean;
+  approvalType: "NONE" | "SALES_MANAGER" | "DUAL_APPROVAL";
+  approvalLabel: string;
+  escalationHops: 0 | 1 | 2;
   approvalReason?: string;
   isEmpty: boolean;
   errorMessage?: string;
@@ -68,7 +73,15 @@ export interface CalculatedRiskSummary {
 export function calculateQuotationRisk(
   lines: RiskLineItem[],
   customCategoryThreshold = DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
-  customBlendedThreshold = DEFAULT_BLENDED_DISCOUNT_THRESHOLD
+  customBlendedThreshold = DEFAULT_BLENDED_DISCOUNT_THRESHOLD,
+  customDiscountRules?: Array<{
+    minDiscountPercent?: number;
+    maxDiscountPercent?: number;
+    minBlendedRiskScore?: number;
+    maxBlendedRiskScore?: number;
+    requiresManagerApproval?: boolean;
+    requiresFinanceApproval?: boolean;
+  }>
 ): CalculatedRiskSummary {
   // Edge Case: No products or empty quotation
   if (!lines || lines.length === 0) {
@@ -82,6 +95,11 @@ export function calculateQuotationRisk(
       isBlendedBreached: false,
       hasCategoryBreach: false,
       requiresApproval: false,
+      requiresManagerApproval: false,
+      requiresFinanceApproval: false,
+      approvalType: "NONE",
+      approvalLabel: "Within Standard Approval Limits",
+      escalationHops: 0,
       isEmpty: true,
       errorMessage: "No products in quotation. Add at least one product to calculate thresholds.",
     };
@@ -152,6 +170,11 @@ export function calculateQuotationRisk(
       isBlendedBreached: false,
       hasCategoryBreach,
       requiresApproval: hasCategoryBreach,
+      requiresManagerApproval: hasCategoryBreach,
+      requiresFinanceApproval: false,
+      approvalType: hasCategoryBreach ? "SALES_MANAGER" : "NONE",
+      approvalLabel: hasCategoryBreach ? "Requires Sales Manager Approval" : "Within Standard Approval Limits",
+      escalationHops: hasCategoryBreach ? 1 : 0,
       isEmpty: false,
       errorMessage: "Total order value is ₹0. Please adjust product quantity or pricing.",
     };
@@ -161,16 +184,68 @@ export function calculateQuotationRisk(
   const rawBlendedScore = totalWeightedOverage / totalOrderValue;
   const blendedScore = Math.round(rawBlendedScore * 100) / 100;
   const isBlendedBreached = blendedScore > customBlendedThreshold;
+  const totalDiscountPercent = subtotal > 0 ? (discountTotal / subtotal) * 100 : 0;
 
-  const requiresApproval = isBlendedBreached || hasCategoryBreach;
+  // Evaluate 3 Conditions:
+  // Condition 1: 0 Hops (Direct Approval)
+  // Condition 2: 1 Hop (Sales Manager Approval)
+  // Condition 3: 2 Hops (Sales Manager + Finance Approval)
+  let requiresManagerApproval = false;
+  let requiresFinanceApproval = false;
+
+  // 1. Evaluate custom discount rules if provided
+  if (customDiscountRules && customDiscountRules.length > 0) {
+    for (const rule of customDiscountRules) {
+      if (rule.requiresFinanceApproval) {
+        if (
+          blendedScore >= (rule.minBlendedRiskScore ?? 0) ||
+          totalDiscountPercent >= (rule.minDiscountPercent ?? 0)
+        ) {
+          requiresManagerApproval = true;
+          requiresFinanceApproval = true;
+        }
+      } else if (rule.requiresManagerApproval) {
+        if (
+          blendedScore >= (rule.minBlendedRiskScore ?? 0) ||
+          totalDiscountPercent >= (rule.minDiscountPercent ?? 0)
+        ) {
+          requiresManagerApproval = true;
+        }
+      }
+    }
+  }
+
+  // 2. Baseline policy threshold triggers
+  if (blendedScore > customBlendedThreshold || totalDiscountPercent > 15.0) {
+    // Condition 3: High Risk (> 10% / > 15% discount) -> 2 Hops: Manager + Finance
+    requiresManagerApproval = true;
+    requiresFinanceApproval = true;
+  } else if (blendedScore > 0 || hasCategoryBreach || totalDiscountPercent > 0) {
+    // Condition 2: Moderate Risk -> 1 Hop: Sales Manager
+    requiresManagerApproval = true;
+  }
+
+  const requiresApproval = requiresManagerApproval || requiresFinanceApproval;
+
+  let approvalType: "NONE" | "SALES_MANAGER" | "DUAL_APPROVAL" = "NONE";
+  let approvalLabel = "Within Standard Approval Limits";
+  let escalationHops: 0 | 1 | 2 = 0;
+
+  if (requiresManagerApproval && requiresFinanceApproval) {
+    approvalType = "DUAL_APPROVAL";
+    approvalLabel = "Requires Dual Approval (Sales Manager + Finance)";
+    escalationHops = 2;
+  } else if (requiresManagerApproval) {
+    approvalType = "SALES_MANAGER";
+    approvalLabel = "Requires Sales Manager Approval";
+    escalationHops = 1;
+  }
 
   let approvalReason: string | undefined;
-  if (isBlendedBreached && hasCategoryBreach) {
-    approvalReason = `Blended score (${blendedScore}%) exceeds threshold (${customBlendedThreshold}%) and one or more items exceed category discount limits.`;
-  } else if (isBlendedBreached) {
-    approvalReason = `Blended score (${blendedScore}%) exceeds the allowed threshold of ${customBlendedThreshold}%.`;
-  } else if (hasCategoryBreach) {
-    approvalReason = `One or more items exceed their category discount ceiling limit (${customCategoryThreshold}%).`;
+  if (approvalType === "DUAL_APPROVAL") {
+    approvalReason = `Blended score (${blendedScore}%) exceeds high-risk threshold (${customBlendedThreshold}%). Sequential authorization required: Sales Manager then Finance Ops.`;
+  } else if (approvalType === "SALES_MANAGER") {
+    approvalReason = `Blended score (${blendedScore}%) or line discount overage requires Sales Manager authorization.`;
   }
 
   return {
@@ -183,6 +258,11 @@ export function calculateQuotationRisk(
     isBlendedBreached,
     hasCategoryBreach,
     requiresApproval,
+    requiresManagerApproval,
+    requiresFinanceApproval,
+    approvalType,
+    approvalLabel,
+    escalationHops,
     approvalReason,
     isEmpty: false,
   };

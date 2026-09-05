@@ -10,6 +10,7 @@ import {
   calculateBlendedRisk,
   type RiskLineInput,
 } from "../lib/risk-engine.js";
+import { triggerApprovalWorkflow, approveStep } from "./approval.service.js";
 import type {
   CreateQuotationInput,
   CreateQuotationLineInput,
@@ -482,6 +483,7 @@ export async function listQuotations(
     include: {
       customer: { include: { tier: true } },
       salesRep: { include: { user: true } },
+      approvalRequest: { include: { steps: { orderBy: { stepNumber: "asc" } } } },
       lines: {
         include: {
           product: { select: { id: true, name: true, sku: true, categoryId: true, category: true } },
@@ -502,6 +504,7 @@ export async function getQuotationById(
     include: {
       customer: { include: { tier: true } },
       salesRep: { include: { user: true } },
+      approvalRequest: { include: { steps: { orderBy: { stepNumber: "asc" } } } },
       lines: {
         include: {
           product: { include: { category: true } },
@@ -748,50 +751,134 @@ export async function submitQuotation(
       ? (freshQuotation.discountTotal / freshQuotation.subtotal) * 100
       : 0;
 
-  // Evaluate DiscountApprovalRule records for this organization
-  const rules = await prisma.discountApprovalRule.findMany({
-    where: { organizationId: orgId },
+  // Trigger Approval Workflow (evaluates rules, generates sequential steps, and updates stage)
+  await prisma.$transaction(async (tx) => {
+    await triggerApprovalWorkflow(tx, {
+      quotationId,
+      orgId,
+      actorId: userId,
+      actorRole: userRole,
+      blendedRiskScore,
+      discountPercent,
+    });
   });
 
-  let requiresManagerApproval = false;
-  let requiresFinanceApproval = false;
-
-  for (const rule of rules) {
-    const matchesRisk =
-      blendedRiskScore >= rule.minBlendedRiskScore &&
-      blendedRiskScore <= rule.maxBlendedRiskScore;
-
-    const matchesDiscount =
-      discountPercent >= rule.minDiscountPercent &&
-      discountPercent <= rule.maxDiscountPercent;
-
-    if (matchesRisk && matchesDiscount) {
-      if (rule.requiresManagerApproval) requiresManagerApproval = true;
-      if (rule.requiresFinanceApproval) requiresFinanceApproval = true;
-    }
-  }
-
-  const requiresApproval = requiresManagerApproval || requiresFinanceApproval;
-  const newStage = requiresApproval ? QuoteStage.PENDING_APPROVAL : QuoteStage.APPROVED;
-  const newApprovalStatus = requiresApproval ? ApprovalStatus.PENDING : ApprovalStatus.APPROVED;
-
-  return prisma.quotation.update({
+  return prisma.quotation.findUniqueOrThrow({
     where: { id: quotationId },
-    data: {
-      stage: newStage,
-      approvalStatus: newApprovalStatus,
-      requiresManagerApproval,
-      requiresFinanceApproval,
-    },
     include: {
       customer: { include: { tier: true } },
       salesRep: { include: { user: true } },
+      approvalRequest: { include: { steps: { orderBy: { stepNumber: "asc" } } } },
       lines: {
         include: {
           product: { include: { category: true } },
           variant: true,
         },
       },
+    },
+  });
+}
+
+export async function approveQuotationStep(
+  orgId: string,
+  userId: string,
+  userRole: UserRole,
+  quotationId: string,
+  comments?: string
+) {
+  const quotation = await prisma.quotation.findFirst({
+    where: { id: quotationId, organizationId: orgId },
+    include: { approvalRequest: { include: { steps: true } } },
+  });
+  if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
+
+  if (quotation.approvalRequest) {
+    return approveStep({
+      quotationId,
+      reviewerId: userId,
+      reviewerRole: userRole,
+      comments,
+    });
+  }
+
+  return prisma.quotation.update({
+    where: { id: quotationId },
+    data: { stage: QuoteStage.APPROVED, approvalStatus: ApprovalStatus.APPROVED },
+    include: {
+      customer: { include: { tier: true } },
+      salesRep: { include: { user: true } },
+      approvalRequest: { include: { steps: true } },
+      lines: true,
+    },
+  });
+}
+
+export async function rejectQuotationStep(
+  orgId: string,
+  userId: string,
+  userRole: UserRole,
+  quotationId: string,
+  reason?: string
+) {
+  const quotation = await prisma.quotation.findFirst({
+    where: { id: quotationId, organizationId: orgId },
+    include: { approvalRequest: { include: { steps: true } } },
+  });
+  if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
+
+  if (quotation.approvalRequest) {
+    await prisma.approvalRequest.update({
+      where: { id: quotation.approvalRequest.id },
+      data: { status: ApprovalStatus.REJECTED },
+    });
+  }
+
+  await prisma.approvalAuditLog.create({
+    data: {
+      quotationId,
+      organizationId: orgId,
+      actorId: userId,
+      actorRole: userRole,
+      action: "REJECTED",
+      reason: reason || "Quotation discount proposal rejected.",
+    },
+  });
+
+  return prisma.quotation.update({
+    where: { id: quotationId },
+    data: { stage: QuoteStage.CANCELLED, approvalStatus: ApprovalStatus.REJECTED },
+    include: {
+      customer: { include: { tier: true } },
+      salesRep: { include: { user: true } },
+      approvalRequest: { include: { steps: true } },
+      lines: true,
+    },
+  });
+}
+
+export async function updateQuotationStage(
+  orgId: string,
+  userId: string,
+  userRole: UserRole,
+  quotationId: string,
+  stage: QuoteStage,
+  reason?: string
+) {
+  if (stage === QuoteStage.APPROVED) {
+    return approveQuotationStep(orgId, userId, userRole, quotationId, reason);
+  }
+  if (stage === QuoteStage.CANCELLED) {
+    return rejectQuotationStep(orgId, userId, userRole, quotationId, reason);
+  }
+
+  return prisma.quotation.update({
+    where: { id: quotationId, organizationId: orgId },
+    data: { stage },
+    include: {
+      customer: { include: { tier: true } },
+      salesRep: { include: { user: true } },
+      approvalRequest: { include: { steps: true } },
+      lines: true,
     },
   });
 }

@@ -30,18 +30,34 @@ export async function evaluateApprovalRules(
   let requiresFinanceApproval = false;
 
   for (const rule of rules) {
-    const matchesRisk =
-      blendedRiskScore >= rule.minBlendedRiskScore &&
-      blendedRiskScore <= rule.maxBlendedRiskScore;
-
-    const matchesDiscount =
-      discountPercent >= rule.minDiscountPercent &&
-      discountPercent <= rule.maxDiscountPercent;
-
-    if (matchesRisk && matchesDiscount) {
-      if (rule.requiresManagerApproval) requiresManagerApproval = true;
-      if (rule.requiresFinanceApproval) requiresFinanceApproval = true;
+    // If the rule requires Finance approval (2 Hops: Manager + Finance)
+    if (rule.requiresFinanceApproval) {
+      const triggered =
+        blendedRiskScore >= rule.minBlendedRiskScore ||
+        discountPercent >= rule.minDiscountPercent;
+      if (triggered) {
+        requiresManagerApproval = true;
+        requiresFinanceApproval = true;
+      }
+    } else if (rule.requiresManagerApproval) {
+      // 1 Hop: Sales Manager
+      const triggered =
+        blendedRiskScore >= rule.minBlendedRiskScore ||
+        discountPercent >= rule.minDiscountPercent;
+      if (triggered) {
+        requiresManagerApproval = true;
+      }
     }
+  }
+
+  // Baseline Guardrails (Condition 1, Condition 2, Condition 3)
+  if (blendedRiskScore > 10.0 || discountPercent > 15.0) {
+    // Severe / High Risk -> Condition 3 (2 Hops: Sales Manager + Finance)
+    requiresManagerApproval = true;
+    requiresFinanceApproval = true;
+  } else if (blendedRiskScore > 0 || discountPercent > 0) {
+    // Moderate Risk -> Condition 2 (1 Hop: Sales Manager)
+    requiresManagerApproval = true;
   }
 
   let escalationLevel = "NONE";

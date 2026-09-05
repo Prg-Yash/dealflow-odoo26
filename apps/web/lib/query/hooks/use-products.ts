@@ -400,8 +400,8 @@ export function useCreateProductVariant() {
     mutationFn: ({ productId, body }: { productId: string; body: { attributeName: string; attributeValue: string; extraPrice?: number; sku?: string } }) =>
       api.post<ProductVariantData>(`/api/products/${productId}/variants`, body),
     onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.products.detail(variables.productId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
     },
   });
 }
@@ -416,8 +416,8 @@ export function useDeleteProductVariant() {
     mutationFn: ({ productId, variantId }: { productId: string; variantId: string }) =>
       api.delete(`/api/products/${productId}/variants/${variantId}`),
     onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.products.detail(variables.productId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.products.lists() });
     },
   });
 }

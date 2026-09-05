@@ -69,6 +69,26 @@ quotationRouter.post(
   controller.submitQuotation
 );
 
+// Pipeline stage updates
+quotationRouter.patch(
+  "/:id/stage",
+  requireRole(...STAFF_ROLES),
+  controller.updateQuotationStage
+);
+
+// Approval actions (step advancement for Sales Manager and Finance Ops)
+quotationRouter.post(
+  "/:id/approve",
+  requireRole(UserRole.SALES_MANAGER, UserRole.FINANCE_OPS, UserRole.ADMIN),
+  controller.approveQuotation
+);
+
+quotationRouter.post(
+  "/:id/reject",
+  requireRole(UserRole.SALES_MANAGER, UserRole.FINANCE_OPS, UserRole.ADMIN),
+  controller.rejectQuotation
+);
+
 // Live upsell & cross-sell suggestions panel
 quotationRouter.get(
   "/:id/upsell-suggestions",

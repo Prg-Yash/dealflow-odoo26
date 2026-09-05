@@ -23,6 +23,7 @@ import {
   Sparkles,
   TrendingUp,
   Zap,
+  Award,
 } from "lucide-react";
 import { SalesNav } from "@repo/ui";
 import {
@@ -35,6 +36,11 @@ import {
   useUpdateQuotationStage,
   useProducts,
   useProductRecommendations,
+  usePriceLists,
+  useCustomerTiers,
+  useDiscountRules,
+  useApproveQuotation,
+  useRejectQuotation,
 } from "../../../../../../lib/query";
 import { useDashboardAuth } from "../../../../layout";
 import {
@@ -59,12 +65,18 @@ export default function QuotationDetailPage({ params }: Props) {
   const { data: apiQuote, isLoading, error } = useQuotation(quoteId);
   const { data: apiProducts } = useProducts();
   const { data: apiRecommendations } = useProductRecommendations();
+  const { data: apiPriceLists } = usePriceLists();
+  const { data: apiCustomerTiers } = useCustomerTiers();
+  const { data: apiDiscountRules } = useDiscountRules();
+
   const submitMutation = useSubmitQuotation(quoteId);
   const confirmMutation = useConfirmQuotation(quoteId);
   const addLineMutation = useAddQuotationLine(quoteId);
   const updateLineMutation = useUpdateQuotationLine(quoteId);
   const deleteLineMutation = useDeleteQuotationLine(quoteId);
   const updateStageMutation = useUpdateQuotationStage();
+  const approveQuotationMutation = useApproveQuotation();
+  const rejectQuotationMutation = useRejectQuotation();
 
   // Local state for instant responsive editing and calculations
   const [localLines, setLocalLines] = useState<
@@ -81,7 +93,10 @@ export default function QuotationDetailPage({ params }: Props) {
     }>
   >([]);
 
-  const [priceList, setPriceList] = useState<string>("Standard Commercial 2026");
+  // Dynamic Price List (Price Field) and Tier selection
+  const [selectedPriceListId, setSelectedPriceListId] = useState<string>("");
+  const [selectedTierId, setSelectedTierId] = useState<string>("");
+
   const [statusFeedback, setStatusFeedback] = useState<string | null>(null);
   const [selectedCatalogProductId, setSelectedCatalogProductId] = useState<string>("");
 
@@ -105,6 +120,64 @@ export default function QuotationDetailPage({ params }: Props) {
     }
   }, [apiQuote]);
 
+  // Sync Price List and Tier from Quote / Customer data
+  useEffect(() => {
+    if (apiQuote?.customer?.tier?.id) {
+      setSelectedTierId(apiQuote.customer.tier.id);
+      if (apiPriceLists && apiPriceLists.length > 0) {
+        const matchingPL = apiPriceLists.find((pl) =>
+          pl.customerTiers?.some((t) => t.id === apiQuote.customer?.tier?.id)
+        );
+        if (matchingPL) {
+          setSelectedPriceListId(matchingPL.id);
+        }
+      }
+    } else if (apiPriceLists && apiPriceLists.length > 0 && !selectedPriceListId) {
+      const defaultPL = apiPriceLists.find((pl) => pl.isDefault) || apiPriceLists[0]!;
+      setSelectedPriceListId(defaultPL.id);
+      if (defaultPL.customerTiers && defaultPL.customerTiers.length > 0) {
+        setSelectedTierId(defaultPL.customerTiers[0]!.id);
+      } else {
+        setSelectedTierId("");
+      }
+    }
+  }, [apiQuote, apiPriceLists, selectedPriceListId]);
+
+  // Derive active price list and available customer tiers (STRICTLY dependent on selectedPriceList)
+  const selectedPriceList = useMemo(() => {
+    if (!selectedPriceListId) return undefined;
+    return apiPriceLists?.find((pl) => pl.id === selectedPriceListId);
+  }, [apiPriceLists, selectedPriceListId]);
+
+  const availableTiers = useMemo(() => {
+    if (!selectedPriceList) return [];
+    return selectedPriceList.customerTiers || [];
+  }, [selectedPriceList]);
+
+  const activeTier = useMemo(() => {
+    if (!selectedPriceList || availableTiers.length === 0) return undefined;
+    return availableTiers.find((t) => t.id === selectedTierId) || (selectedTierId ? undefined : availableTiers[0]);
+  }, [selectedPriceList, availableTiers, selectedTierId]);
+
+  const activeTierCeiling = activeTier?.discountCeiling ?? DEFAULT_CATEGORY_DISCOUNT_THRESHOLD;
+
+  const handlePriceListChange = (newPlId: string) => {
+    setSelectedPriceListId(newPlId);
+    if (!newPlId) {
+      setSelectedTierId("");
+      return;
+    }
+    const pl = apiPriceLists?.find((p) => p.id === newPlId);
+    if (pl?.customerTiers && pl.customerTiers.length > 0) {
+      const hasCurrent = pl.customerTiers.some((t) => t.id === selectedTierId);
+      if (!hasCurrent) {
+        setSelectedTierId(pl.customerTiers[0]!.id);
+      }
+    } else {
+      setSelectedTierId("");
+    }
+  };
+
   const rawStage = (apiQuote?.stage || "").toUpperCase();
 
   // Role detection
@@ -126,29 +199,34 @@ export default function QuotationDetailPage({ params }: Props) {
 
   // Live Risk & Threshold Calculation
   const riskLines: RiskLineItem[] = useMemo(() => {
-    return localLines.map((it) => ({
-      id: it.id,
-      quantity: it.quantity,
-      unitPrice: it.unitPrice,
-      discountPercent: it.discountPercent,
-      categoryCeiling: it.categoryCeiling,
-    }));
-  }, [localLines]);
+    return localLines.map((it) => {
+      const effectiveLineLimit = activeTier ? activeTier.discountCeiling : it.categoryCeiling;
+      return {
+        id: it.id,
+        productId: it.productId,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+        discountPercent: it.discountPercent,
+        categoryCeiling: effectiveLineLimit,
+      };
+    });
+  }, [localLines, activeTier]);
 
   const riskSummary = useMemo(() => {
     return calculateQuotationRisk(
       riskLines,
-      DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
-      DEFAULT_BLENDED_DISCOUNT_THRESHOLD
+      activeTierCeiling,
+      DEFAULT_BLENDED_DISCOUNT_THRESHOLD,
+      apiDiscountRules
     );
-  }, [riskLines]);
+  }, [riskLines, activeTierCeiling, apiDiscountRules]);
 
-  // Live upsell & cross-sell recommendation candidates for current items
+  // Live upsell & cross-sell recommendation candidates for current items (Strictly NO static placeholders)
   const upsellSuggestions = useMemo(() => {
     if (!localLines || localLines.length === 0 || !apiProducts) return [];
     const currentProductIds = new Set(localLines.map((i) => i.productId));
 
-    // 1. Direct Pairing Rules from DB
+    // Direct Pairing Rules from DB
     const matchingRecs = (apiRecommendations || []).filter(
       (rec) =>
         rec.isActive &&
@@ -170,40 +248,17 @@ export default function QuotationDetailPage({ params }: Props) {
           category: prod.category?.name || "Accessory",
           basePrice: prod.basePrice,
           costPrice: prod.costPrice,
+          marginAmount: Math.round(prod.basePrice - prod.costPrice),
           marginPercent: Math.round(margin),
           score: rec.coPurchaseScore,
-          promotionalTag: rec.promotionalTag || "Frequently Bought Together",
+          promotionalTag: rec.promotionalTag || null,
           isPromoted: prod.isPromoted,
         };
       })
       .filter(Boolean) as any[];
 
-    // 2. Fallback candidates
-    const fallbackCandidates = apiProducts
-      .filter(
-        (p) =>
-          !currentProductIds.has(p.id) &&
-          !directCandidates.some((c) => c.productId === p.id) &&
-          (p.category?.type === "SERVICE" || p.isPromoted || p.category?.type === "SUBSCRIPTION")
-      )
-      .map((p) => {
-        const margin = p.basePrice > 0 ? ((p.basePrice - p.costPrice) / p.basePrice) * 100 : 0;
-        return {
-          productId: p.id,
-          name: p.name,
-          sku: p.sku,
-          category: p.category?.name || "Service",
-          basePrice: p.basePrice,
-          costPrice: p.costPrice,
-          marginPercent: Math.round(margin),
-          score: p.isPromoted ? 9.0 : 7.0,
-          promotionalTag: p.isPromoted ? "Promoted Deal Booster" : "Recommended Support Add-on",
-          isPromoted: p.isPromoted,
-        };
-      })
-      .filter((c) => c.marginPercent >= 20);
-
-    return [...directCandidates, ...fallbackCandidates].slice(0, 4);
+    // Do NOT show static fallbacks — show only real pairing recommendations matching items
+    return directCandidates.slice(0, 6);
   }, [localLines, apiProducts, apiRecommendations]);
 
   // Updating Handlers (persist to DB if API quote exists)
@@ -345,7 +400,11 @@ export default function QuotationDetailPage({ params }: Props) {
       if (apiQuote) {
         await submitMutation.mutateAsync();
       }
-      setStatusFeedback("Quotation submitted for Manager Approval!");
+      setStatusFeedback(
+        riskSummary.approvalType === "DUAL_APPROVAL"
+          ? "Quotation submitted for Dual Approval (Sales Manager & Finance Ops)!"
+          : "Quotation submitted for Manager Approval!"
+      );
       setTimeout(() => setStatusFeedback(null), 3500);
     } catch (err: any) {
       console.error("Submit error:", err);
@@ -357,9 +416,9 @@ export default function QuotationDetailPage({ params }: Props) {
   const handleManagerApprove = async () => {
     try {
       if (apiQuote) {
-        await updateStageMutation.mutateAsync({ id: apiQuote.id, stage: "APPROVED" as any });
+        await approveQuotationMutation.mutateAsync({ id: apiQuote.id });
       }
-      setStatusFeedback("Quotation approved successfully!");
+      setStatusFeedback("Quotation step approved successfully!");
       setTimeout(() => setStatusFeedback(null), 3000);
     } catch (err) {
       console.error("Manager approve error:", err);
@@ -454,7 +513,7 @@ export default function QuotationDetailPage({ params }: Props) {
               <CheckCircle2 size={16} className="text-emerald-600" />
               <span>{statusFeedback}</span>
             </div>
-            <button onClick={() => setStatusFeedback(null)} className="text-emerald-700 hover:text-emerald-900">
+            <button onClick={() => setStatusFeedback(null)} className="text-emerald-700 hover:text-emerald-900 cursor-pointer">
               &times;
             </button>
           </div>
@@ -576,8 +635,8 @@ export default function QuotationDetailPage({ params }: Props) {
               </div>
             </div>
 
-            {/* Top Form Fields: Customer & Price List matching Reference Image 4 */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
+            {/* Top Form Fields: Customer, Dynamic Price List & Customer Tier matching Wireframe 4 */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-5">
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                   <Building2 size={13} className="text-slate-400" />
@@ -592,19 +651,68 @@ export default function QuotationDetailPage({ params }: Props) {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                  <DollarSign size={13} className="text-slate-400" />
-                  <span>Price List</span>
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                    <DollarSign size={13} className="text-[#0066cc]" />
+                    <span>Price List</span>
+                  </label>
+                  {selectedPriceList?.isDefault && (
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                      Default
+                    </span>
+                  )}
+                </div>
                 <select
                   disabled={isReadOnlyForSalesRep}
-                  value={priceList}
-                  onChange={(e) => setPriceList(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none focus:border-[#0066cc] disabled:bg-slate-50 disabled:text-slate-500 cursor-pointer"
+                  value={selectedPriceListId}
+                  onChange={(e) => handlePriceListChange(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-[#0066cc] disabled:bg-slate-50 disabled:text-slate-500 cursor-pointer"
                 >
-                  <option value="Standard Commercial 2026">Standard Commercial 2026</option>
-                  <option value="Enterprise Tier A">Enterprise Tier A (Preferred)</option>
-                  <option value="Strategic Partner - Volume Discount">Strategic Partner - Volume Discount</option>
+                  <option value="">-- Select Price List / Price Field --</option>
+                  {(apiPriceLists || []).map((pl) => (
+                    <option key={pl.id} value={pl.id}>
+                      {pl.name} ({pl.currency}) &ndash; {pl.customerTiers && pl.customerTiers.length > 0 ? `${pl.customerTiers.length} tier${pl.customerTiers.length > 1 ? "s" : ""} assigned` : "No tiers assigned"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                    <Award size={13} className="text-amber-500" />
+                    <span>Applied Customer Tier</span>
+                  </label>
+                  {activeTier ? (
+                    <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
+                      Limit: {activeTier.discountCeiling}% Max
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
+                      No Tier Applied
+                    </span>
+                  )}
+                </div>
+                <select
+                  disabled={isReadOnlyForSalesRep || !selectedPriceListId || availableTiers.length === 0}
+                  value={selectedTierId}
+                  onChange={(e) => setSelectedTierId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-[#0066cc] disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {!selectedPriceListId ? (
+                    <option value="">-- Select a Price List first --</option>
+                  ) : availableTiers.length === 0 ? (
+                    <option value="">-- No tiers assigned to this Price List --</option>
+                  ) : (
+                    <>
+                      <option value="">-- Select Customer Tier --</option>
+                      {availableTiers.map((tier) => (
+                        <option key={tier.id} value={tier.id}>
+                          {tier.name} ({tier.code}) &ndash; {tier.discountCeiling}% Ceiling
+                        </option>
+                      ))}
+                    </>
+                  )}
                 </select>
               </div>
             </div>
@@ -635,7 +743,7 @@ export default function QuotationDetailPage({ params }: Props) {
                   ) : (
                     localLines.map((item, idx) => {
                       const actualDiscount = item.discountPercent;
-                      const limit = item.categoryCeiling;
+                      const limit = activeTier ? activeTier.discountCeiling : item.categoryCeiling;
                       const isOver = actualDiscount > limit;
                       const overageAmount = isOver ? Math.round((actualDiscount - limit) * 10) / 10 : 0;
 
@@ -686,8 +794,13 @@ export default function QuotationDetailPage({ params }: Props) {
                             )}
                           </td>
 
-                          <td className="py-3.5 px-3 text-center text-slate-500 font-medium">
-                            {limit}%
+                          <td className="py-3.5 px-3 text-center text-slate-700 font-bold">
+                            <div>{limit}%</div>
+                            {activeTier && (
+                              <div className="text-[9px] font-normal text-slate-400 font-mono">
+                                {activeTier.name.split(" ")[0]}
+                              </div>
+                            )}
                           </td>
 
                           <td className="py-3.5 px-4 text-center">
@@ -759,74 +872,67 @@ export default function QuotationDetailPage({ params }: Props) {
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center gap-2">
               <span className="text-amber-600 text-sm">⚠️</span>
               <span className="font-medium">
-                Discount is checked against each item's own limit live, as soon as it is entered, not only at submit time.
+                Discount is checked against each line's own limit live, as soon as it is entered, not only at submit time.
               </span>
             </div>
           </div>
 
-          {/* Upsell & Cross-Sell Recommendations */}
+          {/* ── DEDICATED UPSELL AND CROSS-SELL SUGGESTIONS (MATCHING WIREFRAME 4, ZERO STATIC PLACEHOLDERS) ── */}
           {!isReadOnlyForSalesRep && upsellSuggestions.length > 0 && (
-            <div className="bg-linear-to-br from-indigo-50/50 via-white to-sky-50/40 rounded-2xl p-6 border border-indigo-100/80 shadow-xs space-y-4">
+            <div className="bg-slate-900 text-white rounded-2xl p-6 border border-slate-800 shadow-md space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-indigo-600/10 text-indigo-600 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center">
                     <Sparkles size={16} />
                   </div>
                   <div>
-                    <h2 className="text-sm font-bold text-slate-900">
-                      Intelligent Upsell &amp; Cross-Sell Recommendations
+                    <h2 className="text-sm font-bold text-white tracking-tight">
+                      Upsell and Cross-Sell Suggestions
                     </h2>
-                    <p className="text-[11px] text-slate-500">
-                      Margin-governed add-ons paired with the products currently in this quotation.
+                    <p className="text-[11px] text-slate-400">
+                      High-margin pairings dynamically matched with current proposal items.
                     </p>
                   </div>
                 </div>
-                <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/60 px-2.5 py-1 rounded-full flex items-center gap-1">
-                  <Zap size={12} className="text-amber-500 fill-amber-500" />
-                  {upsellSuggestions.length} Recommended
+                <span className="text-[11px] font-bold text-blue-300 bg-blue-950 border border-blue-800 px-2.5 py-1 rounded-full flex items-center gap-1">
+                  <Zap size={12} className="text-amber-400 fill-amber-400" />
+                  {upsellSuggestions.length} Suggestions
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
                 {upsellSuggestions.map((sug) => (
-                  <div
+                  <button
+                    type="button"
                     key={sug.productId}
-                    className="bg-white p-4 rounded-xl border border-slate-200/80 hover:border-indigo-300 hover:shadow-md transition-all flex flex-col justify-between gap-3 group"
+                    onClick={() => handleAddUpsell(sug)}
+                    className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 hover:border-blue-500 hover:bg-slate-800/90 transition-all text-left flex flex-col justify-between gap-3 group cursor-pointer"
                   >
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                          {sug.promotionalTag}
-                        </span>
-                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded flex items-center gap-1">
-                          <TrendingUp size={11} />
-                          {sug.marginPercent}% margin
-                        </span>
+                    <div className="space-y-1">
+                      <div className="text-xs font-bold text-slate-100 group-hover:text-blue-400 transition-colors">
+                        + {sug.name}
                       </div>
-                      <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                        {sug.name}
-                      </h4>
-                      <p className="text-[11px] text-slate-400 font-mono">SKU: {sug.sku} • {sug.category}</p>
+                      {sug.promotionalTag && (
+                        <div className="text-[10px] font-bold text-amber-400 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/50 inline-block">
+                          {sug.promotionalTag}
+                        </div>
+                      )}
                     </div>
 
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
                       <div>
-                        <div className="text-xs font-extrabold text-slate-900">
+                        <div className="text-xs font-extrabold text-white">
                           ₹{sug.basePrice.toLocaleString()}
                         </div>
-                        <div className="text-[10px] text-slate-400">Co-purchase score: {sug.score}/10</div>
+                        <div className="text-[10px] text-emerald-400 font-semibold">
+                          Margin +₹{((sug.basePrice - sug.costPrice)).toLocaleString()}
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleAddUpsell(sug)}
-                        disabled={addLineMutation.isPending}
-                        className="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer disabled:opacity-50"
-                      >
-                        <Plus size={13} />
-                        <span>Add to Quote</span>
-                      </button>
+                      <span className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition">
+                        + Add
+                      </span>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -881,62 +987,71 @@ export default function QuotationDetailPage({ params }: Props) {
               </div>
             </div>
 
-            {/* Threshold Status */}
-            <div className="flex items-center justify-between text-xs pt-1">
+            {/* Threshold Status & Approval Requirement */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs pt-1">
               <span className="text-slate-600 font-medium">Approval Requirement:</span>
-              {riskSummary.requiresApproval ? (
-                <span className="font-bold text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200 flex items-center gap-1">
-                  <AlertTriangle size={12} />
-                  <span>Requires Manager Approval ({riskSummary.approvalReason || "Over Threshold"})</span>
+              {riskSummary.approvalType === "DUAL_APPROVAL" ? (
+                <span className="font-bold text-rose-700 bg-rose-50 px-3 py-1 rounded-full border border-rose-200 flex items-center gap-1.5">
+                  <AlertTriangle size={13} className="text-rose-600 shrink-0" />
+                  <span>Requires Dual Approval: Sales Manager &rarr; Finance (2 Hops)</span>
+                </span>
+              ) : riskSummary.approvalType === "SALES_MANAGER" ? (
+                <span className="font-bold text-amber-700 bg-amber-50 px-3 py-1 rounded-full border border-amber-200 flex items-center gap-1.5">
+                  <Clock size={13} className="text-amber-600 shrink-0" />
+                  <span>Requires Manager Approval: 1 Hop ({riskSummary.approvalReason || "Over Threshold"})</span>
                 </span>
               ) : (
-                <span className="font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
-                  <Check size={12} />
-                  <span>Within Auto-Approval Limit</span>
+                <span className="font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 flex items-center gap-1.5">
+                  <Check size={13} className="text-emerald-600 shrink-0" />
+                  <span>Within Standard Limits: 0 Hops (Direct Approval)</span>
                 </span>
               )}
             </div>
-          </div>
 
-          {/* ── UPSELL AND CROSS-SELL SUGGESTIONS MATCHING REFERENCE IMAGE 4 ── */}
-          <div className="space-y-3 pt-2">
-            <h3 className="text-sm font-bold text-slate-900 tracking-tight">
-              Upsell and Cross-Sell Suggestions
-            </h3>
+            {/* Sequential Approval Flow Tracker if Submitted */}
+            {apiQuote.approvalRequest && (
+              <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Sequential Approval Workflow:
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  {apiQuote.approvalRequest.steps?.map((step: any) => {
+                    const isStep1 = step.stepNumber === 1;
+                    const isStepApproved = step.status === "APPROVED";
+                    const isStepRejected = step.status === "REJECTED";
+                    const isStepPending = step.status === "PENDING";
+                    const isCurrent = (apiQuote.approvalRequest?.currentStep ?? 1) === step.stepNumber && isStepPending;
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-              {(apiProducts?.slice(0, 3) || [
-                { id: "p1", name: "Wireless Mouse", basePrice: 45, category: { name: "hardware" } },
-                { id: "p2", name: "Docking Station", basePrice: 280, category: { name: "hardware" } },
-                { id: "p3", name: "Care Plan 2yr", basePrice: 250, category: { name: "support" } },
-              ]).map((rec: any) => (
-                <button
-                  key={rec.id}
-                  type="button"
-                  disabled={isReadOnlyForSalesRep}
-                  onClick={() => handleAddUpsell(rec)}
-                  className="bg-slate-50/90 hover:bg-slate-100/90 disabled:opacity-60 disabled:cursor-not-allowed border border-slate-200 rounded-2xl p-4 text-left transition-all group flex flex-col justify-between cursor-pointer"
-                >
-                  <div>
-                    <div className="font-bold text-xs text-slate-900 group-hover:text-[#0066cc] flex items-center justify-between">
-                      <span>+ {rec.name}</span>
-                      <span className="text-[10px] font-semibold text-slate-500">₹{rec.basePrice}</span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">
-                      {rec.description || `Catalog add-on for ${rec.category?.name || "deal"}`}
-                    </p>
-                  </div>
-                  <div className="mt-3 pt-2 border-t border-slate-200/80 flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-emerald-600">
-                      Standard Add-on
-                    </span>
-                    <span className="text-[10px] font-bold text-[#0066cc] group-hover:underline">
-                      + Add to quote &rarr;
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
+                    return (
+                      <div
+                        key={step.id || step.stepNumber}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between ${
+                          isStepApproved
+                            ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                            : isStepRejected
+                            ? "bg-rose-50 border-rose-200 text-rose-800"
+                            : isCurrent
+                            ? "bg-blue-50 border-blue-200 text-blue-800"
+                            : "bg-slate-100/70 border-slate-200 text-slate-500"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] bg-white border">
+                            {step.stepNumber}
+                          </span>
+                          <span className="font-bold">
+                            {step.level === "SALES_MANAGER" ? "1. Sales Manager" : "2. Finance Operations"}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-wider">
+                          {isStepApproved ? "✓ Approved" : isStepRejected ? "✕ Rejected" : isCurrent ? "⚡ Active Review" : "Waiting"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ── ACTION BUTTONS ── */}

@@ -13,15 +13,22 @@ import * as controller from "../controllers/pricing.controller.js";
 
 export const priceListRouter = Router();
 
-priceListRouter.use(requireAuth, tenantMiddleware, requireRole(UserRole.ADMIN));
+const STAFF_ROLES = [
+  UserRole.ADMIN,
+  UserRole.SALES_MANAGER,
+  UserRole.SALES_REP,
+  UserRole.FINANCE_OPS,
+];
 
-priceListRouter.get("/", controller.listPriceLists);
-priceListRouter.post("/", validateBody(CreatePriceListSchema), controller.createPriceList);
-priceListRouter.get("/:id", controller.getPriceList);
-priceListRouter.patch("/:id", validateBody(UpdatePriceListSchema), controller.updatePriceList);
-priceListRouter.delete("/:id", controller.deletePriceList);
+priceListRouter.use(requireAuth, tenantMiddleware);
+
+priceListRouter.get("/", requireRole(...STAFF_ROLES), controller.listPriceLists);
+priceListRouter.post("/", requireRole(UserRole.ADMIN), validateBody(CreatePriceListSchema), controller.createPriceList);
+priceListRouter.get("/:id", requireRole(...STAFF_ROLES), controller.getPriceList);
+priceListRouter.patch("/:id", requireRole(UserRole.ADMIN), validateBody(UpdatePriceListSchema), controller.updatePriceList);
+priceListRouter.delete("/:id", requireRole(UserRole.ADMIN), controller.deletePriceList);
 
 // Price list items
-priceListRouter.post("/:id/items", validateBody(CreatePriceListItemSchema), controller.addPriceListItem);
-priceListRouter.patch("/:priceListId/items/:id", validateBody(UpdatePriceListItemSchema), controller.updatePriceListItem);
-priceListRouter.delete("/:priceListId/items/:id", controller.deletePriceListItem);
+priceListRouter.post("/:id/items", requireRole(UserRole.ADMIN), validateBody(CreatePriceListItemSchema), controller.addPriceListItem);
+priceListRouter.patch("/:priceListId/items/:id", requireRole(UserRole.ADMIN), validateBody(UpdatePriceListItemSchema), controller.updatePriceListItem);
+priceListRouter.delete("/:priceListId/items/:id", requireRole(UserRole.ADMIN), controller.deletePriceListItem);

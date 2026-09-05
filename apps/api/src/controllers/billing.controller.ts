@@ -75,6 +75,50 @@ export const updateSubscriptionLine = asyncHandler(
   }
 );
 
+export const createSubscription = asyncHandler(
+  async (req: TenantRequest, res: Response) => {
+    const subscription = await billingService.createSubscriptionPlan(
+      req.orgId,
+      req.body
+    );
+    return res.status(201).json({
+      success: true,
+      message: "Subscription plan schedule created successfully.",
+      data: subscription,
+    });
+  }
+);
+
+export const modifySubscription = asyncHandler(
+  async (req: TenantRequest, res: Response) => {
+    const updated = await billingService.modifySubscription(
+      req.orgId,
+      req.params.id as string,
+      req.body
+    );
+    return res.json({
+      success: true,
+      message: "Subscription updated successfully.",
+      data: updated,
+    });
+  }
+);
+
+export const scheduleSubscriptionReminder = asyncHandler(
+  async (req: TenantRequest, res: Response) => {
+    const result = await billingService.scheduleSubscriptionReminder(
+      req.orgId,
+      req.params.id as string,
+      req.body
+    );
+    return res.json({
+      success: true,
+      message: result.message,
+      data: result,
+    });
+  }
+);
+
 export const cancelSubscription = asyncHandler(
   async (req: TenantRequest, res: Response) => {
     const result = await billingService.cancelSubscription(

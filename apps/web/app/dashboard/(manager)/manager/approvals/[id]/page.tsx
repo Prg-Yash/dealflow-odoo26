@@ -32,7 +32,12 @@ import {
   type ManagerApprovalRequest,
   type ApprovalStatus,
 } from "../../../../../../lib/manager-data";
-import { useQuotation, useUpdateQuotationStage } from "../../../../../../lib/query";
+import {
+  useQuotation,
+  useUpdateQuotationStage,
+  useApproveQuotation,
+  useRejectQuotation,
+} from "../../../../../../lib/query";
 
 export default function ManagerApprovalDetailPage() {
   const params = useParams();
@@ -41,6 +46,8 @@ export default function ManagerApprovalDetailPage() {
 
   const { data: apiQuote } = useQuotation(quoteId);
   const updateStageMutation = useUpdateQuotationStage();
+  const approveQuotationMutation = useApproveQuotation();
+  const rejectQuotationMutation = useRejectQuotation();
 
   // Retrieve matching approval or fallback to the primary reference Q-1042
   const initialData: ManagerApprovalRequest =
@@ -113,14 +120,7 @@ export default function ManagerApprovalDetailPage() {
   };
 
   const handleExecuteDetermination = async (action: "APPROVED" | "REVISION_REQUESTED" | "REJECTED") => {
-    try {
-      await updateStageMutation.mutateAsync({
-        id: quoteId,
-        stage: action === "APPROVED" ? "APPROVED" : "CANCELLED",
-      });
-    } catch (err) {
-      console.warn("Optimistic determination update:", err);
-    }
+    const targetId = apiQuote?.id || quoteId;
     const defaultNote =
       action === "APPROVED"
         ? reviewComment || "Approved and dispatched under strategic account exception criteria."
@@ -128,14 +128,41 @@ export default function ManagerApprovalDetailPage() {
         ? reviewComment || "Returned for revision: Please adjust setup discount to policy cap (10%)."
         : reviewComment || "Rejected: Unacceptable margin deterioration without multi-year commitment.";
 
+    try {
+      if (action === "APPROVED") {
+        await approveQuotationMutation.mutateAsync({
+          id: targetId,
+          comments: defaultNote,
+        });
+      } else if (action === "REJECTED") {
+        await rejectQuotationMutation.mutateAsync({
+          id: targetId,
+          reason: defaultNote,
+        });
+      } else {
+        await updateStageMutation.mutateAsync({
+          id: targetId,
+          stage: "DRAFT" as any,
+        });
+      }
+    } catch (err) {
+      console.warn("Determination update error:", err);
+    }
+
     setDecisionState({ status: action as ApprovalStatus, defaultNote, action });
+
+    const hasFinanceStep =
+      apiQuote?.requiresFinanceApproval ||
+      apiQuote?.approvalRequest?.steps?.some((s: any) => s.level === "FINANCE");
 
     setFeedbackBanner({
       visible: true,
       type: action === "APPROVED" ? "success" : action === "REVISION_REQUESTED" ? "revision" : "rejected",
       message:
         action === "APPROVED"
-          ? "Decision registered. Concession approved and quote dispatched to client procurement."
+          ? hasFinanceStep
+            ? "Step 1 (Sales Manager) Approved. Quote forwarded to Finance Operations for sign-off."
+            : "Decision registered. Concession approved and quote finalized."
           : action === "REVISION_REQUESTED"
           ? "Revision requested. Returned to sales representative with stipulated conditions."
           : "Quote rejected. Logged to deal compliance trail.",
