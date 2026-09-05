@@ -57,6 +57,48 @@ async function resolveCustomerAuthorId(
 // =============================================================================
 
 /**
+ * 0. List Active Quotations for Portal Directory / Switcher (Database-backed)
+ */
+export async function listActivePortalQuotations() {
+  const quotations = await prisma.quotation.findMany({
+    where: {
+      stage: { not: QuoteStage.CANCELLED },
+    },
+    select: {
+      id: true,
+      portalToken: true,
+      quoteNumber: true,
+      title: true,
+      stage: true,
+      grandTotal: true,
+      createdAt: true,
+      customer: {
+        select: { id: true, name: true, email: true },
+      },
+      _count: {
+        select: { lines: true },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+
+  return quotations.map((q) => ({
+    id: q.id,
+    token: q.portalToken || q.quoteNumber,
+    quoteNumber: q.quoteNumber,
+    title: q.title || "Enterprise Proposal",
+    label: `${q.quoteNumber} (${q.title || "Enterprise"} - $${Number(q.grandTotal).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
+    stage: q.stage,
+    customer: q.customer?.name || "Client Enterprise",
+    customerEmail: q.customer?.email || "",
+    grandTotal: Number(q.grandTotal),
+    lineCount: q._count?.lines || 0,
+    createdAt: q.createdAt.toISOString(),
+  }));
+}
+
+/**
  * 1. Read-Only Quotation View for the Customer
  */
 export async function getPortalQuotation(portalToken: string) {

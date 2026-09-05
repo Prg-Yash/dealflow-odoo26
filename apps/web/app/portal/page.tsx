@@ -35,50 +35,12 @@ import {
 import { BrandLogo, Badge } from "@repo/ui";
 import {
   usePortalQuote,
+  usePortalActiveQuotes,
   useAddPortalComment,
   useSubmitCounterProposal,
   useConfirmQuotation,
   useSignQuotation,
 } from "../../lib/query/hooks/use-portal";
-
-// Sample Demo Tokens for Instant Testing
-export const DEMO_QUOTES = [
-  {
-    token: "DF-Q1042",
-    quoteNumber: "DF-Q1042",
-    label: "DF-Q1042 (Enterprise Cloud - $46,004)",
-    stage: "NEGOTIATION",
-    customer: "Acme Corporation",
-  },
-  {
-    token: "portal-token-quantum-04",
-    quoteNumber: "QT-2026-0004",
-    label: "QT-2026-0004 (QuantumLeap AI Suite - $21,517)",
-    stage: "NEGOTIATION",
-    customer: "QuantumLeap Labs",
-  },
-  {
-    token: "portal-token-acme-confirmed-05",
-    quoteNumber: "QT-2026-0005",
-    label: "QT-2026-0005 (Acme Confirmed Order - $18,472)",
-    stage: "CONFIRMED",
-    customer: "Acme Corporation",
-  },
-  {
-    token: "portal-token-omni-approved-03",
-    quoteNumber: "QT-2026-0003",
-    label: "QT-2026-0003 (OmniCorp Approved - $10,820)",
-    stage: "APPROVED",
-    customer: "OmniCorp Dynamics",
-  },
-  {
-    token: "portal-token-acme-draft-01",
-    quoteNumber: "QT-2026-0001",
-    label: "QT-2026-0001 (Acme Draft Quote - $12,428)",
-    stage: "DRAFT",
-    customer: "Acme Corporation",
-  },
-];
 
 // Format currency
 function formatCurrency(amount: number | undefined | null, currency = "USD"): string {
@@ -142,8 +104,9 @@ function CustomerPortalContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token") || "DF-Q1042";
 
-  // TanStack Query & API Integration
+  // TanStack Query & API Integration (Dynamic Database-Backed)
   const { data: quote, isLoading, isError, refetch } = usePortalQuote(token);
+  const { data: availableQuotes = [] } = usePortalActiveQuotes();
   const addCommentMutation = useAddPortalComment(token);
   const counterProposalMutation = useSubmitCounterProposal(token);
   const confirmMutation = useConfirmQuotation(token);
@@ -393,24 +356,26 @@ function CustomerPortalContent() {
             </button>
           </form>
 
-          {/* Quick Demo Token Links */}
-          <div className="mt-8 text-left border-t border-slate-200 pt-4">
-            <span className="text-[11px] uppercase font-bold text-slate-400 block mb-2">
-              Or Try Seeded Demo Proposals:
-            </span>
-            <div className="flex flex-col gap-1.5">
-              {DEMO_QUOTES.map((dq) => (
-                <button
-                  key={dq.token}
-                  onClick={() => handleSwitchQuote(dq.token)}
-                  className="text-xs text-slate-600 hover:text-[#ff5e3a] hover:bg-white p-2 rounded-lg border border-transparent hover:border-slate-200 transition text-left flex items-center justify-between cursor-pointer"
-                >
-                  <span className="font-semibold">{dq.label}</span>
-                  <span className="text-[10px] text-slate-400 uppercase font-mono">{dq.stage}</span>
-                </button>
-              ))}
+          {/* Available Proposals from Live Database */}
+          {availableQuotes.length > 0 && (
+            <div className="mt-8 text-left border-t border-slate-200 pt-4">
+              <span className="text-[11px] uppercase font-bold text-slate-400 block mb-2">
+                Available Proposals in Database:
+              </span>
+              <div className="flex flex-col gap-1.5">
+                {availableQuotes.slice(0, 5).map((dq) => (
+                  <button
+                    key={dq.token}
+                    onClick={() => handleSwitchQuote(dq.token)}
+                    className="text-xs text-slate-600 hover:text-[#ff5e3a] hover:bg-white p-2 rounded-lg border border-transparent hover:border-slate-200 transition text-left flex items-center justify-between cursor-pointer"
+                  >
+                    <span className="font-semibold">{dq.label}</span>
+                    <span className="text-[10px] text-slate-400 uppercase font-mono">{dq.stage}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </main>
       </div>
     );
@@ -499,11 +464,11 @@ function CustomerPortalContent() {
             </div>
 
             <p className="text-xs text-slate-500">
-              Select a pre-seeded test quote or enter any quotation number/token:
+              Select an active proposal loaded dynamically from the database:
             </p>
 
-            <div className="space-y-1.5">
-              {DEMO_QUOTES.map((dq) => (
+            <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+              {availableQuotes.map((dq) => (
                 <button
                   key={dq.token}
                   onClick={() => handleSwitchQuote(dq.token)}

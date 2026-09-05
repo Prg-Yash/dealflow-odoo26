@@ -11,6 +11,12 @@ import * as portalController from "../controllers/portal.controller.js";
 
 export const portalRouter = Router();
 
+// 0. Active Quotations Directory for Portal Switcher (Dynamic Database Query, No Static Mocks)
+portalRouter.get(
+  ["/", "/active-quotes", "/directory"],
+  portalController.listActiveQuotations
+);
+
 // 1. Read-only quotation view for the customer (supports /api/portal/:token and /api/portal/quotations/:token)
 portalRouter.get(
   ["/:token", "/quotations/:token"],
