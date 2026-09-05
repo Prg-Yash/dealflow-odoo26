@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import {
   Check,
@@ -30,6 +30,8 @@ import {
   useStalledQuotations,
   useMembers,
   useUpdateQuotationStage,
+  useApproveStep,
+  useRejectStep,
 } from "../../../../lib/query";
 
 export default function ManagerDashboardPage() {
@@ -41,109 +43,132 @@ export default function ManagerDashboardPage() {
   const { data: stalledQuotes } = useStalledQuotations();
   const { data: apiMembers, isLoading: isLoadingMembers } = useMembers();
   const updateStageMutation = useUpdateQuotationStage();
+  const approveStepMutation = useApproveStep();
+  const rejectStepMutation = useRejectStep();
 
-  const [approvals, setApprovals] = useState<ManagerApprovalRequest[]>([]);
-  const [anomalies, setAnomalies] = useState<DealAnomalyRecord[]>([]);
+  const approvals: ManagerApprovalRequest[] = useMemo(() => {
+    if (!allQuotes) return [];
+    return allQuotes.map((q) => {
+      const discountPct =
+        q.discountPercent ??
+        (q.subtotal > 0 && q.discountTotal ? Math.round((q.discountTotal / q.subtotal) * 100) : 0);
+      const marginPct =
+        q.grossMarginPercent ??
+        (q.grandTotal > 0 && q.grossMargin ? Math.round((q.grossMargin / q.grandTotal) * 100) : 40);
 
-  useEffect(() => {
-    if (allQuotes) {
-      setApprovals(
-        allQuotes.map((q) => {
-          const discountPct =
-            q.discountPercent ??
-            (q.subtotal > 0 && q.discountTotal ? Math.round((q.discountTotal / q.subtotal) * 100) : 0);
-          const marginPct =
-            q.grossMarginPercent ??
-            (q.grandTotal > 0 && q.grossMargin ? Math.round((q.grossMargin / q.grandTotal) * 100) : 40);
+      const isExplicitlyApproved =
+        q.stage === "APPROVED" ||
+        q.stage === "CONFIRMED" ||
+        q.approvalStatus === "APPROVED";
 
-          const isPending = q.stage === "PENDING_APPROVAL" || q.approvalStatus === "PENDING";
-          const isApproved = q.stage === "APPROVED" || q.stage === "CONFIRMED" || q.approvalStatus === "APPROVED";
-          const isRejected = q.stage === "CANCELLED" || q.approvalStatus === "REJECTED";
+      const isExplicitlyRejected =
+        q.stage === "CANCELLED" ||
+        q.approvalStatus === "REJECTED";
 
-          const status: ApprovalStatus = isApproved
-            ? "APPROVED"
-            : isRejected
-            ? "REJECTED"
-            : isPending
-            ? "PENDING"
-            : "PENDING";
+      const isRevisionRequested =
+        q.approvalStatus === "REVISION_REQUESTED";
 
-          return {
-            id: q.id,
-            quoteId: q.quoteNumber || q.id,
-            account: q.customer?.name || q.customer?.companyName || "Enterprise Account",
-            accountTier: (((q.customer as any)?.tier?.name as any) || "Gold") as any,
-            repName: q.salesRep?.user?.name || "Account Executive",
-            repInitials: (q.salesRep?.user?.name || "AE")
-              .split(" ")
-              .map((s: string) => s[0])
-              .join("")
-              .slice(0, 2)
-              .toUpperCase(),
-            dealSize: q.grandTotal || 0,
-            discountRequested: discountPct,
-            thresholdMax: 15,
-            marginProjected: marginPct,
-            targetMargin: 45,
-            reason: q.notes || "Commercial discount exception requested.",
-            status,
-            submittedAt: new Date(q.createdAt).toLocaleDateString(),
-            slaHoursLeft: 24,
-            blendedRiskScore: q.blendedRiskScore || 15,
-            escalationLevel: q.requiresFinanceApproval ? "SALES_MANAGER_AND_FINANCE" : "SALES_MANAGER",
-            pdfFileName: `${q.quoteNumber || "Quote"}-Exec.pdf`,
-            pdfFileSize: "1.2 MB",
-            pdfHash: "sha256-verified",
-            lineItems: (q.lines || []).map((l: any, idx: number) => ({
-              id: l.id || `line-${idx}`,
-              sku: l.product?.sku || `SKU-${idx + 1}`,
-              name: l.product?.name || l.description || "Product Item",
-              category: (l.itemType === "HARDWARE" ? "Hardware" : l.itemType === "SERVICE" ? "Services" : "SaaS License") as any,
-              quantity: l.quantity || 1,
-              listPrice: l.unitPrice || 0,
-              appliedDiscountPercent: l.discountPercent || 0,
-              policyCapPercent: 15,
-              netPrice: l.netPrice || (l.unitPrice ? l.unitPrice * (1 - (l.discountPercent || 0) / 100) * (l.quantity || 1) : 0),
-              isBreached: (l.discountPercent || 0) > 15,
-              breachDelta: Math.max(0, (l.discountPercent || 0) - 15),
-            })),
-            workflowSteps: [
-              {
-                id: "ws-1",
-                stepNumber: 1,
-                nodeTitle: "Sales Rep Submit",
-                role: "Sales Rep",
-                assigneeName: q.salesRep?.user?.name || "Account Executive",
-                status: "completed",
-                actionedAt: new Date(q.createdAt).toLocaleDateString(),
-                actionNote: "Submitted for approval",
-              },
-              {
-                id: "ws-2",
-                stepNumber: 2,
-                nodeTitle: "Sales Director",
-                role: "Sales Manager",
-                assigneeName: "Elena Vance",
-                status: isApproved ? "completed" : "active",
-                actionedAt: isApproved || isRejected ? "Recently" : undefined,
-                actionNote: isApproved ? "Approved exception" : isRejected ? "Rejected" : "Pending signoff",
-              },
-            ],
-            auditLogs: [
-              {
-                id: `log-${q.id}`,
-                actor: q.salesRep?.user?.name || "Account Executive",
-                role: "Sales Rep",
-                action: "SUBMITTED",
-                timestamp: new Date(q.createdAt).toLocaleDateString(),
-                note: `Submitted quote ${q.quoteNumber || q.id} for commercial signoff.`,
-              },
-            ],
-          };
-        })
+      // Multi-hop approval step check for Sales Manager
+      const managerStep = (q as any).approvalRequest?.steps?.find(
+        (s: any) => s.level === "SALES_MANAGER"
       );
-    }
+
+      let status: ApprovalStatus = "PENDING";
+      if (isExplicitlyApproved || (managerStep && managerStep.status === "APPROVED")) {
+        status = "APPROVED";
+      } else if (isExplicitlyRejected || (managerStep && managerStep.status === "REJECTED")) {
+        status = "REJECTED";
+      } else if (isRevisionRequested || (managerStep && managerStep.status === "REVISION_REQUESTED")) {
+        status = "REVISION_REQUESTED";
+      } else if (q.stage === "PENDING_APPROVAL" || q.approvalStatus === "PENDING") {
+        status = "PENDING";
+      } else {
+        status = "APPROVED";
+      }
+
+      return {
+        id: q.id,
+        quoteId: q.quoteNumber || q.id,
+        account: q.customer?.name || q.customer?.companyName || "Enterprise Account",
+        accountTier: (((q.customer as any)?.tier?.name as any) || "Gold") as any,
+        repName: q.salesRep?.user?.name || "Account Executive",
+        repInitials: (q.salesRep?.user?.name || "AE")
+          .split(" ")
+          .map((s: string) => s[0])
+          .join("")
+          .slice(0, 2)
+          .toUpperCase(),
+        dealSize: q.grandTotal || 0,
+        discountRequested: discountPct,
+        thresholdMax: 15,
+        marginProjected: marginPct,
+        targetMargin: 45,
+        reason: q.notes || "Commercial discount exception requested.",
+        status,
+        submittedAt: new Date(q.createdAt).toLocaleDateString(),
+        slaHoursLeft: 24,
+        blendedRiskScore: q.blendedRiskScore || 15,
+        escalationLevel: q.requiresFinanceApproval ? "SALES_MANAGER_AND_FINANCE" : "SALES_MANAGER",
+        pdfFileName: `${q.quoteNumber || "Quote"}-Exec.pdf`,
+        pdfFileSize: "1.2 MB",
+        pdfHash: "sha256-verified",
+        lineItems: (q.lines || []).map((l: any, idx: number) => ({
+          id: l.id || `line-${idx}`,
+          sku: l.product?.sku || `SKU-${idx + 1}`,
+          name: l.product?.name || l.description || "Product Item",
+          category: (l.itemType === "HARDWARE" ? "Hardware" : l.itemType === "SERVICE" ? "Services" : "SaaS License") as any,
+          quantity: l.quantity || 1,
+          listPrice: l.unitPrice || 0,
+          appliedDiscountPercent: l.discountPercent || 0,
+          policyCapPercent: 15,
+          netPrice: l.netPrice || (l.unitPrice ? l.unitPrice * (1 - (l.discountPercent || 0) / 100) * (l.quantity || 1) : 0),
+          isBreached: (l.discountPercent || 0) > 15,
+          breachDelta: Math.max(0, (l.discountPercent || 0) - 15),
+        })),
+        workflowSteps: [
+          {
+            id: "ws-1",
+            stepNumber: 1,
+            nodeTitle: "Sales Rep Submit",
+            role: "Sales Rep",
+            assigneeName: q.salesRep?.user?.name || "Account Executive",
+            status: "completed",
+            actionedAt: new Date(q.createdAt).toLocaleDateString(),
+            actionNote: "Submitted for approval",
+          },
+          {
+            id: "ws-2",
+            stepNumber: 2,
+            nodeTitle: "Sales Director",
+            role: "Sales Manager",
+            assigneeName: "Elena Vance",
+            status: status === "APPROVED" ? "completed" : "active",
+            actionedAt: status !== "PENDING" ? "Recently" : undefined,
+            actionNote: status === "APPROVED" ? "Approved exception" : status === "REJECTED" ? "Rejected" : "Pending signoff",
+          },
+        ],
+        auditLogs: (q as any).auditLogs?.map((al: any) => ({
+          id: al.id,
+          actor: al.actor?.name || "User",
+          role: al.actorRole || "Reviewer",
+          action: al.action,
+          timestamp: new Date(al.createdAt).toLocaleDateString(),
+          note: al.reason || "",
+        })) || [
+          {
+            id: `log-${q.id}`,
+            actor: q.salesRep?.user?.name || "Account Executive",
+            role: "Sales Rep",
+            action: "SUBMITTED",
+            timestamp: new Date(q.createdAt).toLocaleDateString(),
+            note: `Submitted quote ${q.quoteNumber || q.id} for commercial signoff.`,
+          },
+        ],
+      };
+    });
   }, [allQuotes]);
+
+  const [anomalies, setAnomalies] = useState<DealAnomalyRecord[]>([]);
 
   useEffect(() => {
     const list = apiAnomalies?.anomalies || (Array.isArray(apiAnomalies) ? apiAnomalies : []);
@@ -172,6 +197,7 @@ export default function ManagerDashboardPage() {
       setAnomalies([]);
     }
   }, [apiAnomalies]);
+
   const [approvalFilter, setApprovalFilter] = useState<"pending" | "all">("pending");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -232,37 +258,35 @@ export default function ManagerDashboardPage() {
         : "REVISION_REQUESTED";
 
     try {
-      if (request.quoteId) {
-        await updateStageMutation.mutateAsync({
-          id: request.quoteId,
-          stage: newStatus === "APPROVED" ? "APPROVED" : "CANCELLED",
+      const targetQuoteId = request.id || request.quoteId;
+      if (type === "approve") {
+        await approveStepMutation.mutateAsync({
+          quotationId: targetQuoteId,
+          comments: modalReason,
+        });
+      } else {
+        await rejectStepMutation.mutateAsync({
+          quotationId: targetQuoteId,
+          comments: modalReason,
         });
       }
-    } catch (err) {
-      console.warn("Optimistic approval decision logged:", err);
+      await refetchQuotes();
+      await refetchAnomalies();
+    } catch (err: any) {
+      console.warn("Approval mutation fallback:", err);
+      // Fallback update stage if approval step routing is in custom state
+      try {
+        if (request.quoteId) {
+          await updateStageMutation.mutateAsync({
+            id: request.quoteId,
+            stage: newStatus === "APPROVED" ? "APPROVED" : "DRAFT",
+          });
+        }
+      } catch (innerErr) {
+        console.warn("Stage update fallback error:", innerErr);
+      }
+      await refetchQuotes();
     }
-
-    setApprovals((prev) =>
-      prev.map((item) =>
-        item.id === request.id
-          ? {
-              ...item,
-              status: newStatus,
-              auditLogs: [
-                ...item.auditLogs,
-                {
-                  id: `log-${Date.now()}`,
-                  actor: "E. Vance",
-                  role: "Sales Director",
-                  action: newStatus,
-                  timestamp: "Just now",
-                  note: modalReason,
-                },
-              ],
-            }
-          : item
-      )
-    );
 
     setModalSuccessMsg(`Decision logged: ${request.quoteId} is now ${newStatus.replace("_", " ")}.`);
     setTimeout(() => {

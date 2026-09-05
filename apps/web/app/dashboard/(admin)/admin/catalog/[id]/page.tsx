@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-export default function ProductDetailsPage({ params }: { params: { id: string } }) {
+export default function ProductDetailsPage({ params }: { params?: { id?: string } }) {
+  const routeParams = useParams();
+  const productId = ((routeParams?.id as string) || (params?.id as string) || "").trim();
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Header */}

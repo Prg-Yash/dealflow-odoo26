@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import {
   ArrowLeft,
   Box,
@@ -29,8 +30,9 @@ import {
   useQuotation,
 } from "../../../../../../lib/query";
 
-export default function FulfillmentDetailPage({ params }: { params: { id: string } }) {
-  const orderId = params.id;
+export default function FulfillmentDetailPage({ params }: { params?: { id?: string } }) {
+  const routeParams = useParams();
+  const orderId = ((routeParams?.id as string) || (params?.id as string) || "").trim();
 
   // Live TanStack Queries
   const { data: fulfillmentOrder, isLoading: isLoadingFO, refetch: refetchFO } = useFulfillmentOrder(orderId);
@@ -69,7 +71,7 @@ export default function FulfillmentDetailPage({ params }: { params: { id: string
   const quoteNumber =
     fulfillmentOrder?.quotation?.quoteNumber ||
     directQuotation?.quoteNumber ||
-    (orderId.startsWith("ORD-") ? "Q-1042" : `Q-${orderId.slice(-4)}`);
+    (orderId && orderId.startsWith("ORD-") ? "Q-1042" : orderId ? `Q-${orderId.slice(-4)}` : "Q-1042");
 
   const customerName =
     fulfillmentOrder?.quotation?.customer?.name ||

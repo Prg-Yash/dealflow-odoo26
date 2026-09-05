@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -33,6 +33,8 @@ import {
   useStockLevels,
   useQuotations,
   useUpdateQuotationStage,
+  useApproveStep,
+  useRejectStep,
 } from "../../../../lib/query";
 
 function FinanceDashboardContent() {
@@ -58,51 +60,66 @@ function FinanceDashboardContent() {
   const { data: apiStockLevels, isLoading: isLoadingStock, refetch: refetchStock } = useStockLevels();
   const { data: allQuotes, isLoading: isLoadingQuotes, refetch: refetchQuotes } = useQuotations();
   const updateStageMutation = useUpdateQuotationStage();
+  const approveStepMutation = useApproveStep();
+  const rejectStepMutation = useRejectStep();
 
-  const [approvals, setApprovals] = useState<FinanceApprovalRequest[]>([]);
+  const approvals: FinanceApprovalRequest[] = useMemo(() => {
+    if (!allQuotes) return [];
+    return allQuotes.map((q) => {
+      const discountPct =
+        q.discountPercent ??
+        (q.subtotal > 0 && q.discountTotal ? Math.round((q.discountTotal / q.subtotal) * 100) : 0);
+      const marginPct =
+        q.grossMarginPercent ??
+        (q.grandTotal > 0 && q.grossMargin ? Math.round((q.grossMargin / q.grandTotal) * 100) : 40);
 
-  useEffect(() => {
-    if (allQuotes) {
-      setApprovals(
-        allQuotes.map((q) => {
-          const discountPct =
-            q.discountPercent ??
-            (q.subtotal > 0 && q.discountTotal ? Math.round((q.discountTotal / q.subtotal) * 100) : 0);
-          const marginPct =
-            q.grossMarginPercent ??
-            (q.grandTotal > 0 && q.grossMargin ? Math.round((q.grossMargin / q.grandTotal) * 100) : 40);
+      const isExplicitlyApproved =
+        q.stage === "APPROVED" ||
+        q.stage === "CONFIRMED" ||
+        q.approvalStatus === "APPROVED";
 
-          const isPending = q.stage === "PENDING_APPROVAL" || q.approvalStatus === "PENDING";
-          const isApproved = q.stage === "APPROVED" || q.stage === "CONFIRMED" || q.approvalStatus === "APPROVED";
-          const isRejected = q.stage === "CANCELLED" || q.approvalStatus === "REJECTED";
+      const isExplicitlyRejected =
+        q.stage === "CANCELLED" ||
+        q.approvalStatus === "REJECTED";
 
-          const status: ApprovalStatus = isApproved
-            ? "APPROVED"
-            : isRejected
-            ? "REJECTED"
-            : isPending
-            ? "PENDING"
-            : "PENDING";
+      const isRevisionRequested =
+        q.approvalStatus === "REVISION_REQUESTED";
 
-          return {
-            id: q.id,
-            quoteId: q.quoteNumber || q.id,
-            account: q.customer?.name || q.customer?.companyName || "Corporate Client",
-            accountTier: ((q.customer as any)?.tier?.name as any) || "Gold",
-            dealSize: q.grandTotal || 0,
-            discountRequested: discountPct,
-            marginProjected: marginPct,
-            targetMargin: 45.0,
-            reason: q.notes || "Commercial discount approval required.",
-            status,
-            submittedAt: new Date(q.createdAt).toLocaleDateString(),
-            slaHoursLeft: 24,
-            blendedRiskScore: q.blendedRiskScore || 12,
-            escalationReason: `Quote escalated for ${discountPct}% discount threshold`,
-          };
-        })
+      // Multi-hop approval step check for Finance Ops
+      const financeStep = (q as any).approvalRequest?.steps?.find(
+        (s: any) => s.level === "FINANCE"
       );
-    }
+
+      let status: ApprovalStatus = "PENDING";
+      if (isExplicitlyApproved || (financeStep && financeStep.status === "APPROVED")) {
+        status = "APPROVED";
+      } else if (isExplicitlyRejected || (financeStep && financeStep.status === "REJECTED")) {
+        status = "REJECTED";
+      } else if (isRevisionRequested || (financeStep && financeStep.status === "REVISION_REQUESTED")) {
+        status = "REVISION_REQUESTED";
+      } else if (q.stage === "PENDING_APPROVAL" || q.approvalStatus === "PENDING") {
+        status = "PENDING";
+      } else {
+        status = "APPROVED";
+      }
+
+      return {
+        id: q.id,
+        quoteId: q.quoteNumber || q.id,
+        account: q.customer?.name || q.customer?.companyName || "Corporate Client",
+        accountTier: ((q.customer as any)?.tier?.name as any) || "Gold",
+        dealSize: q.grandTotal || 0,
+        discountRequested: discountPct,
+        marginProjected: marginPct,
+        targetMargin: 45.0,
+        reason: q.notes || "Commercial discount approval required.",
+        status,
+        submittedAt: new Date(q.createdAt).toLocaleDateString(),
+        slaHoursLeft: 24,
+        blendedRiskScore: q.blendedRiskScore || 12,
+        escalationReason: `Quote escalated for ${discountPct}% discount threshold`,
+      };
+    });
   }, [allQuotes]);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -140,7 +157,7 @@ function FinanceDashboardContent() {
     );
   };
 
-  const handleConfirmDecision = () => {
+  const handleConfirmDecision = async () => {
     if (!activeModalRequest) return;
     const { request, type } = activeModalRequest;
     const newStatus: ApprovalStatus =
@@ -150,22 +167,34 @@ function FinanceDashboardContent() {
         ? "REJECTED"
         : "REVISION_REQUESTED";
 
-    setApprovals((prev) =>
-      prev.map((item) =>
-        item.id === request.id
-          ? {
-              ...item,
-              status: newStatus,
-            }
-          : item
-      )
-    );
-
-    if (request.id.startsWith("q-") || request.id.length > 15) {
-      updateStageMutation.mutate({
-        id: request.id,
-        stage: type === "approve" ? "APPROVED" : type === "reject" ? "CANCELLED" : "DRAFT",
-      });
+    try {
+      const targetQuoteId = request.id || request.quoteId;
+      if (type === "approve") {
+        await approveStepMutation.mutateAsync({
+          quotationId: targetQuoteId,
+          comments: modalReason,
+        });
+      } else {
+        await rejectStepMutation.mutateAsync({
+          quotationId: targetQuoteId,
+          comments: modalReason,
+        });
+      }
+      await refetchQuotes();
+    } catch (err: any) {
+      console.warn("Finance approval mutation fallback:", err);
+      // Fallback stage update if direct stage transition is needed
+      try {
+        if (request.id.startsWith("q-") || request.id.length > 15) {
+          await updateStageMutation.mutateAsync({
+            id: request.id,
+            stage: type === "approve" ? "APPROVED" : type === "reject" ? "CANCELLED" : "DRAFT",
+          });
+        }
+      } catch (innerErr) {
+        console.warn("Stage update fallback error:", innerErr);
+      }
+      await refetchQuotes();
     }
 
     setModalSuccessMsg(`Finance decision logged: ${request.quoteId} is now ${newStatus.replace("_", " ")}.`);

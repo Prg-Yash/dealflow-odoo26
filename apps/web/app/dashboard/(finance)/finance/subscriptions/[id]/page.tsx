@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import {
   ArrowLeft,
   TrendingUp,
@@ -21,8 +22,9 @@ import {
   useQuotation,
 } from "../../../../../../lib/query";
 
-export default function BillingDetailPage({ params }: { params: { id: string } }) {
-  const subscriptionId = params.id;
+export default function BillingDetailPage({ params }: { params?: { id?: string } }) {
+  const routeParams = useParams();
+  const subscriptionId = ((routeParams?.id as string) || (params?.id as string) || "").trim();
 
   // Live TanStack Queries
   const { data: subscription, isLoading: isLoadingSub, refetch: refetchSub } = useSubscription(subscriptionId);

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import {
   ArrowLeft,
   CreditCard,
@@ -16,8 +17,9 @@ import {
 import { BrandLogo } from "@repo/ui";
 import { useInvoice, useRecordPayment } from "../../../../../../lib/query";
 
-export default function InvoiceDetailPage({ params }: { params: { id: string } }) {
-  const invoiceId = params.id;
+export default function InvoiceDetailPage({ params }: { params?: { id?: string } }) {
+  const routeParams = useParams();
+  const invoiceId = ((routeParams?.id as string) || (params?.id as string) || "").trim();
 
   // Live TanStack Query
   const { data: invoice, isLoading: isLoadingInv, refetch: refetchInv } = useInvoice(invoiceId);
@@ -34,7 +36,9 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const invoiceNumber = invoice?.invoiceNumber || (invoiceId.startsWith("INV-") ? invoiceId : `INV-${invoiceId.slice(-4)}`);
+  const invoiceNumber =
+    invoice?.invoiceNumber ||
+    (invoiceId && invoiceId.startsWith("INV-") ? invoiceId : invoiceId ? `INV-${invoiceId.slice(-4)}` : "INV-1042");
   const account = invoice?.customer?.name || "Acme Corp";
   const totalAmount = invoice?.totalAmount ?? 2730;
   const isPaid = invoice?.status === "PAID";
