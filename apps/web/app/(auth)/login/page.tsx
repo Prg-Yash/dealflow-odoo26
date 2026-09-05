@@ -3,15 +3,15 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Eye, EyeOff, Info, Lock, Mail, Users } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Lock, Mail, Users } from "lucide-react";
 import { AuthCard } from "@repo/ui";
-import { signIn } from "../../lib/auth-client";
-import { ROLES, ALL_ROLES, inferRoleFromEmail, getRoleRedirect, setStoredRole, type UserRole } from "../../lib/roles";
-import { isValidEmail, isValidPassword } from "../../lib/validation";
+import { signIn } from "../../../lib/auth-client";
+import { ROLES, ALL_ROLES, inferRoleFromEmail, getRoleRedirect, setStoredRole, type UserRole } from "../../../lib/roles";
+import { isValidEmail, isValidPassword } from "../../../lib/validation";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("rep@dealflow360.com");
+  const [email, setEmail] = useState("rep.alex@dealflow360.com");
   const [password, setPassword] = useState("Password123!");
   const [emailTouched, setEmailTouched] = useState(false);
   const [passwordTouched, setPasswordTouched] = useState(false);
@@ -53,18 +53,19 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const response = await signIn.email({ email, password });
       const effectiveRole = inferRoleFromEmail(email);
       setStoredRole(effectiveRole);
 
-      if (response?.error) {
-        console.warn("Better Auth sign in error, fallback to demo mode:", response.error);
-        router.push(getRoleRedirect(effectiveRole));
-      } else {
-        router.push(getRoleRedirect(effectiveRole));
+      // Attempt Better Auth sign in with graceful demo fallback
+      try {
+        await signIn.email({ email, password });
+      } catch (authErr) {
+        console.warn("Better Auth sign-in fallback to demo mode:", authErr);
       }
+
+      router.push(getRoleRedirect(effectiveRole));
     } catch (err) {
-      console.warn("Backend unavailable, routing in demo mode:", err);
+      console.warn("Routing in demo mode:", err);
       const effectiveRole = inferRoleFromEmail(email);
       setStoredRole(effectiveRole);
       router.push(getRoleRedirect(effectiveRole));
@@ -75,52 +76,34 @@ export default function LoginPage() {
 
   return (
     <AuthCard
-      title="Log In"
-      description="Entry point for internal users and customers"
+      title="Welcome Back"
+      description="Sign in to orchestrate deals, approvals & revenue"
       activeTab="login"
       linkComponent={Link}
-      banner={
-        <div className="rounded-xl border border-orange-200/70 bg-orange-50/70 p-3.5 flex items-start gap-3 text-left">
-          <Info size={18} className="text-[#ff5e3a] shrink-0 mt-0.5" />
-          <p className="text-xs leading-relaxed text-slate-700">
-            After login, internal users land on the{" "}
-            <strong className="text-[#0f172a] font-semibold">Sales Dashboard</strong>.
-            Customers land on their{" "}
-            <strong className="text-[#0f172a] font-semibold">Quotation Portal</strong>.
-          </p>
-        </div>
-      }
       footerNote={
-        <div className="flex flex-col gap-2 pt-3 border-t border-slate-100 text-left">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-            Specifications &amp; Microcopy
-          </span>
-          <ul className="space-y-1.5 text-xs text-slate-500">
-            <li className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#ff5e3a] shrink-0"></span>
-              <span>Company / team selector shown for multi-team setups</span>
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#ff5e3a] shrink-0"></span>
-              <span>Basic validation on email and password fields</span>
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#ff5e3a] shrink-0"></span>
-              <span>Sign Up link creates a new internal or customer account</span>
-            </li>
-          </ul>
+        <div className="text-center pt-2 border-t border-slate-100">
+          <p className="text-xs text-slate-500">
+            Don&apos;t have an account yet?{" "}
+            <Link href="/register" className="text-[#ff5e3a] hover:underline font-semibold transition ml-0.5">
+              Create an account
+            </Link>
+          </p>
         </div>
       }
     >
       {/* 5-User Role Quick Selector */}
       <div className="flex flex-col gap-2 p-3.5 rounded-xl bg-slate-50 border border-slate-200/70">
-        <div className="flex items-center text-xs font-semibold text-slate-500">
+        <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
           <span className="inline-flex items-center gap-1.5">
             <Users size={14} className="text-[#ff5e3a]" />
-            Demo 5 User Roles (Click to fill):
+            Demo User Credentials (Click to prefill):
           </span>
+          <span className="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-medium">
+            Password: Password123!
+          </span>
+          <span className="text-[10px] text-slate-400 font-normal">Click to fill</span>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-1">
           {ALL_ROLES.map((r) => {
             const isActive = selectedRole === r.id;
             return (
@@ -128,9 +111,9 @@ export default function LoginPage() {
                 key={r.id}
                 type="button"
                 onClick={() => handleRoleSelect(r.id)}
-                className={`px-2 py-1.5 rounded-lg text-xs font-medium text-center transition-all cursor-pointer truncate ${
+                className={`px-1.5 py-1 rounded-lg text-[11px] font-medium text-center transition-all cursor-pointer truncate ${
                   isActive
-                    ? "bg-slate-900 text-white shadow-sm font-semibold"
+                    ? "bg-[#0f172a] text-white shadow-xs font-semibold"
                     : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
                 }`}
                 title={`${r.title} — ${r.defaultEmail}`}
@@ -140,6 +123,14 @@ export default function LoginPage() {
             );
           })}
         </div>
+        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1.5 border-t border-slate-200/60 mt-0.5">
+          <span className="truncate">
+            User: <strong className="text-slate-800">{ROLES[selectedRole]?.defaultName}</strong> &bull; <span className="font-mono text-slate-600">{ROLES[selectedRole]?.defaultEmail}</span>
+          </span>
+          <span className="text-[#ff5e3a] font-medium shrink-0 ml-2">
+            Role: {ROLES[selectedRole]?.label}
+          </span>
+        </div>
       </div>
 
       {error && (
@@ -148,11 +139,11 @@ export default function LoginPage() {
         </div>
       )}
 
-      {/* Login Form — Full-width stacked inputs with onchange regex validation */}
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-left">
+      {/* Login Form */}
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3.5 text-left">
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="userEmail">
-            Email <span className="text-[#ff5e3a]">*</span>
+            Email Address <span className="text-[#ff5e3a]">*</span>
           </label>
           <div className="relative">
             <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -175,9 +166,17 @@ export default function LoginPage() {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="userPassword">
-            Password <span className="text-[#ff5e3a]">*</span>
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="userPassword">
+              Password <span className="text-[#ff5e3a]">*</span>
+            </label>
+            <Link
+              href="/forgot-password"
+              className="text-[11px] text-slate-500 hover:text-[#ff5e3a] transition-colors font-medium"
+            >
+              Forgot password?
+            </Link>
+          </div>
           <div className="relative">
             <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
@@ -209,8 +208,8 @@ export default function LoginPage() {
           {passwordError && <span className="text-[11px] text-red-500 font-medium">{passwordError}</span>}
         </div>
 
-        {/* Action Row — Full-width Login Button Matching Sign Up */}
-        <div className="pt-2 flex flex-col gap-3">
+        {/* Action Row */}
+        <div className="pt-2">
           <button
             type="submit"
             disabled={loading || !isFormValid}
@@ -222,7 +221,7 @@ export default function LoginPage() {
 
           <div className="text-center">
             <Link
-              href="/forgot-password"
+              href={`/forgot-password${email ? `?email=${encodeURIComponent(email)}` : ""}`}
               className="text-xs text-slate-500 hover:text-[#ff5e3a] transition-colors font-medium"
             >
               Forgot Password?

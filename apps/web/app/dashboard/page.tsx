@@ -101,11 +101,10 @@ export default function DashboardPage() {
                 <button
                   key={r.id}
                   onClick={() => handleSwitchRole(r.id)}
-                  className={`px-2 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                    activeRole === r.id
-                      ? "bg-slate-900 text-white shadow-xs"
-                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-                  }`}
+                  className={`px-2 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${activeRole === r.id
+                    ? "bg-slate-900 text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                    }`}
                 >
                   {r.label}
                 </button>
@@ -285,20 +284,20 @@ export default function DashboardPage() {
                       <Link
                         key={quote.id}
                         href={`/quotations/${quote.id}`}
-                        className="p-3.5 rounded-xl bg-white border border-slate-200/90 shadow-xs hover:border-[#ff5e3a] hover:shadow-md transition-all flex flex-col gap-2 cursor-pointer text-left group"
+                        className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-[#ff5e3a] hover:shadow-md transition-all flex flex-col gap-2.5 cursor-pointer text-left group"
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <span className="font-bold text-xs text-slate-900 leading-snug group-hover:text-[#ff5e3a] transition-colors">
+                          <span className="font-bold text-xs sm:text-sm text-slate-900 leading-snug group-hover:text-[#ff5e3a] transition-colors">
                             {quote.customerOrg}
                           </span>
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 mt-0.5"></span>
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 mt-1"></span>
                         </div>
-                        <div className="text-base font-extrabold text-[#0f172a] tracking-tight">
+                        <div className="text-base sm:text-lg font-black text-[#0f172a] tracking-tight">
                           ${quote.contractTotal.toLocaleString()}
                         </div>
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-[11px]">
-                          <span className="text-slate-400 font-medium font-mono">{quote.id}</span>
-                          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-bold text-[10px]">
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                          <span className="text-slate-400 font-medium font-mono text-[11px]">{quote.id}</span>
+                          <span className="text-slate-600 font-bold font-mono text-[11px]">
                             {quote.avgMarginPercent}% Mgn
                           </span>
                         </div>
@@ -320,11 +319,10 @@ export default function DashboardPage() {
                 <button
                   key={filter}
                   onClick={() => setSelectedFilter(filter)}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold capitalize transition-all cursor-pointer ${
-                    selectedFilter === filter
-                      ? "bg-slate-900 text-white"
-                      : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"
-                  }`}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold capitalize transition-all cursor-pointer ${selectedFilter === filter
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"
+                    }`}
                 >
                   {filter}
                 </button>
@@ -366,17 +364,16 @@ export default function DashboardPage() {
                     </td>
                     <td className="py-3.5 px-4">
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold capitalize ${
-                          q.stage === "confirmed"
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                            : q.stage === "approved"
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold capitalize ${q.stage === "confirmed"
+                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                          : q.stage === "approved"
                             ? "bg-sky-50 text-sky-700 border border-sky-200"
                             : q.stage === "pending"
-                            ? "bg-orange-50 text-[#ff5e3a] border border-orange-200"
-                            : q.stage === "negotiation"
-                            ? "bg-amber-50 text-amber-800 border border-amber-200"
-                            : "bg-slate-100 text-slate-600 border border-slate-200"
-                        }`}
+                              ? "bg-orange-50 text-[#ff5e3a] border border-orange-200"
+                              : q.stage === "negotiation"
+                                ? "bg-amber-50 text-amber-800 border border-amber-200"
+                                : "bg-slate-100 text-slate-600 border border-slate-200"
+                          }`}
                       >
                         {q.stage}
                       </span>

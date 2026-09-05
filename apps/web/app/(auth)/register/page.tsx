@@ -3,11 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Eye, EyeOff, Info, User, Mail, Building2, Lock } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, User, Mail, Building2, Lock } from "lucide-react";
 import { AuthCard } from "@repo/ui";
-import { signUp } from "../../lib/auth-client";
-import { ALL_ROLES, setStoredRole, getRoleRedirect, type UserRole } from "../../lib/roles";
-import { isValidEmail, isValidPassword, isValidName } from "../../lib/validation";
+import { signUp } from "../../../lib/auth-client";
+import { ALL_ROLES, setStoredRole, getRoleRedirect, type UserRole } from "../../../lib/roles";
+import { isValidEmail, isValidPassword, isValidName } from "../../../lib/validation";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -45,20 +45,20 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const response = await signUp.email({
-        email: workEmail,
-        password,
-        name: fullName,
-      });
-
       setStoredRole(role);
 
-      if (response?.error) {
-        console.warn("Better Auth sign up error, proceeding in demo mode:", response.error);
-        router.push(getRoleRedirect(role));
-      } else {
-        router.push(getRoleRedirect(role));
+      // Attempt Better Auth sign up with graceful demo fallback
+      try {
+        await signUp.email({
+          email: workEmail,
+          password,
+          name: fullName,
+        });
+      } catch (authErr) {
+        console.warn("Better Auth sign up fallback to demo mode:", authErr);
       }
+
+      router.push(getRoleRedirect(role));
     } catch (err) {
       console.warn("Backend unavailable, fallback to demo mode:", err);
       setStoredRole(role);
@@ -70,22 +70,12 @@ export default function RegisterPage() {
 
   return (
     <AuthCard
-      title="Sign Up"
-      description="Entry point for internal users and customers"
+      title="Create Account"
+      description="Join DealFlow360 to collaborate on deals and quotations"
       activeTab="signup"
       linkComponent={Link}
-      banner={
-        <div className="rounded-xl border border-orange-200/70 bg-orange-50/70 p-3.5 flex items-start gap-3 text-left">
-          <Info size={18} className="text-[#ff5e3a] shrink-0 mt-0.5" />
-          <p className="text-xs leading-relaxed text-slate-700">
-            Sign Up creates a new internal or customer account. Customers land on{" "}
-            <strong className="text-[#0f172a] font-semibold">Quotation Portal</strong>; internal reps land on{" "}
-            <strong className="text-[#0f172a] font-semibold">Sales Dashboard</strong>.
-          </p>
-        </div>
-      }
       footerNote={
-        <div className="text-center pt-1 border-t border-slate-100">
+        <div className="text-center pt-2 border-t border-slate-100">
           <p className="text-xs text-slate-500">
             Already have an account?{" "}
             <Link href="/login" className="text-[#ff5e3a] hover:underline font-semibold transition ml-0.5">
@@ -101,8 +91,8 @@ export default function RegisterPage() {
         </div>
       )}
 
-      {/* Form Elements — Full-width stacked inputs with onchange regex validation */}
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-left">
+      {/* Form Elements */}
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3.5 text-left">
         {/* Full Name */}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="fullName">
@@ -184,7 +174,7 @@ export default function RegisterPage() {
           {companyError && <span className="text-[11px] text-red-500 font-medium">{companyError}</span>}
         </div>
 
-        {/* 5 User Role Selector — Just the clean role names without descriptions or routes microcopy */}
+        {/* Platform Role Selector */}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="roleSelect">
             Platform Role <span className="text-[#ff5e3a]">*</span>
@@ -193,11 +183,11 @@ export default function RegisterPage() {
             id="roleSelect"
             value={role}
             onChange={(e) => setRole(e.target.value as UserRole)}
-            className="w-full bg-[#f8fafc] border border-slate-200 focus:border-[#ff5e3a] focus:ring-2 focus:ring-[#ff5e3a]/20 rounded-xl px-4 py-2.5 text-sm text-[#0f172a] outline-none transition-all cursor-pointer"
+            className="w-full bg-[#f8fafc] border border-slate-200 focus:border-[#ff5e3a] focus:ring-2 focus:ring-[#ff5e3a]/20 rounded-xl px-3.5 py-2.5 text-sm text-[#0f172a] outline-none transition-all cursor-pointer"
           >
             {ALL_ROLES.map((r) => (
               <option key={r.id} value={r.id}>
-                {r.label}
+                {r.label} ({r.title})
               </option>
             ))}
           </select>
@@ -229,7 +219,7 @@ export default function RegisterPage() {
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition cursor-pointer"
               aria-label={showPassword ? "Hide password" : "Show password"}
             >
               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}

@@ -155,6 +155,30 @@ async function main() {
       email: "finance@quantumleaplabs.ai",
       role: UserRole.CUSTOMER,
     },
+    {
+      id: "usr-rep-short",
+      name: "Alex Rivera (Demo Rep)",
+      email: "rep@dealflow360.com",
+      role: UserRole.SALES_REP,
+    },
+    {
+      id: "usr-mgr-short",
+      name: "Elena Rostova (Demo Manager)",
+      email: "manager@dealflow360.com",
+      role: UserRole.SALES_MANAGER,
+    },
+    {
+      id: "usr-fin-short",
+      name: "Marcus Vance (Demo Finance)",
+      email: "finance@dealflow360.com",
+      role: UserRole.FINANCE_OPS,
+    },
+    {
+      id: "usr-cust-short",
+      name: "Johnathan Ward (Demo Customer)",
+      email: "customer@acme.com",
+      role: UserRole.CUSTOMER,
+    },
   ];
 
   for (const u of seedUsers) {
@@ -181,11 +205,13 @@ async function main() {
       update: {
         password: hashedPassword,
         userId: user.id,
+        issuer: "local:credential",
       },
       create: {
         id: `acc-${u.id}`,
         accountId: user.id,
         providerId: "credential",
+        issuer: "local:credential",
         userId: user.id,
         password: hashedPassword,
       },

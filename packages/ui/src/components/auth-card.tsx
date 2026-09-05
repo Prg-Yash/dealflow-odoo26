@@ -63,10 +63,10 @@ export function AuthCard({
         )}
       </header>
 
-      {/* Centered Main Area — Unified max-w-xl card */}
-      <main className="flex-1 flex items-center justify-center px-4 py-10 sm:py-14">
-        <div className="w-full max-w-xl">
-          <div className="bg-white border border-slate-200/90 rounded-2xl p-6 sm:p-10 shadow-xl shadow-slate-200/40 flex flex-col gap-6">
+      {/* Centered Main Area — Clean focused max-w-[440px] card */}
+      <main className="flex-1 flex items-center justify-center px-4 py-8 sm:py-12">
+        <div className="w-full max-w-[440px]">
+          <div className="bg-white border border-slate-200/90 rounded-2xl p-6 sm:p-8 shadow-xl shadow-slate-200/50 flex flex-col gap-5">
             
             {/* Header Inside Card — SCREEN_01 / SCREEN_02 tag removed */}
             <div className="flex flex-col gap-1 text-left border-b border-slate-100 pb-5">
