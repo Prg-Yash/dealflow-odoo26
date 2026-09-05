@@ -110,7 +110,7 @@ export function CatalogModal({ open, onClose, products, onSelectProduct }: Catal
                     <p className="text-[11px] text-slate-500 leading-snug">{prod.description}</p>
                     <div className="flex items-center gap-3 text-[11px] text-slate-400 pt-0.5">
                       <span>
-                        Cost Basis: <strong className="text-slate-600 font-mono">${prod.costPrice}</strong>
+                        Cost Basis: <strong className="text-slate-600 font-mono">₹{prod.costPrice}</strong>
                       </span>
                       <span>·</span>
                       <span>
@@ -121,7 +121,7 @@ export function CatalogModal({ open, onClose, products, onSelectProduct }: Catal
 
                   <div className="flex flex-col items-end gap-2 shrink-0">
                     <span className="text-sm font-black font-mono text-slate-900">
-                      ${prod.unitPrice.toLocaleString()}
+                      ₹{prod.unitPrice.toLocaleString()}
                     </span>
                     <Button
                       size="sm"

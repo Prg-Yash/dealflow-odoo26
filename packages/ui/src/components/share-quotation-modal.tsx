@@ -49,7 +49,7 @@ export function ShareQuotationModal({
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-bold text-slate-900 truncate">{accountName}</span>
               <span className="font-mono text-[11px] font-bold text-[#ff5e3a]">
-                ${totalValue.toLocaleString()}
+                ₹{totalValue.toLocaleString()}
               </span>
             </div>
             <p className="text-[11px] text-slate-600 mt-0.5">

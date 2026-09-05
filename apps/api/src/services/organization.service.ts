@@ -10,7 +10,7 @@ interface CreateOrgParams {
 export async function createOrganization({
   name,
   slug,
-  currency = "USD",
+  currency = "INR",
   createdById,
 }: CreateOrgParams) {
   const generatedSlug =

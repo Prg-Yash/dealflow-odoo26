@@ -21,9 +21,9 @@ export function PipelineStageBar({
   className = "",
 }: PipelineStageBarProps) {
   const formatCurrency = (val: number) => {
-    if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`;
-    if (val >= 1000) return `$${Math.round(val / 1000)}K`;
-    return `$${val}`;
+    if (val >= 1000000) return `₹${(val / 1000000).toFixed(1)}M`;
+    if (val >= 1000) return `₹${Math.round(val / 1000)}K`;
+    return `₹${val}`;
   };
 
   return (

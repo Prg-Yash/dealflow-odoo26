@@ -9,6 +9,7 @@ import {
   createInvitation,
   listInvitations,
   revokeInvitation,
+  resendInvitation,
   verifyInvitation,
   acceptInvitation,
   listMembers,
@@ -20,6 +21,7 @@ export const memberRouter = Router();
 memberRouter.post("/invitations", requireAuth, requireRole(UserRole.ADMIN), requireOrg, createInvitation);
 memberRouter.get("/invitations", requireAuth, requireRole(UserRole.ADMIN), requireOrg, listInvitations);
 memberRouter.delete("/invitations/:id", requireAuth, requireRole(UserRole.ADMIN), requireOrg, revokeInvitation);
+memberRouter.post("/invitations/:id/resend", requireAuth, requireRole(UserRole.ADMIN), requireOrg, resendInvitation);
 
 // Public invitation verification and acceptance
 memberRouter.get("/invitations/verify", verifyInvitation);

@@ -20,6 +20,21 @@ export const AssignRepSchema = z.object({
   salesRepId: z.string().min(1, "Sales representative ID is required"),
 });
 
+export const InviteCustomerSchema = z.object({
+  email: z.string().email("Valid email is required"),
+  name: z.string().min(1, "Customer name is required"),
+  company: z.string().optional(),
+  phone: z.string().optional(),
+  taxId: z.string().optional(),
+  paymentTerms: z.string().default("Net 30"),
+  billingAddress: z.string().optional(),
+  shippingAddress: z.string().optional(),
+  tierId: z.string().optional(),
+  salesRepId: z.string().optional(),
+});
+
 export type CreateCustomerInput = z.infer<typeof CreateCustomerSchema>;
 export type UpdateCustomerInput = z.infer<typeof UpdateCustomerSchema>;
 export type AssignRepInput = z.infer<typeof AssignRepSchema>;
+export type InviteCustomerInput = z.infer<typeof InviteCustomerSchema>;
+

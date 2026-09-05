@@ -10,12 +10,17 @@ import { getStoredRole, ROLES } from "../../lib/roles";
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { data: session, isPending, error } = useSession();
+  const { data: session, isPending } = useSession();
   const [jobStatus, setJobStatus] = useState<string | null>(null);
   const [triggeringJob, setTriggeringJob] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [sendingVerification, setSendingVerification] = useState(false);
-  const [demoRole, setDemoRole] = useState<string | null>(null);
+  const [demoRole] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return getStoredRole();
+    }
+    return null;
+  });
   
   const [verificationAlert, setVerificationAlert] = useState<{
     type: "success" | "error";
@@ -35,7 +40,6 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      setDemoRole(getStoredRole());
       const params = new URLSearchParams(window.location.search);
       if (params.get("verified") === "true") {
         window.history.replaceState({}, document.title, window.location.pathname);

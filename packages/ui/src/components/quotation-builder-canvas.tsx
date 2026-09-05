@@ -337,7 +337,7 @@ export function QuotationBuilderCanvas({
 
                             {/* Line Total */}
                             <td className="p-3 text-right font-mono font-bold text-slate-900">
-                              ${Math.round(lineTotal).toLocaleString()}
+                              ₹{Math.round(lineTotal).toLocaleString()}
                             </td>
 
                             {/* Delete */}
@@ -396,21 +396,21 @@ export function QuotationBuilderCanvas({
                       <span className="text-[10px] font-bold text-slate-400 uppercase">Phase 1: 50%</span>
                       <p className="font-bold text-slate-900 mt-0.5">Execution &amp; Provisioning</p>
                       <span className="text-[11px] font-mono text-[#ff5e3a] font-bold">
-                        ${Math.round(netTotal * 0.5).toLocaleString()}
+                        ₹{Math.round(netTotal * 0.5).toLocaleString()}
                       </span>
                     </div>
                     <div className="p-2.5 rounded-lg bg-white border border-slate-200">
                       <span className="text-[10px] font-bold text-slate-400 uppercase">Phase 2: 30%</span>
                       <p className="font-bold text-slate-900 mt-0.5">UAT &amp; Directory Sync</p>
                       <span className="text-[11px] font-mono text-slate-700 font-bold">
-                        ${Math.round(netTotal * 0.3).toLocaleString()}
+                        ₹{Math.round(netTotal * 0.3).toLocaleString()}
                       </span>
                     </div>
                     <div className="p-2.5 rounded-lg bg-white border border-slate-200">
                       <span className="text-[10px] font-bold text-slate-400 uppercase">Phase 3: 20%</span>
                       <p className="font-bold text-slate-900 mt-0.5">Final Go-Live Sign-off</p>
                       <span className="text-[11px] font-mono text-slate-700 font-bold">
-                        ${Math.round(netTotal * 0.2).toLocaleString()}
+                        ₹{Math.round(netTotal * 0.2).toLocaleString()}
                       </span>
                     </div>
                   </div>
@@ -607,12 +607,12 @@ export function QuotationBuilderCanvas({
                           <div className="text-[11px] text-slate-500 mt-0.5">{item.description}</div>
                         </td>
                         <td className="py-3 text-center font-mono">{item.quantity}</td>
-                        <td className="py-3 text-right font-mono">${item.unitPrice.toLocaleString()}</td>
+                        <td className="py-3 text-right font-mono">₹{item.unitPrice.toLocaleString()}</td>
                         <td className="py-3 text-center font-mono">
                           {item.discountPercent > 0 ? `${item.discountPercent}%` : "-"}
                         </td>
                         <td className="py-3 text-right font-mono font-bold text-slate-900">
-                          ${Math.round(lineNet).toLocaleString()}
+                          ₹{Math.round(lineNet).toLocaleString()}
                         </td>
                       </tr>
                     );
@@ -626,17 +626,17 @@ export function QuotationBuilderCanvas({
               <div className="w-64 space-y-2 border-t border-slate-200 pt-3 text-xs">
                 <div className="flex justify-between text-slate-600">
                   <span>Gross Subtotal:</span>
-                  <span className="font-mono font-semibold">${subtotal.toLocaleString()}</span>
+                  <span className="font-mono font-semibold">₹{subtotal.toLocaleString()}</span>
                 </div>
                 {totalDiscount > 0 && (
                   <div className="flex justify-between text-emerald-600">
                     <span>Applied Discounts:</span>
-                    <span className="font-mono font-semibold">-${Math.round(totalDiscount).toLocaleString()}</span>
+                    <span className="font-mono font-semibold">-₹{Math.round(totalDiscount).toLocaleString()}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-base font-extrabold text-slate-900 pt-2 border-t border-slate-200">
                   <span>Total Investment:</span>
-                  <span className="font-mono text-[#ff5e3a]">${Math.round(netTotal).toLocaleString()}</span>
+                  <span className="font-mono text-[#ff5e3a]">₹{Math.round(netTotal).toLocaleString()}</span>
                 </div>
               </div>
             </div>
@@ -650,17 +650,17 @@ export function QuotationBuilderCanvas({
                 <div className="grid grid-cols-3 gap-2">
                   <div className="bg-white p-2.5 rounded-lg border border-slate-200">
                     <span className="text-[10px] text-slate-400 uppercase font-bold">Phase 1 (50%)</span>
-                    <p className="font-bold text-slate-900">${Math.round(netTotal * 0.5).toLocaleString()}</p>
+                    <p className="font-bold text-slate-900">₹{Math.round(netTotal * 0.5).toLocaleString()}</p>
                     <span className="text-[10px] text-slate-500">Upfront Execution</span>
                   </div>
                   <div className="bg-white p-2.5 rounded-lg border border-slate-200">
                     <span className="text-[10px] text-slate-400 uppercase font-bold">Phase 2 (30%)</span>
-                    <p className="font-bold text-slate-900">${Math.round(netTotal * 0.3).toLocaleString()}</p>
+                    <p className="font-bold text-slate-900">₹{Math.round(netTotal * 0.3).toLocaleString()}</p>
                     <span className="text-[10px] text-slate-500">Integration UAT</span>
                   </div>
                   <div className="bg-white p-2.5 rounded-lg border border-slate-200">
                     <span className="text-[10px] text-slate-400 uppercase font-bold">Phase 3 (20%)</span>
-                    <p className="font-bold text-slate-900">${Math.round(netTotal * 0.2).toLocaleString()}</p>
+                    <p className="font-bold text-slate-900">₹{Math.round(netTotal * 0.2).toLocaleString()}</p>
                     <span className="text-[10px] text-slate-500">Go-Live Signoff</span>
                   </div>
                 </div>
@@ -682,7 +682,7 @@ export function QuotationBuilderCanvas({
                   Commercial Terms &amp; SLA
                 </span>
                 <p className="text-slate-600 text-[11px]">
-                  All fees are quoted in USD. Invoices payable under {paymentTerms}. Service is backed by a 99.95%
+                  All fees are quoted in INR (₹). Invoices payable under {paymentTerms}. Service is backed by a 99.95%
                   monthly service level agreement.
                 </p>
               </div>

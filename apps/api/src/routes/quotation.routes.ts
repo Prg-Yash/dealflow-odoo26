@@ -4,6 +4,8 @@ import { requireAuth, requireRole } from "../middleware/auth.middleware.js";
 import { tenantMiddleware } from "../middleware/tenant.js";
 import { validateBody } from "../middleware/validate.js";
 import * as controller from "../controllers/quotation.controller.js";
+import { createFulfillmentOrder } from "../controllers/fulfillment.controller.js";
+import { confirmQuotation } from "../controllers/billing.controller.js";
 import {
   CreateQuotationSchema,
   CreateQuotationLineSchema,
@@ -73,3 +75,18 @@ quotationRouter.get(
   requireRole(UserRole.SALES_REP, UserRole.SALES_MANAGER, UserRole.ADMIN),
   controller.getUpsellSuggestions
 );
+
+// Create fulfillment order on APPROVED or CONFIRMED quotation
+quotationRouter.post(
+  "/:id/fulfillment-orders",
+  requireRole(UserRole.FINANCE_OPS, UserRole.ADMIN, UserRole.SALES_MANAGER),
+  createFulfillmentOrder
+);
+
+// Confirm quotation: creates Subscription rows for recurring lines + an Invoice for one-time lines
+quotationRouter.post(
+  "/:id/confirm",
+  requireRole(...STAFF_ROLES),
+  confirmQuotation
+);
+

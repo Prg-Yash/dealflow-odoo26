@@ -29,11 +29,15 @@ import {
   type ManagerApprovalRequest,
   type ApprovalStatus,
 } from "../../../../../../lib/manager-data";
+import { useQuotation, useUpdateQuotationStage } from "../../../../../../lib/query";
 
 export default function ManagerApprovalDetailPage() {
   const params = useParams();
   const rawId = params.id as string;
   const quoteId = decodeURIComponent(rawId);
+
+  const { data: apiQuote } = useQuotation(quoteId);
+  const updateStageMutation = useUpdateQuotationStage();
 
   // Retrieve matching approval or fallback to the primary reference Q-1042
   const initialData: ManagerApprovalRequest =
@@ -41,7 +45,58 @@ export default function ManagerApprovalDetailPage() {
       (a: ManagerApprovalRequest) => a.quoteId.toLowerCase() === quoteId.toLowerCase()
     ) || INITIAL_MANAGER_APPROVALS[0]!;
 
-  const [request, setRequest] = useState<ManagerApprovalRequest>(initialData);
+  const [decisionState, setDecisionState] = useState<{
+    status: ApprovalStatus;
+    defaultNote: string;
+    action: "APPROVED" | "REVISION_REQUESTED" | "REJECTED";
+  } | null>(null);
+
+  const baseRequest: ManagerApprovalRequest = {
+    ...initialData,
+    ...(apiQuote
+      ? {
+          quoteId: apiQuote.quoteNumber || apiQuote.id,
+          account: apiQuote.customer?.name || initialData.account,
+          dealSize: apiQuote.grandTotal || initialData.dealSize,
+          discountRequested: apiQuote.discountPercent || initialData.discountRequested,
+          marginProjected: apiQuote.grossMarginPercent || initialData.marginProjected,
+          status: (apiQuote.stage === "APPROVED" ? "APPROVED" : "PENDING") as ApprovalStatus,
+        }
+      : {}),
+  };
+
+  const request: ManagerApprovalRequest = decisionState
+    ? {
+        ...baseRequest,
+        status: decisionState.status,
+        auditLogs: [
+          ...baseRequest.auditLogs,
+          {
+            id: "log-decision-latest",
+            actor: "E. Vance (You)",
+            role: "Sales Director",
+            action: decisionState.action,
+            timestamp: "Just now",
+            note: decisionState.defaultNote,
+          },
+        ],
+        workflowSteps: baseRequest.workflowSteps.map((s) => {
+          if (s.nodeTitle.includes("VP Finance")) {
+            return {
+              ...s,
+              status: decisionState.action === "APPROVED" ? "completed" : "active",
+              actionNote: decisionState.defaultNote,
+              actionedAt: "Just now",
+            };
+          }
+          if (s.nodeTitle.includes("Client") && decisionState.action === "APPROVED") {
+            return { ...s, status: "active", actionNote: "Awaiting client counter-signature" };
+          }
+          return s;
+        }),
+      }
+    : baseRequest;
+
   const [reviewComment, setReviewComment] = useState("");
   const [notifyStakeholders, setNotifyStakeholders] = useState(true);
   const [feedbackBanner, setFeedbackBanner] = useState<{
@@ -54,7 +109,15 @@ export default function ManagerApprovalDetailPage() {
     setReviewComment((prev) => (prev ? `${prev} ${clause}` : clause));
   };
 
-  const handleExecuteDetermination = (action: "APPROVED" | "REVISION_REQUESTED" | "REJECTED") => {
+  const handleExecuteDetermination = async (action: "APPROVED" | "REVISION_REQUESTED" | "REJECTED") => {
+    try {
+      await updateStageMutation.mutateAsync({
+        id: quoteId,
+        stage: action === "APPROVED" ? "APPROVED" : "CANCELLED",
+      });
+    } catch (err) {
+      console.warn("Optimistic determination update:", err);
+    }
     const defaultNote =
       action === "APPROVED"
         ? reviewComment || "Approved and dispatched under strategic account exception criteria."
@@ -62,35 +125,7 @@ export default function ManagerApprovalDetailPage() {
         ? reviewComment || "Returned for revision: Please adjust setup discount to policy cap (10%)."
         : reviewComment || "Rejected: Unacceptable margin deterioration without multi-year commitment.";
 
-    setRequest((prev) => ({
-      ...prev,
-      status: action as ApprovalStatus,
-      auditLogs: [
-        ...prev.auditLogs,
-        {
-          id: `log-${Date.now()}`,
-          actor: "E. Vance (You)",
-          role: "Sales Director",
-          action: action,
-          timestamp: "Just now",
-          note: defaultNote,
-        },
-      ],
-      workflowSteps: prev.workflowSteps.map((s) => {
-        if (s.nodeTitle.includes("VP Finance")) {
-          return {
-            ...s,
-            status: action === "APPROVED" ? "completed" : "active",
-            actionNote: defaultNote,
-            actionedAt: "Just now",
-          };
-        }
-        if (s.nodeTitle.includes("Client") && action === "APPROVED") {
-          return { ...s, status: "active", actionNote: "Awaiting client counter-signature" };
-        }
-        return s;
-      }),
-    }));
+    setDecisionState({ status: action as ApprovalStatus, defaultNote, action });
 
     setFeedbackBanner({
       visible: true,
@@ -257,11 +292,11 @@ export default function ManagerApprovalDetailPage() {
             </div>
             <div className="mt-4">
               <div className="text-2xl font-black text-[#0f172a] tracking-tight">
-                ${request.dealSize.toLocaleString()}.00
+                ₹{request.dealSize.toLocaleString()}.00
               </div>
               <div className="mt-1 flex items-center gap-1.5 text-xs text-emerald-600 font-bold">
                 <TrendingUp size={13} />
-                <span>+$14,200 expansion tier</span>
+                <span>+₹14,200 expansion tier</span>
               </div>
             </div>
           </div>
@@ -425,7 +460,7 @@ export default function ManagerApprovalDetailPage() {
                     </td>
 
                     <td className="py-4 px-4 font-mono font-medium text-slate-600">
-                      ${item.listPrice.toLocaleString()}.00
+                      ₹{item.listPrice.toLocaleString()}.00
                     </td>
 
                     <td className="py-4 px-6">
@@ -452,7 +487,7 @@ export default function ManagerApprovalDetailPage() {
                         item.isBreached ? "text-rose-700" : "text-slate-900"
                       }`}
                     >
-                      ${item.netPrice.toLocaleString()}.00
+                      ₹{item.netPrice.toLocaleString()}.00
                     </td>
 
                     <td className="py-4 px-6 text-right">

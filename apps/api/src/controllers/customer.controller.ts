@@ -32,3 +32,17 @@ export const deleteCustomer = asyncHandler(async (req: TenantRequest, res: Respo
   const result = await customerService.deleteCustomer(req.orgId, req.params.id as string);
   return res.json({ success: true, data: result });
 });
+
+export const inviteCustomer = asyncHandler(async (req: TenantRequest, res: Response) => {
+  const result = await customerService.inviteCustomer(
+    req.orgId,
+    req.user!,
+    req.body
+  );
+  return res.status(201).json({
+    success: true,
+    message: `Invitation successfully dispatched to customer ${result.customer.email}`,
+    data: result,
+  });
+});
+

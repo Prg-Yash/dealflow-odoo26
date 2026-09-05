@@ -2,9 +2,15 @@ import { Worker, type Job as BullJob } from "bullmq";
 import { prisma } from "@repo/db";
 import { ENV } from "./config/env.js";
 import { redisConnection } from "./config/redis.js";
-import { QUEUE_NAMES, type HeavyComputeJobData, type DataSyncJobData } from "./queues/index.js";
+import {
+  QUEUE_NAMES,
+  type HeavyComputeJobData,
+  type DataSyncJobData,
+  type BackorderConsolidationJobData,
+} from "./queues/index.js";
 import { processHeavyComputeJob } from "./processors/heavy-compute.processor.js";
 import { processDataSyncJob } from "./processors/data-sync.processor.js";
+import { processBackorderConsolidationJob } from "./processors/backorder.processor.js";
 import { startMetricsReporter, stopMetricsReporter } from "./services/metrics.service.js";
 import { startJobPoller, stopJobPoller } from "./services/job-poller.service.js";
 import { logger } from "./utils/logger.js";
@@ -35,6 +41,19 @@ const dataSyncWorker = new Worker<DataSyncJobData>(
   QUEUE_NAMES.DATA_SYNC,
   async (job: BullJob<DataSyncJobData>) => {
     return await processDataSyncJob(job);
+  },
+  {
+    connection: redisConnection,
+    concurrency: 2,
+    lockDuration: 30000,
+  }
+);
+
+// Initialize BullMQ Worker for Backorder Consolidation Queue
+const backorderWorker = new Worker<BackorderConsolidationJobData>(
+  QUEUE_NAMES.BACKORDER_CONSOLIDATION,
+  async (job: BullJob<BackorderConsolidationJobData>) => {
+    return await processBackorderConsolidationJob(job);
   },
   {
     connection: redisConnection,
@@ -115,6 +134,7 @@ async function gracefulShutdown(signal: string) {
     await Promise.allSettled([
       heavyComputeWorker.close(),
       dataSyncWorker.close(),
+      backorderWorker.close(),
     ]);
     logger.info("BullMQ workers closed.");
 

@@ -48,6 +48,14 @@ export function rankUpsellSuggestions(candidates: UpsellCandidate[]): RankedUpse
       };
     })
     .filter((item) => item.marginPercent >= item.minMarginThreshold)
-    .sort((a, b) => b.score - a.score)
-    .map(({ minMarginThreshold, ...cleanItem }) => cleanItem);
+    .map((item) => ({
+      productId: item.productId,
+      productName: item.productName,
+      unitPrice: item.unitPrice,
+      marginPercent: item.marginPercent,
+      reason: item.reason,
+      score: item.score,
+      promotionalTag: item.promotionalTag,
+      isPromoted: item.isPromoted,
+    }));
 }

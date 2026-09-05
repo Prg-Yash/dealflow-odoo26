@@ -42,12 +42,12 @@ const DEFAULT_TABS: NavTabItem[] = [
 ];
 
 const SEARCHABLE_DEALS = [
-  { id: "Q-1042", org: "Acme Corporation", value: "$68,500", stage: "Pending Approval" },
-  { id: "Q-1043", org: "Apex Logic Systems", value: "$34,000", stage: "Draft" },
-  { id: "Q-1044", org: "OmniRetail Global", value: "$114,200", stage: "Pending Approval" },
-  { id: "Q-1045", org: "Strata Logistics", value: "$45,000", stage: "Approved" },
-  { id: "Q-1046", org: "Northstar Labs", value: "$96,500", stage: "Confirmed / PO" },
-  { id: "Q-1047", org: "Beta Industries", value: "$72,000", stage: "Negotiation" },
+  { id: "Q-1042", org: "Acme Corporation", value: "₹68,500", stage: "Pending Approval" },
+  { id: "Q-1043", org: "Apex Logic Systems", value: "₹34,000", stage: "Draft" },
+  { id: "Q-1044", org: "OmniRetail Global", value: "₹114,200", stage: "Pending Approval" },
+  { id: "Q-1045", org: "Strata Logistics", value: "₹45,000", stage: "Approved" },
+  { id: "Q-1046", org: "Northstar Labs", value: "₹96,500", stage: "Confirmed / PO" },
+  { id: "Q-1047", org: "Beta Industries", value: "₹72,000", stage: "Negotiation" },
 ];
 
 export function SalesNav({

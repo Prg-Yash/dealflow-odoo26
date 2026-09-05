@@ -204,15 +204,15 @@ enum LogLevel {
 /// Use Case: Core user identity, authentication credentials, role-based access control 
 /// (Admin, Sales Rep, Sales Manager, Finance, Customer), and tenant membership.
 model User {
-  id             String   @id @default(cuid())
-  name           String
-  email          String   @unique
-  emailVerified  Boolean  @default(false)
-  image          String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  organizationId String?
-  role           UserRole @default(ADMIN)
+  id                    String               @id @default(cuid())
+  name                  String
+  email                 String               @unique
+  emailVerified         Boolean              @default(false)
+  image                 String?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  organizationId        String?
+  role                  UserRole             @default(CUSTOMER)
 
   // Auth Relations
   accounts Account[]
@@ -305,7 +305,7 @@ model Organization {
   id          String   @id @default(cuid())
   name        String
   slug        String?  @unique
-  currency    String   @default("USD")
+  currency    String   @default("INR")
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -577,7 +577,7 @@ model ProductVariant {
 model PriceList {
   id             String   @id @default(cuid())
   name           String // e.g. "Gold Tier Preferred Price List"
-  currency       String   @default("USD")
+  currency       String   @default("INR")
   customerTierId String?
   organizationId String
   isDefault      Boolean  @default(false)

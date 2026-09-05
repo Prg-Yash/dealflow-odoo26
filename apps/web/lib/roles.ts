@@ -75,10 +75,11 @@ export const ALL_ROLES = Object.values(ROLES);
 const STORAGE_KEY = "df360_user_role";
 
 export function getStoredRole(): UserRole {
-  if (typeof window === "undefined") return "sales_rep";
+  if (typeof window === "undefined") return "customer";
   const stored = localStorage.getItem(STORAGE_KEY) as UserRole | null;
-  return stored && ROLES[stored] ? stored : "sales_rep";
+  return stored && ROLES[stored] ? stored : "customer";
 }
+
 
 export function setStoredRole(role: UserRole): void {
   if (typeof window !== "undefined") {

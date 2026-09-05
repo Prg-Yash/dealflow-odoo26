@@ -56,7 +56,7 @@ export function QuotationMarginCard({
     governanceLevel = {
       tier: "Tier 1 Approval",
       label: "Sales Manager Review Required",
-      description: "Discounts above 10% or deals exceeding $50K require Sales Director approval.",
+      description: "Discounts above 10% or deals exceeding ₹50K require Sales Director approval.",
       color: "text-amber-700",
       bgColor: "bg-amber-50",
       borderColor: "border-amber-200",
@@ -128,29 +128,29 @@ export function QuotationMarginCard({
       <div className="space-y-2.5 text-xs text-slate-600">
         <div className="flex justify-between">
           <span>Gross List Value</span>
-          <span className="font-mono text-slate-800 font-medium">${Math.round(grossSubtotal).toLocaleString()}</span>
+          <span className="font-mono text-slate-800 font-medium">₹{Math.round(grossSubtotal).toLocaleString()}</span>
         </div>
 
         <div className="flex justify-between text-amber-700 font-medium">
           <span>Total Discount ({discountPercent.toFixed(1)}%)</span>
-          <span className="font-mono">-${Math.round(totalDiscount).toLocaleString()}</span>
+          <span className="font-mono">-₹{Math.round(totalDiscount).toLocaleString()}</span>
         </div>
 
         <div className="flex justify-between pt-2 border-t border-slate-100 text-slate-900 font-bold">
           <span>Net Contract Total</span>
           <span className="text-sm font-mono font-extrabold text-[#ff5e3a]">
-            ${Math.round(netTotal).toLocaleString()}
+            ₹{Math.round(netTotal).toLocaleString()}
           </span>
         </div>
 
         <div className="flex justify-between text-slate-500 pt-1">
           <span>Estimated COGS (Cost Basis)</span>
-          <span className="font-mono">${Math.round(totalCost).toLocaleString()}</span>
+          <span className="font-mono">₹{Math.round(totalCost).toLocaleString()}</span>
         </div>
 
         <div className="flex justify-between text-emerald-700 font-semibold">
           <span>Gross Profit Contribution</span>
-          <span className="font-mono">+${Math.round(marginAmount).toLocaleString()}</span>
+          <span className="font-mono">+₹{Math.round(marginAmount).toLocaleString()}</span>
         </div>
       </div>
 

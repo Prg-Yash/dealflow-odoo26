@@ -85,3 +85,9 @@ export const directAdjustStock = asyncHandler(async (req: TenantRequest, res: Re
   });
   return res.status(200).json({ success: true, data: result });
 });
+
+export const listStockMovements = asyncHandler(async (req: TenantRequest, res: Response) => {
+  const movements = await warehouseService.listStockMovements(req.orgId, req.query as any);
+  return res.json({ success: true, data: movements });
+});
+

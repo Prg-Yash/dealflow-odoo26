@@ -8,10 +8,17 @@ import * as controller from "../controllers/customer-tier.controller.js";
 
 export const customerTiersRouter = Router();
 
-customerTiersRouter.use(requireAuth, tenantMiddleware, requireRole(UserRole.ADMIN));
+const STAFF_ROLES = [
+  UserRole.ADMIN,
+  UserRole.SALES_MANAGER,
+  UserRole.SALES_REP,
+  UserRole.FINANCE_OPS,
+];
 
-customerTiersRouter.get("/", controller.listTiers);
-customerTiersRouter.post("/", validateBody(CreateCustomerTierSchema), controller.createTier);
-customerTiersRouter.get("/:id", controller.getTier);
-customerTiersRouter.patch("/:id", validateBody(UpdateCustomerTierSchema), controller.updateTier);
-customerTiersRouter.delete("/:id", controller.deleteTier);
+customerTiersRouter.use(requireAuth, tenantMiddleware);
+
+customerTiersRouter.get("/", requireRole(...STAFF_ROLES), controller.listTiers);
+customerTiersRouter.post("/", requireRole(UserRole.ADMIN), validateBody(CreateCustomerTierSchema), controller.createTier);
+customerTiersRouter.get("/:id", requireRole(...STAFF_ROLES), controller.getTier);
+customerTiersRouter.patch("/:id", requireRole(UserRole.ADMIN), validateBody(UpdateCustomerTierSchema), controller.updateTier);
+customerTiersRouter.delete("/:id", requireRole(UserRole.ADMIN), controller.deleteTier);

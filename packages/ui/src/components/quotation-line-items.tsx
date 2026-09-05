@@ -191,7 +191,7 @@ export function QuotationLineItems({
                     </td>
 
                     <td className="py-4 px-4 text-right font-mono text-slate-600">
-                      ${item.unitPrice.toLocaleString()}
+                      ₹{item.unitPrice.toLocaleString()}
                     </td>
 
                     <td className="py-4 px-4">
@@ -227,7 +227,7 @@ export function QuotationLineItems({
                     </td>
 
                     <td className="py-4 px-5 text-right font-mono font-extrabold text-slate-900 text-sm">
-                      ${Math.round(net).toLocaleString()}
+                      ₹{Math.round(net).toLocaleString()}
                     </td>
 
                     {!readOnly && (
@@ -255,7 +255,7 @@ export function QuotationLineItems({
                   Contract Total Net Investment:
                 </td>
                 <td className="py-3.5 px-5 text-right text-base font-black text-[#ff5e3a]">
-                  ${Math.round(totalContract).toLocaleString()}.00
+                  ₹{Math.round(totalContract).toLocaleString()}.00
                 </td>
                 {!readOnly && <td></td>}
               </tr>

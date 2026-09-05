@@ -15,6 +15,7 @@ export const stockLevelRouter = Router();
 stockLevelRouter.use(requireAuth, tenantMiddleware);
 
 // Stock queries — accessible to authenticated staff
+stockLevelRouter.get("/movements", controller.listStockMovements);
 stockLevelRouter.get("/", validateQuery(StockLevelQuerySchema), controller.listStockLevels);
 stockLevelRouter.get("/:id", controller.getStockLevel);
 stockLevelRouter.get("/:id/available", controller.getStockAvailable);
