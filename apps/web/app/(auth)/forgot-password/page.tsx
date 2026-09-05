@@ -4,8 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArrowRight, Mail, CheckCircle2, ArrowLeft, Users } from "lucide-react";
 import { AuthCard } from "@repo/ui";
-import { ROLES, ALL_ROLES, inferRoleFromEmail, type UserRole } from "../../lib/roles";
-import { isValidEmail } from "../../lib/validation";
+import { ROLES, ALL_ROLES, inferRoleFromEmail, type UserRole } from "../../../lib/roles";
+import { isValidEmail } from "../../../lib/validation";
 
 export default function ForgotPasswordPage() {
   const [selectedRole, setSelectedRole] = useState<UserRole>("sales_rep");
