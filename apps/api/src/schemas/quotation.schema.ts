@@ -7,6 +7,7 @@ export const CreateQuotationSchema = z.object({
   customerName: z.string().optional(),
   companyName: z.string().optional(),
   customerPhone: z.string().optional(),
+  tierId: z.string().optional(),
   title: z.string().min(1, "Title is required"),
   salesRepId: z.string().optional(),
   quoteNumber: z.string().optional(),

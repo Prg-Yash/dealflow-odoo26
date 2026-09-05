@@ -4,6 +4,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prisma } from "@repo/db";
 import { ENV } from "../config/env.js";
 import { sendVerificationEmail, sendResetPasswordEmail } from "../services/email.service.js";
+import { hashPassword, verifyPassword } from "./passwords.js";
 
 export const auth = betterAuth({
   plugins: [bearer()],
@@ -13,6 +14,10 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     autoSignIn: true,
+    password: {
+      hash: hashPassword,
+      verify: verifyPassword,
+    },
     async sendResetPassword({ user, url, token }) {
       await sendResetPasswordEmail({
         email: user.email,

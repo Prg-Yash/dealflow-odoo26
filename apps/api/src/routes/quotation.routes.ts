@@ -6,6 +6,7 @@ import { validateBody } from "../middleware/validate.js";
 import * as controller from "../controllers/quotation.controller.js";
 import { createFulfillmentOrder } from "../controllers/fulfillment.controller.js";
 import { confirmQuotation } from "../controllers/billing.controller.js";
+import * as approvalController from "../controllers/approval.controller.js";
 import {
   CreateQuotationSchema,
   CreateQuotationLineSchema,
@@ -27,6 +28,12 @@ const SALES_ROLES = [
   UserRole.SALES_REP,
   UserRole.SALES_MANAGER,
   UserRole.ADMIN,
+];
+
+const APPROVER_ROLES = [
+  UserRole.ADMIN,
+  UserRole.SALES_MANAGER,
+  UserRole.FINANCE_OPS,
 ];
 
 // Quotation list and details
@@ -69,6 +76,19 @@ quotationRouter.post(
   controller.submitQuotation
 );
 
+// Approve or reject quotation steps
+quotationRouter.post(
+  "/:id/approve",
+  requireRole(...APPROVER_ROLES),
+  approvalController.approveQuotationStep
+);
+
+quotationRouter.post(
+  "/:id/reject",
+  requireRole(...APPROVER_ROLES),
+  approvalController.rejectQuotationStep
+);
+
 // Live upsell & cross-sell suggestions panel
 quotationRouter.get(
   "/:id/upsell-suggestions",
@@ -89,4 +109,5 @@ quotationRouter.post(
   requireRole(...STAFF_ROLES),
   confirmQuotation
 );
+
 

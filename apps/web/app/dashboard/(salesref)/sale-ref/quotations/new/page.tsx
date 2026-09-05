@@ -5,29 +5,38 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
-  CheckCircle2,
-  Plus,
-  Trash2,
-  AlertTriangle,
   Building2,
   User,
   Mail,
   Phone,
-  DollarSign,
   Loader2,
   Send,
   Save,
   Package,
   ShieldCheck,
   Check,
+  AlertTriangle,
+  Trash2,
+  Layers,
+  Sparkles,
+  Info,
+  TrendingUp,
+  Zap,
+  Plus,
 } from "lucide-react";
 import { SalesNav } from "@repo/ui";
-import { useCustomers, useProducts, useCreateQuotation } from "../../../../../../lib/query";
+import {
+  useCustomers,
+  useCustomerTiers,
+  useProducts,
+  useCategories,
+  useCreateQuotation,
+  useProductRecommendations,
+} from "../../../../../../lib/query";
 import { useDashboardAuth } from "../../../../layout";
 import {
   calculateQuotationRisk,
   DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
-  DEFAULT_BLENDED_DISCOUNT_THRESHOLD,
   type RiskLineItem,
 } from "../../../../../../lib/risk-engine";
 
@@ -37,6 +46,7 @@ interface LineItemState {
   name: string;
   description: string;
   category: string;
+  categoryType: string;
   categoryCeiling: number;
   quantity: number;
   unitPrice: number;
@@ -48,9 +58,21 @@ export default function NewQuotationPage() {
   const router = useRouter();
   const { user, signOut } = useDashboardAuth();
 
+  // Dynamic Data Queries
   const { data: apiCustomers, isLoading: loadingCustomers } = useCustomers();
+  const { data: apiCustomerTiers, isLoading: loadingTiers } = useCustomerTiers();
   const { data: apiProducts, isLoading: loadingProducts } = useProducts();
+  const { data: apiCategories } = useCategories();
+  const { data: apiRecommendations } = useProductRecommendations();
   const createQuotationMutation = useCreateQuotation();
+
+  // Organization Currency Symbol
+  const currencySymbol =
+    user?.organization?.currency === "USD"
+      ? "$"
+      : user?.organization?.currency === "EUR"
+        ? "€"
+        : "₹";
 
   // Mode: select existing customer vs enter new customer
   const [customerMode, setCustomerMode] = useState<"existing" | "new">("existing");
@@ -63,6 +85,7 @@ export default function NewQuotationPage() {
   const [customerName, setCustomerName] = useState<string>("");
   const [companyName, setCompanyName] = useState<string>("");
   const [customerPhone, setCustomerPhone] = useState<string>("");
+  const [selectedNewCustomerTierId, setSelectedNewCustomerTierId] = useState<string>("");
 
   // Proposal details
   const [quoteTitle, setQuoteTitle] = useState<string>("");
@@ -73,16 +96,11 @@ export default function NewQuotationPage() {
     return d.toISOString().split("T")[0]!;
   });
 
-  // Dynamic Line Items - starts clean (no fake static items)
+  // Dynamic Line Items
   const [items, setItems] = useState<LineItemState[]>([]);
 
   // Selected catalog product to add
   const [selectedProductId, setSelectedProductId] = useState<string>("");
-
-  // Custom Item Modal state
-  const [customName, setCustomName] = useState("");
-  const [customPrice, setCustomPrice] = useState("");
-  const [customCategory, setCustomCategory] = useState("services");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -94,24 +112,50 @@ export default function NewQuotationPage() {
         setSelectedCustomerId(apiCustomers[0]!.id);
       }
     } else if (apiCustomers && apiCustomers.length === 0) {
-      // If organization has no customers yet, switch to "new" customer mode
       setCustomerMode("new");
     }
   }, [apiCustomers, selectedCustomerId]);
 
+  // Sync default tier for new customer mode
+  useEffect(() => {
+    if (apiCustomerTiers && apiCustomerTiers.length > 0 && !selectedNewCustomerTierId) {
+      setSelectedNewCustomerTierId(apiCustomerTiers[0]!.id);
+    }
+  }, [apiCustomerTiers, selectedNewCustomerTierId]);
+
+  // Active Customer & Dynamic Tier Resolution
+  const selectedCustomer = useMemo(() => {
+    if (customerMode === "existing") {
+      return apiCustomers?.find((c) => c.id === selectedCustomerId);
+    }
+    return null;
+  }, [customerMode, apiCustomers, selectedCustomerId]);
+
+  const activeCustomerTier = useMemo(() => {
+    if (customerMode === "existing") {
+      return selectedCustomer?.tier || apiCustomerTiers?.[0];
+    }
+    return (
+      apiCustomerTiers?.find((t) => t.id === selectedNewCustomerTierId) || apiCustomerTiers?.[0]
+    );
+  }, [customerMode, selectedCustomer, apiCustomerTiers, selectedNewCustomerTierId]);
+
+  const activeCustomerTierCeiling = activeCustomerTier?.discountCeiling ?? 10.0;
+
   // Sync default quote title when customer changes
   useEffect(() => {
     if (customerMode === "existing") {
-      const selected = apiCustomers?.find((c) => c.id === selectedCustomerId);
-      if (selected) {
-        setQuoteTitle(`${selected.companyName || selected.name} Commercial Proposal`);
+      if (selectedCustomer) {
+        setQuoteTitle(
+          `${selectedCustomer.companyName || selectedCustomer.name} Commercial Proposal`
+        );
       }
     } else {
       if (companyName || customerName) {
         setQuoteTitle(`${companyName || customerName} Commercial Proposal`);
       }
     }
-  }, [customerMode, selectedCustomerId, apiCustomers, companyName, customerName]);
+  }, [customerMode, selectedCustomer, companyName, customerName]);
 
   // Dynamic Risk & Threshold Calculation
   const riskLines: RiskLineItem[] = useMemo(() => {
@@ -120,23 +164,86 @@ export default function NewQuotationPage() {
       productId: i.productId,
       quantity: i.quantity,
       unitPrice: i.unitPrice,
+      costPrice: i.costPrice,
       discountPercent: i.discountPercent,
       categoryCeiling: i.categoryCeiling,
+      customerTierCeiling: activeCustomerTierCeiling,
     }));
-  }, [items]);
+  }, [items, activeCustomerTierCeiling]);
 
   const riskSummary = useMemo(() => {
     return calculateQuotationRisk(
       riskLines,
       DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
-      DEFAULT_BLENDED_DISCOUNT_THRESHOLD
+      activeCustomerTierCeiling
     );
-  }, [riskLines]);
+  }, [riskLines, activeCustomerTierCeiling]);
 
-  // Handle adding product from organization's real catalog
-  const handleAddProduct = () => {
-    if (!selectedProductId || !apiProducts) return;
-    const prod = apiProducts.find((p) => p.id === selectedProductId);
+  // Live upsell & cross-sell recommendation candidates for current items
+  const upsellSuggestions = useMemo(() => {
+    if (!items || items.length === 0 || !apiProducts) return [];
+    const currentProductIds = new Set(items.map((i) => i.productId));
+
+    // 1. Direct Pairing Rules from DB
+    const matchingRecs = (apiRecommendations || []).filter(
+      (rec) =>
+        rec.isActive &&
+        currentProductIds.has(rec.sourceProductId) &&
+        !currentProductIds.has(rec.recommendedProductId)
+    );
+
+    const directCandidates = matchingRecs
+      .map((rec) => {
+        const prod = apiProducts.find((p) => p.id === rec.recommendedProductId);
+        if (!prod) return null;
+        const margin =
+          prod.basePrice > 0 ? ((prod.basePrice - prod.costPrice) / prod.basePrice) * 100 : 0;
+        if (margin < rec.minMarginThreshold) return null; // Enforce margin floor
+        return {
+          productId: prod.id,
+          name: prod.name,
+          sku: prod.sku,
+          category: prod.category?.name || "Accessory",
+          basePrice: prod.basePrice,
+          costPrice: prod.costPrice,
+          marginPercent: Math.round(margin),
+          score: rec.coPurchaseScore,
+          promotionalTag: rec.promotionalTag || "Frequently Bought Together",
+          isPromoted: prod.isPromoted,
+        };
+      })
+      .filter(Boolean) as any[];
+
+    // 2. If no direct pairings, surface high-margin services/accessories not yet in quote
+    const fallbackCandidates = apiProducts
+      .filter(
+        (p) =>
+          !currentProductIds.has(p.id) &&
+          !directCandidates.some((c) => c.productId === p.id) &&
+          (p.category?.type === "SERVICE" || p.isPromoted || p.category?.type === "SUBSCRIPTION")
+      )
+      .map((p) => {
+        const margin = p.basePrice > 0 ? ((p.basePrice - p.costPrice) / p.basePrice) * 100 : 0;
+        return {
+          productId: p.id,
+          name: p.name,
+          sku: p.sku,
+          category: p.category?.name || "Service",
+          basePrice: p.basePrice,
+          costPrice: p.costPrice,
+          marginPercent: Math.round(margin),
+          score: p.isPromoted ? 9.0 : 7.0,
+          promotionalTag: p.isPromoted ? "Promoted Deal Booster" : "Recommended Support Add-on",
+          isPromoted: p.isPromoted,
+        };
+      })
+      .filter((c) => c.marginPercent >= 20);
+
+    return [...directCandidates, ...fallbackCandidates].slice(0, 4);
+  }, [items, apiProducts, apiRecommendations]);
+
+  const handleAddSuggestion = (sug: any) => {
+    const prod = apiProducts?.find((p) => p.id === sug.productId);
     if (!prod) return;
 
     const existing = items.find((it) => it.productId === prod.id);
@@ -151,7 +258,40 @@ export default function NewQuotationPage() {
         name: prod.name,
         description: prod.description || prod.name,
         category: prod.category?.name || "Standard",
-        categoryCeiling: DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
+        categoryType: prod.category?.type || "HARDWARE",
+        categoryCeiling: (prod.category as any)?.ceilingLimit ?? DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
+        quantity: 1,
+        unitPrice: prod.basePrice,
+        costPrice: prod.costPrice,
+        discountPercent: 0,
+      };
+      setItems((prev) => [...prev, newItem]);
+    }
+  };
+
+  // Handle adding product from organization's real catalog
+  const handleAddProduct = () => {
+    if (!selectedProductId || !apiProducts) return;
+    const prod = apiProducts.find((p) => p.id === selectedProductId);
+    if (!prod) return;
+
+    // Find dynamic category discount ceiling
+    const catCeiling = (prod.category as any)?.discountCeiling ?? 15.0;
+
+    const existing = items.find((it) => it.productId === prod.id);
+    if (existing) {
+      setItems((prev) =>
+        prev.map((it) => (it.productId === prod.id ? { ...it, quantity: it.quantity + 1 } : it))
+      );
+    } else {
+      const newItem: LineItemState = {
+        id: `line-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        productId: prod.id,
+        name: prod.name,
+        description: prod.description || prod.name,
+        category: prod.category?.name || "Standard",
+        categoryType: prod.category?.type || "HARDWARE",
+        categoryCeiling: catCeiling,
         quantity: 1,
         unitPrice: prod.basePrice,
         costPrice: prod.costPrice,
@@ -160,29 +300,6 @@ export default function NewQuotationPage() {
       setItems((prev) => [...prev, newItem]);
     }
     setSelectedProductId("");
-  };
-
-  // Add custom deliverable item
-  const handleAddCustom = () => {
-    if (!customName.trim() || !customPrice) return;
-    const price = parseFloat(customPrice) || 0;
-    const fallbackProdId = apiProducts?.[0]?.id || "prod-custom";
-
-    const newItem: LineItemState = {
-      id: `custom-${Date.now()}`,
-      productId: fallbackProdId,
-      name: customName.trim(),
-      description: "Custom commercial deliverable",
-      category: customCategory,
-      categoryCeiling: DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
-      quantity: 1,
-      unitPrice: price,
-      costPrice: price * 0.4,
-      discountPercent: 0,
-    };
-    setItems((prev) => [...prev, newItem]);
-    setCustomName("");
-    setCustomPrice("");
   };
 
   const handleUpdateQty = (index: number, qty: number) => {
@@ -254,6 +371,7 @@ export default function NewQuotationPage() {
         payload.customerName = customerName.trim() || undefined;
         payload.companyName = companyName.trim() || customerName.trim() || undefined;
         payload.customerPhone = customerPhone.trim() || undefined;
+        payload.tierId = selectedNewCustomerTierId || undefined;
       }
 
       const createdQuote = await createQuotationMutation.mutateAsync(payload);
@@ -265,7 +383,7 @@ export default function NewQuotationPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-        }).catch(() => {});
+        }).catch(() => { });
       }
 
       router.push(`/dashboard/sale-ref/quotations/${createdQuote.id}`);
@@ -281,11 +399,11 @@ export default function NewQuotationPage() {
 
   const userInitials = user?.name
     ? user.name
-        .split(" ")
-        .map((p) => p[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase()
+      .split(" ")
+      .map((p) => p[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase()
     : "SR";
 
   return (
@@ -319,7 +437,7 @@ export default function NewQuotationPage() {
               Create New Quotation
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Build a dynamic proposal with real-time category limits, blended threshold scoring, and automated customer provisioning.
+              Build a dynamic proposal with organization tiers, category discount limits, and automated approval classification.
             </p>
           </div>
 
@@ -330,6 +448,59 @@ export default function NewQuotationPage() {
             >
               Cancel
             </Link>
+          </div>
+        </div>
+
+        {/* ── MEASURERS DASHBOARD: Live Organization Inputs Header ── */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Measurer 1: Customer Tier (WHO) */}
+          <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#0066cc] border border-blue-100 flex items-center justify-center shrink-0">
+              <ShieldCheck size={20} />
+            </div>
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">1. Customer Tier (WHO)</span>
+              <div className="text-sm font-black text-slate-900 flex items-center gap-1.5 mt-0.5">
+                <span>{activeCustomerTier?.name || "Standard Tier"}</span>
+                <span className="px-1.5 py-0.5 rounded bg-blue-100 text-[#0066cc] text-[10px] font-extrabold">
+                  {activeCustomerTierCeiling}% Max Limit
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Measurer 2: Categories (WHAT) */}
+          <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 border border-amber-100 flex items-center justify-center shrink-0">
+              <Layers size={20} />
+            </div>
+            <div className="overflow-hidden">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">2. Categories (WHAT)</span>
+              <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5 mt-0.5 flex-wrap">
+                {apiCategories && apiCategories.length > 0 ? (
+                  apiCategories.slice(0, 3).map((cat) => (
+                    <span key={cat.id} className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-semibold">
+                      {cat.name}: {cat.discountCeiling ?? 15}%
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-[11px] text-slate-500 font-medium">Hardware (15%), Services (10%), SaaS (12%)</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Measurer 3: Pricing & Currency */}
+          <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center justify-center shrink-0">
+              <Sparkles size={20} />
+            </div>
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">3. Price Schedule</span>
+              <div className="text-sm font-black text-slate-900 mt-0.5">
+                {user?.organization?.currency || "INR"} Commercial Schedule ({currencySymbol})
+              </div>
+            </div>
           </div>
         </div>
 
@@ -357,22 +528,20 @@ export default function NewQuotationPage() {
                     type="button"
                     onClick={() => setCustomerMode("existing")}
                     disabled={!apiCustomers || apiCustomers.length === 0}
-                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                      customerMode === "existing"
-                        ? "bg-white text-[#ff5e3a] font-bold shadow-xs"
+                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${customerMode === "existing"
+                        ? "bg-white text-[#0066cc] font-bold shadow-xs"
                         : "text-slate-600 hover:text-slate-900 disabled:opacity-50"
-                    }`}
+                      }`}
                   >
                     Select Existing ({apiCustomers?.length || 0})
                   </button>
                   <button
                     type="button"
                     onClick={() => setCustomerMode("new")}
-                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                      customerMode === "new"
-                        ? "bg-white text-[#ff5e3a] font-bold shadow-xs"
+                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${customerMode === "new"
+                        ? "bg-white text-[#0066cc] font-bold shadow-xs"
                         : "text-slate-600 hover:text-slate-900"
-                    }`}
+                      }`}
                   >
                     + New Customer
                   </button>
@@ -381,9 +550,17 @@ export default function NewQuotationPage() {
 
               {customerMode === "existing" ? (
                 <div className="space-y-3">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Select Client Account
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      Select Client Account
+                    </label>
+                    {selectedCustomer?.tier && (
+                      <span className="text-[11px] font-bold text-[#0066cc] bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                        {selectedCustomer.tier.name} &bull; {selectedCustomer.tier.discountCeiling}% Max Limit
+                      </span>
+                    )}
+                  </div>
+
                   {loadingCustomers ? (
                     <div className="py-3 flex items-center gap-2 text-xs text-slate-400">
                       <Loader2 size={14} className="animate-spin text-[#ff5e3a]" />
@@ -397,14 +574,14 @@ export default function NewQuotationPage() {
                     >
                       {apiCustomers?.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.companyName || c.name} &ndash; {c.email} ({c.tier?.name || "Standard Tier"})
+                          {c.companyName || c.name} &ndash; {c.email} ({c.tier?.name || "Standard Tier"}: {c.tier?.discountCeiling ?? 10}%)
                         </option>
                       ))}
                     </select>
                   )}
                 </div>
               ) : (
-                /* Auto-Provisioning Customer Fields */
+                /* Auto-Provisioning Customer Fields with Dynamic Tier Selection */
                 <div className="space-y-3 pt-1">
                   <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-200/80 text-[11px] text-blue-800 flex items-center gap-2">
                     <ShieldCheck size={14} className="text-[#ff5e3a] shrink-0" />
@@ -448,7 +625,7 @@ export default function NewQuotationPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="space-y-1">
                       <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                         Contact Person Name
@@ -479,6 +656,23 @@ export default function NewQuotationPage() {
                           className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#ff5e3a] rounded-xl text-xs text-slate-900 outline-none font-medium"
                         />
                       </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        Customer Tier
+                      </label>
+                      <select
+                        value={selectedNewCustomerTierId}
+                        onChange={(e) => setSelectedNewCustomerTierId(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs font-semibold text-slate-800 outline-none cursor-pointer"
+                      >
+                        {apiCustomerTiers?.map((tier) => (
+                          <option key={tier.id} value={tier.id}>
+                            {tier.name} ({tier.discountCeiling}% limit)
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -527,12 +721,12 @@ export default function NewQuotationPage() {
                     value={selectedProductId}
                     onChange={(e) => setSelectedProductId(e.target.value)}
                     disabled={loadingProducts || !apiProducts || apiProducts.length === 0}
-                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none cursor-pointer max-w-[220px]"
+                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none cursor-pointer max-w-[240px]"
                   >
-                    <option value="">+ Choose Product...</option>
+                    <option value="">+ Choose Catalog Product...</option>
                     {apiProducts?.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name} (₹{p.basePrice})
+                        {p.name} ({currencySymbol}{p.basePrice}) &ndash; {p.category?.name || "Cat"}
                       </option>
                     ))}
                   </select>
@@ -542,7 +736,7 @@ export default function NewQuotationPage() {
                     disabled={!selectedProductId}
                     className="px-3 py-1.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] disabled:opacity-50 text-white text-xs font-bold transition cursor-pointer"
                   >
-                    Add
+                    Add Line
                   </button>
                 </div>
               </div>
@@ -552,57 +746,72 @@ export default function NewQuotationPage() {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
                     <tr>
-                      <th className="py-3 px-4 min-w-[200px]">Product</th>
-                      <th className="py-3 px-3 w-20 text-center">Qty</th>
-                      <th className="py-3 px-4 w-28 text-right">Price</th>
-                      <th className="py-3 px-3 w-24 text-center">Discount</th>
-                      <th className="py-3 px-3 w-20 text-center">Limit</th>
-                      <th className="py-3 px-4 w-28 text-center">Status</th>
-                      <th className="py-3 px-3 w-12 text-center"></th>
+                      <th className="py-3 px-4 min-w-[200px]">Product &amp; Category</th>
+                      <th className="py-3 px-3 w-16 text-center">Qty</th>
+                      <th className="py-3 px-3 w-24 text-right">Unit Price</th>
+                      <th className="py-3 px-3 w-24 text-center">Discount %</th>
+                      <th className="py-3 px-3 w-28 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <span>Effective Limit</span>
+                          <Info size={11} className="text-slate-400" />
+                        </div>
+                      </th>
+                      <th className="py-3 px-3 w-24 text-center">Status</th>
+                      <th className="py-3 px-3 w-24 text-right">Net Total</th>
+                      <th className="py-3 px-2 w-10 text-center"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-800">
                     {items.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-10 text-center text-slate-400">
-                          <Package size={24} className="mx-auto mb-2 text-slate-300" />
-                          <p className="font-semibold text-slate-600">No products added yet</p>
+                        <td colSpan={8} className="py-12 text-center text-slate-400">
+                          <Package size={28} className="mx-auto mb-2 text-slate-300" />
+                          <p className="font-semibold text-slate-700">No products added to proposal yet</p>
                           <p className="text-[11px] text-slate-400 mt-0.5">
-                            Select products from your organization's catalog above to start building the quote.
+                            Select products from your organization's catalog above to start building the quotation.
                           </p>
                         </td>
                       </tr>
                     ) : (
                       items.map((item, idx) => {
-                        const limit = item.categoryCeiling;
-                        const isOver = item.discountPercent > limit;
-                        const overage = isOver ? Math.round((item.discountPercent - limit) * 10) / 10 : 0;
+                        const effectiveLimit = Math.min(activeCustomerTierCeiling, item.categoryCeiling);
+                        const isOver = item.discountPercent > effectiveLimit;
+                        const overage = isOver ? Math.round((item.discountPercent - effectiveLimit) * 10) / 10 : 0;
+                        const grossLineTotal = item.quantity * item.unitPrice;
+                        const netLineTotal = grossLineTotal * (1 - item.discountPercent / 100);
 
                         return (
                           <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
-                            <td className="py-3.5 px-4 font-semibold text-slate-900">
+                            <td className="py-3 px-4 font-semibold text-slate-900">
                               <div>{item.name}</div>
-                              <div className="text-[11px] text-slate-400 font-normal">{item.category}</div>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold">
+                                  {item.category}
+                                </span>
+                                <span className="text-[10px] text-slate-400">
+                                  Cat Limit: {item.categoryCeiling}%
+                                </span>
+                              </div>
                             </td>
-                            <td className="py-3.5 px-3 text-center">
+                            <td className="py-3 px-3 text-center">
                               <input
                                 type="number"
                                 min={1}
                                 value={item.quantity}
                                 onChange={(e) => handleUpdateQty(idx, parseInt(e.target.value) || 1)}
-                                className="w-16 px-2 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#ff5e3a]"
+                                className="w-14 px-1.5 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
                               />
                             </td>
-                            <td className="py-3.5 px-4 text-right">
+                            <td className="py-3 px-3 text-right">
                               <input
                                 type="number"
                                 min={0}
                                 value={item.unitPrice}
                                 onChange={(e) => handleUpdatePrice(idx, parseFloat(e.target.value) || 0)}
-                                className="w-24 px-2 py-1 text-right font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#ff5e3a]"
+                                className="w-20 px-2 py-1 text-right font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
                               />
                             </td>
-                            <td className="py-3.5 px-3 text-center">
+                            <td className="py-3 px-3 text-center">
                               <div className="inline-flex items-center gap-1">
                                 <input
                                   type="number"
@@ -610,15 +819,20 @@ export default function NewQuotationPage() {
                                   max={100}
                                   value={item.discountPercent}
                                   onChange={(e) => handleUpdateDiscount(idx, parseFloat(e.target.value) || 0)}
-                                  className="w-16 px-2 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#ff5e3a]"
+                                  className="w-14 px-1.5 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
                                 />
                                 <span className="text-slate-400 font-semibold">%</span>
                               </div>
                             </td>
-                            <td className="py-3.5 px-3 text-center text-slate-500 font-medium">
-                              {limit}%
+                            <td className="py-3 px-3 text-center">
+                              <div className="font-extrabold text-slate-800 text-xs">
+                                {effectiveLimit}%
+                              </div>
+                              <div className="text-[9px] text-slate-400 leading-tight">
+                                min({item.categoryCeiling}%, {activeCustomerTierCeiling}%)
+                              </div>
                             </td>
-                            <td className="py-3.5 px-4 text-center">
+                            <td className="py-3 px-3 text-center">
                               {isOver ? (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
                                   OVER (+{overage}%)
@@ -629,7 +843,10 @@ export default function NewQuotationPage() {
                                 </span>
                               )}
                             </td>
-                            <td className="py-3.5 px-3 text-center">
+                            <td className="py-3 px-3 text-right font-bold text-slate-900 text-xs">
+                              {currencySymbol}{Math.round(netLineTotal).toLocaleString()}
+                            </td>
+                            <td className="py-3 px-2 text-center">
                               <button
                                 type="button"
                                 onClick={() => handleRemoveLine(idx)}
@@ -646,74 +863,173 @@ export default function NewQuotationPage() {
                 </table>
               </div>
 
-              {/* Yellow Live Banner */}
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center gap-2">
-                <span className="text-amber-600">⚠️</span>
-                <span className="font-medium">
-                  Discount is checked against each item's own limit live, as soon as it is entered, not only at submit time.
+              {/* Dynamic Logic Explainer */}
+              <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-start gap-2">
+                <span className="text-amber-600 shrink-0 mt-0.5">⚠️</span>
+                <span className="font-medium text-[11px] leading-relaxed">
+                  <strong>Effective Line Ceiling</strong> is computed live as <code>min(Customer Tier Ceiling, Category Ceiling)</code>.
+                  Any entered discount above this limit produces line overage and directly scales the Blended Risk Score.
                 </span>
               </div>
             </div>
+
+            {/* 3. Upsell & Cross-Sell Suggestions */}
+            {upsellSuggestions.length > 0 && (
+              <div className="bg-linear-to-br from-indigo-50/50 via-white to-sky-50/40 rounded-2xl p-6 border border-indigo-100/80 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-600/10 text-indigo-600 flex items-center justify-center">
+                      <Sparkles size={16} />
+                    </div>
+                    <div>
+                      <h2 className="text-sm font-bold text-slate-900">
+                        Intelligent Upsell &amp; Cross-Sell Recommendations
+                      </h2>
+                      <p className="text-[11px] text-slate-500">
+                        AI &amp; Margin-governed add-ons to lift deal size and strengthen blended margin.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/60 px-2.5 py-1 rounded-full flex items-center gap-1">
+                    <Zap size={12} className="text-amber-500 fill-amber-500" />
+                    {upsellSuggestions.length} Recommended
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {upsellSuggestions.map((sug) => (
+                    <div
+                      key={sug.productId}
+                      className="bg-white p-4 rounded-xl border border-slate-200/80 hover:border-indigo-300 hover:shadow-md transition-all flex flex-col justify-between gap-3 group"
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                            {sug.promotionalTag}
+                          </span>
+                          <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded flex items-center gap-1">
+                            <TrendingUp size={11} />
+                            {sug.marginPercent}% margin
+                          </span>
+                        </div>
+                        <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                          {sug.name}
+                        </h4>
+                        <p className="text-[11px] text-slate-400 font-mono">SKU: {sug.sku} • {sug.category}</p>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                        <div>
+                          <div className="text-xs font-extrabold text-slate-900">
+                            ₹{sug.basePrice.toLocaleString()}
+                          </div>
+                          <div className="text-[10px] text-slate-400">Co-purchase score: {sug.score}/10</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleAddSuggestion(sug)}
+                          className="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+                        >
+                          <Plus size={13} />
+                          <span>Add to Quote</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* ── RIGHT: Live Economics & Submission (4 cols) ── */}
+          {/* ── RIGHT: Live Economics & Governance Thermometer (4 cols) ── */}
           <div className="lg:col-span-4 space-y-4 sticky top-24">
             <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-5">
               <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-3">
-                Financial Summary &amp; Thresholds
+                Financial Summary &amp; Governance
               </h3>
 
+              {/* Gross Margin & Discount % */}
               <div className="space-y-3 text-xs">
                 <div className="flex items-center justify-between text-slate-600">
                   <span>Gross Subtotal:</span>
                   <span className="font-bold text-slate-900">
-                    ₹{riskSummary.subtotal.toLocaleString()}
+                    {currencySymbol}{riskSummary.subtotal.toLocaleString()}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between text-slate-600">
-                  <span>Discount Amount:</span>
+                  <span>Total Discount:</span>
                   <span className="font-bold text-rose-600">
-                    -₹{riskSummary.discountTotal.toLocaleString()}
+                    -{currencySymbol}{riskSummary.discountTotal.toLocaleString()} ({riskSummary.totalDiscountPercent.toFixed(1)}%)
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-slate-600">
+                  <span>Deal Gross Margin:</span>
+                  <span className={`font-bold ${riskSummary.grossMarginPercent < 35 ? "text-amber-600" : "text-emerald-600"}`}>
+                    {currencySymbol}{riskSummary.grossMargin.toLocaleString()} ({riskSummary.grossMarginPercent}%)
                   </span>
                 </div>
 
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-sm">
-                  <span className="font-bold text-slate-800">Net Contract Total:</span>
-                  <span className="font-black text-[#ff5e3a] text-base">
-                    ₹{riskSummary.totalOrderValue.toLocaleString()}
+                  <span className="font-bold text-slate-800">Net Proposal Total:</span>
+                  <span className="font-black text-[#0066cc] text-base">
+                    {currencySymbol}{riskSummary.totalOrderValue.toLocaleString()}
                   </span>
                 </div>
               </div>
 
-              {/* Blended Risk Engine Box */}
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              {/* 3-Condition Approval Governance Thermometer */}
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-500 font-medium">Blended Risk Score:</span>
+                  <span className="text-slate-600 font-semibold">Blended Risk Score:</span>
                   <span
-                    className={`font-black ${
-                      riskSummary.isBlendedBreached ? "text-amber-600" : "text-emerald-600"
-                    }`}
+                    className={`font-black text-sm ${riskSummary.blendedScore === 0
+                        ? "text-emerald-600"
+                        : riskSummary.blendedScore <= 10
+                          ? "text-amber-600"
+                          : "text-rose-600"
+                      }`}
                   >
                     {riskSummary.blendedScore}%
                   </span>
                 </div>
-                <div className="text-[11px] text-slate-400">
-                  Standard Approval Threshold: {DEFAULT_BLENDED_DISCOUNT_THRESHOLD}%
+
+                {/* Thermometer Bar */}
+                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-300 ${riskSummary.blendedScore === 0
+                        ? "bg-emerald-500"
+                        : riskSummary.blendedScore <= 10
+                          ? "bg-amber-500"
+                          : "bg-rose-500"
+                      }`}
+                    style={{ width: `${Math.min(100, Math.max(5, riskSummary.blendedScore * 5))}%` }}
+                  />
                 </div>
 
+                {/* Condition Classification Badge & Routing Details */}
                 <div className="pt-2 border-t border-slate-200">
-                  {riskSummary.requiresApproval ? (
-                    <div className="text-[11px] font-bold text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200 flex items-center gap-1.5">
-                      <AlertTriangle size={13} className="shrink-0" />
-                      <span>Requires Manager Approval</span>
+                  <div
+                    className={`p-2.5 rounded-lg border text-[11px] font-semibold space-y-1 ${riskSummary.classification.color === "emerald"
+                        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                        : riskSummary.classification.color === "amber"
+                          ? "bg-amber-50 text-amber-800 border-amber-200"
+                          : "bg-rose-50 text-rose-800 border-rose-200"
+                      }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold">
+                      {riskSummary.classification.color === "emerald" ? (
+                        <Check size={14} className="shrink-0 text-emerald-600" />
+                      ) : (
+                        <AlertTriangle size={14} className="shrink-0" />
+                      )}
+                      <span>{riskSummary.classification.label}</span>
                     </div>
-                  ) : (
-                    <div className="text-[11px] font-bold text-emerald-700 bg-emerald-50 p-2 rounded-lg border border-emerald-200 flex items-center gap-1.5">
-                      <Check size={13} className="shrink-0" />
-                      <span>Within Standard Approval Limits</span>
-                    </div>
-                  )}
+                    <p className="text-[10px] opacity-90 font-normal leading-relaxed">
+                      {riskSummary.classification.description}
+                    </p>
+                  </div>
                 </div>
               </div>
 

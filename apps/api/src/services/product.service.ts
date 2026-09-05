@@ -204,7 +204,10 @@ export async function getEffectivePrice(
 
     if (customer?.tierId) {
       const tierPriceList = await prisma.priceList.findFirst({
-        where: { customerTierId: customer.tierId, organizationId },
+        where: {
+          organizationId,
+          customerTiers: { some: { id: customer.tierId } },
+        },
         include: {
           items: {
             where: {

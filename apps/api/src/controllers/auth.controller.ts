@@ -5,6 +5,7 @@ import { auth } from "../lib/auth.js";
 import { ROLE_PERMISSIONS, ROLE_TASKS } from "../config/roles.js";
 import { createOrganization } from "../services/organization.service.js";
 import { sendResetPasswordEmail } from "../services/email.service.js";
+import { hashPassword, verifyPassword } from "../lib/passwords.js";
 import { asyncHandler, AppError } from "../middleware/error.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
 
@@ -144,32 +145,81 @@ export const registerCustomer = asyncHandler(async (req: Request, res: Response)
     include: { customerProfile: true },
   });
 
+  const hashedPassword = await hashPassword(password);
   let userId: string;
 
   if (existing) {
-    await prisma.user.update({
-      where: { id: existing.id },
-      data: { role: UserRole.CUSTOMER },
-    });
     userId = existing.id;
-  } else {
-    const authResult = await auth.api.signUpEmail({
-      body: {
-        email: normalizedEmail,
-        password,
-        name: name.trim(),
-      },
+    const existingAccount = await prisma.account.findFirst({
+      where: { userId: existing.id, providerId: "credential" },
     });
 
-    if (!authResult?.user) {
-      throw new AppError(500, "REGISTRATION_FAILED", "Could not create user credentials.");
+    if (existingAccount) {
+      await prisma.account.update({
+        where: { id: existingAccount.id },
+        data: { password: hashedPassword },
+      });
+    } else {
+      await prisma.account.create({
+        data: {
+          id: `acc-${existing.id}`,
+          accountId: existing.id,
+          providerId: "credential",
+          userId: existing.id,
+          password: hashedPassword,
+        },
+      });
     }
 
-    userId = authResult.user.id;
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        role: UserRole.CUSTOMER,
+        name: name.trim(),
+        emailVerified: true,
+      },
+    });
+  } else {
+    try {
+      const authResult = await auth.api.signUpEmail({
+        body: {
+          email: normalizedEmail,
+          password,
+          name: name.trim(),
+        },
+      });
+
+      if (authResult?.user?.id) {
+        userId = authResult.user.id;
+      } else {
+        throw new Error("Better Auth user creation returned null");
+      }
+    } catch {
+      // Direct atomic creation with verified Better Auth password hash
+      const newUser = await prisma.user.create({
+        data: {
+          name: name.trim(),
+          email: normalizedEmail,
+          role: UserRole.CUSTOMER,
+          emailVerified: true,
+        },
+      });
+      userId = newUser.id;
+
+      await prisma.account.create({
+        data: {
+          id: `acc-${newUser.id}`,
+          accountId: newUser.id,
+          providerId: "credential",
+          userId: newUser.id,
+          password: hashedPassword,
+        },
+      });
+    }
 
     await prisma.user.update({
       where: { id: userId },
-      data: { role: UserRole.CUSTOMER },
+      data: { role: UserRole.CUSTOMER, emailVerified: true },
     });
   }
 
@@ -190,6 +240,13 @@ export const registerCustomer = asyncHandler(async (req: Request, res: Response)
         ...(shippingAddress ? { shippingAddress: shippingAddress.trim() } : {}),
       },
     });
+
+    if (customer.organizationId) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { organizationId: customer.organizationId },
+      });
+    }
   } else {
     // If no existing customer record, associate with default/primary organization and its default tier
     const defaultOrg = await prisma.organization.findFirst({
@@ -197,7 +254,20 @@ export const registerCustomer = asyncHandler(async (req: Request, res: Response)
       include: { customerTiers: true },
     });
 
-    if (defaultOrg && defaultOrg.customerTiers.length > 0 && defaultOrg.customerTiers[0]) {
+    if (defaultOrg) {
+      let tier = defaultOrg.customerTiers[0];
+      if (!tier) {
+        tier = await prisma.customerTier.create({
+          data: {
+            organizationId: defaultOrg.id,
+            name: "Standard",
+            code: "STANDARD",
+            discountCeiling: 10.0,
+            description: "Standard Commercial Tier",
+          },
+        });
+      }
+
       customer = await prisma.customer.create({
         data: {
           name: name.trim(),
@@ -207,7 +277,7 @@ export const registerCustomer = asyncHandler(async (req: Request, res: Response)
           billingAddress: billingAddress?.trim() || null,
           shippingAddress: shippingAddress?.trim() || null,
           organizationId: defaultOrg.id,
-          tierId: defaultOrg.customerTiers[0].id,
+          tierId: tier.id,
           portalUserId: userId,
         },
       });
@@ -241,12 +311,18 @@ export const verifyResetToken = asyncHandler(async (req: Request, res: Response)
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
 
-  const token = (
+  const rawQueryToken = (
     (req.query.token as string) ||
     (req.params.token as string) ||
     (req.body?.token as string) ||
     ""
   ).trim();
+
+  let token = rawQueryToken;
+  try {
+    token = decodeURIComponent(rawQueryToken);
+  } catch {}
+  token = token.trim();
 
   if (!token) {
     return res.status(400).json({
@@ -263,6 +339,10 @@ export const verifyResetToken = asyncHandler(async (req: Request, res: Response)
         { value: `reset-password:${token}` },
         { value: token },
         { identifier: token },
+        { identifier: `reset-password:${rawQueryToken}` },
+        { value: `reset-password:${rawQueryToken}` },
+        { value: rawQueryToken },
+        { identifier: rawQueryToken },
       ],
     },
   });
@@ -299,11 +379,17 @@ export const resetPasswordHandler = asyncHandler(async (req: Request, res: Respo
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
 
-  const { token, password, newPassword } = req.body;
-  const rawToken = (token || "").trim();
+  const { token: inputToken, password, newPassword } = req.body;
+  const rawToken = (inputToken || "").trim();
+  let decodedToken = rawToken;
+  try {
+    decodedToken = decodeURIComponent(rawToken);
+  } catch {}
+  decodedToken = decodedToken.trim();
+
   const rawPassword = (newPassword || password || "").trim();
 
-  if (!rawToken) {
+  if (!rawToken && !decodedToken) {
     throw new AppError(400, "BAD_REQUEST", "Password reset token is required.");
   }
 
@@ -319,6 +405,10 @@ export const resetPasswordHandler = asyncHandler(async (req: Request, res: Respo
         { value: `reset-password:${rawToken}` },
         { value: rawToken },
         { identifier: rawToken },
+        { identifier: `reset-password:${decodedToken}` },
+        { value: `reset-password:${decodedToken}` },
+        { value: decodedToken },
+        { identifier: decodedToken },
       ],
     },
   });
@@ -381,15 +471,8 @@ export const resetPasswordHandler = asyncHandler(async (req: Request, res: Respo
     throw new AppError(404, "USER_NOT_FOUND", "No user account found matching this recovery token.");
   }
 
-  // 4. Generate password hash (Better Auth compatible)
-  let hashedPassword = "";
-  try {
-    const { hashPassword } = await import("better-auth/crypto");
-    hashedPassword = await hashPassword(rawPassword);
-  } catch {
-    const cryptoMod = await import("crypto");
-    hashedPassword = cryptoMod.createHash("sha256").update(rawPassword).digest("hex");
-  }
+  // 4. Generate password hash (Universal Scrypt / Better Auth compatible)
+  const hashedPassword = await hashPassword(rawPassword);
 
   // 5. Update or upsert credentials in account table
   const existingAccount = await prisma.account.findFirst({
