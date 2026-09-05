@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Plus, Search, ArrowUpRight, ArrowLeft } from "lucide-react";
 import { SalesNav } from "@repo/ui";
-import { INITIAL_QUOTATIONS, type Quotation } from "../../lib/sales-data";
+import { INITIAL_QUOTATIONS, type Quotation } from "../../../../../lib/sales-data";
 
 export default function QuotationsListPage() {
   const [quotations] = useState<Quotation[]>(INITIAL_QUOTATIONS);
@@ -33,7 +33,7 @@ export default function QuotationsListPage() {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Link
-                href="/dashboard"
+                href="/dashboard/sale-ref"
                 className="text-xs text-slate-500 hover:text-slate-900 transition flex items-center gap-1 font-medium"
               >
                 <ArrowLeft size={13} />
@@ -47,7 +47,7 @@ export default function QuotationsListPage() {
 
           <div className="flex items-center gap-2.5">
             <Link
-              href="/quotations/new"
+              href="/dashboard/sale-ref/quotations/new"
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-bold shadow-md shadow-[#ff5e3a]/25 active:translate-y-0.5 transition-all cursor-pointer"
             >
               <Plus size={15} strokeWidth={2.5} />
@@ -131,7 +131,7 @@ export default function QuotationsListPage() {
                 {filtered.map((q) => (
                   <tr key={q.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-4 px-5 font-mono font-bold text-slate-900">
-                      <Link href={`/quotations/${q.id}`} className="hover:text-[#ff5e3a] transition-colors">
+                      <Link href={`/dashboard/sale-ref/quotations/${q.id}`} className="hover:text-[#ff5e3a] transition-colors">
                         {q.id}
                       </Link>
                     </td>
@@ -166,7 +166,7 @@ export default function QuotationsListPage() {
                     <td className="py-4 px-5 text-slate-400 font-mono text-[11px]">{q.validUntil}</td>
                     <td className="py-4 px-5 text-right">
                       <Link
-                        href={`/quotations/${q.id}`}
+                        href={`/dashboard/sale-ref/quotations/${q.id}`}
                         className="inline-flex items-center gap-1 font-bold text-[#ff5e3a] hover:underline"
                       >
                         <span>Inspect</span>

@@ -24,20 +24,21 @@ interface NavLinkProps {
   href: string;
   className?: string;
   children: ReactNode;
-  linkComponent?: ComponentType<{ href: string; className?: string; children: ReactNode }>;
+  title?: string;
+  linkComponent?: ComponentType<{ href: string; className?: string; title?: string; children: ReactNode }>;
 }
 
-function NavLink({ href, className, children, linkComponent: LinkComp }: NavLinkProps) {
+function NavLink({ href, className, children, title, linkComponent: LinkComp }: NavLinkProps) {
   if (LinkComp) {
-    return <LinkComp href={href} className={className}>{children}</LinkComp>;
+    return <LinkComp href={href} className={className} title={title}>{children}</LinkComp>;
   }
-  return <a href={href} className={className}>{children}</a>;
+  return <a href={href} className={className} title={title}>{children}</a>;
 }
 
 const DEFAULT_TABS: NavTabItem[] = [
-  { id: "dashboard", label: "Dashboard", href: "/dashboard" },
-  { id: "quotations", label: "Quotations", href: "/quotations" },
-  { id: "new-quote", label: "+ New Quote", href: "/quotations/new" },
+  { id: "dashboard", label: "Dashboard", href: "/dashboard/sale-ref" },
+  { id: "quotations", label: "Quotations", href: "/dashboard/sale-ref/quotations" },
+  { id: "new-quote", label: "+ New Quote", href: "/dashboard/sale-ref/quotations/new" },
 ];
 
 const SEARCHABLE_DEALS = [
@@ -87,9 +88,9 @@ export function SalesNav({
         <div className="h-16 max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between gap-4">
           {/* Left: Brand Logo & Segmented Pill Navigation */}
           <div className="flex items-center gap-5 lg:gap-8">
-            <BrandLogo href="/dashboard" as={LinkComp} />
+            <BrandLogo href="/dashboard/sale-ref" as={LinkComp} />
 
-            <nav className="hidden md:flex items-center gap-1 p-1 rounded-full bg-slate-100 border border-slate-200">
+            <nav className="hidden md:flex items-center gap-1 p-1 h-10 rounded-full bg-slate-100 border border-slate-200">
               {DEFAULT_TABS.map((tab) => {
                 const isActive = activeTab === tab.id;
                 return (
@@ -97,7 +98,7 @@ export function SalesNav({
                     key={tab.id}
                     href={tab.href}
                     linkComponent={LinkComp}
-                    className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-tight transition-all ${
+                    className={`inline-flex items-center px-4 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 ${
                       isActive
                         ? "bg-[#ff5e3a] text-white shadow-sm"
                         : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
@@ -153,7 +154,7 @@ export function SalesNav({
                     {searchResults.map((deal) => (
                       <NavLink
                         key={deal.id}
-                        href={`/quotations/${deal.id}`}
+                        href={`/dashboard/sale-ref/quotations/${deal.id}`}
                         linkComponent={LinkComp}
                         className="flex items-center justify-between p-2.5 rounded-xl hover:bg-orange-50/70 transition-colors group cursor-pointer"
                       >
@@ -177,7 +178,7 @@ export function SalesNav({
 
                   <div className="pt-2 px-2">
                     <NavLink
-                      href={`/quotations?q=${encodeURIComponent(searchQuery)}`}
+                      href={`/dashboard/sale-ref/quotations?q=${encodeURIComponent(searchQuery)}`}
                       linkComponent={LinkComp}
                       className="block text-center text-xs font-semibold text-[#ff5e3a] hover:underline py-1"
                     >
@@ -230,7 +231,7 @@ export function SalesNav({
         open={notifOpen}
         onClose={() => setNotifOpen(false)}
         onNavigateToQuote={(id) => {
-          window.location.href = `/quotations/${id}`;
+          window.location.href = `/dashboard/sale-ref/quotations/${id}`;
         }}
       />
     </>
