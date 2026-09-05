@@ -12,6 +12,8 @@ datasource db {
 // Core System Enums
 // =============================================================================
 
+/// Enum: UserRole
+/// Use Case: System-wide role taxonomy governing access control, approval authority, and tenant dashboard views.
 enum UserRole {
   ADMIN
   SALES_REP
@@ -20,6 +22,8 @@ enum UserRole {
   CUSTOMER
 }
 
+/// Enum: InvitationStatus
+/// Use Case: Status lifecycle of team member and customer portal onboarding invitations.
 enum InvitationStatus {
   PENDING
   ACCEPTED
@@ -27,12 +31,16 @@ enum InvitationStatus {
   REVOKED
 }
 
+/// Enum: CategoryType
+/// Use Case: High-level classification distinguishing Hardware, Services, and recurring SaaS Subscriptions.
 enum CategoryType {
   HARDWARE
   SERVICE
   SUBSCRIPTION
 }
 
+/// Enum: UnitType
+/// Use Case: Unit of measurement for product catalog pricing and invoicing line items.
 enum UnitType {
   UNIT
   HOUR
@@ -43,6 +51,8 @@ enum UnitType {
   PACK
 }
 
+/// Enum: QuoteStage
+/// Use Case: Commercial sales deal pipeline progression from draft through approval, negotiation, and confirmation.
 enum QuoteStage {
   DRAFT
   PENDING_APPROVAL
@@ -52,6 +62,8 @@ enum QuoteStage {
   CANCELLED
 }
 
+/// Enum: ApprovalStatus
+/// Use Case: Discount approval state machine tracking pending reviews, approvals, rejections, and revision requests.
 enum ApprovalStatus {
   PENDING
   APPROVED
@@ -59,11 +71,15 @@ enum ApprovalStatus {
   REVISION_REQUESTED
 }
 
+/// Enum: ApprovalLevel
+/// Use Case: Tiered escalation hierarchy designating Sales Manager vs Finance Ops review requirements.
 enum ApprovalLevel {
   SALES_MANAGER
   FINANCE
 }
 
+/// Enum: StockMovementType
+/// Use Case: Inventory ledger movement classification (purchase receipts, allocations, fulfillment, adjustments, transfers).
 enum StockMovementType {
   PURCHASE_RECEIPT
   ORDER_RESERVED
@@ -72,6 +88,8 @@ enum StockMovementType {
   TRANSFER
 }
 
+/// Enum: FulfillmentStatus
+/// Use Case: Overall fulfillment lifecycle state for sales orders across multiple shipments and backorders.
 enum FulfillmentStatus {
   PENDING
   PARTIALLY_FULFILLED
@@ -79,6 +97,8 @@ enum FulfillmentStatus {
   CANCELLED
 }
 
+/// Enum: ShipmentStatus
+/// Use Case: Physical transit state machine tracking shipment packages from warehouse picking to delivery.
 enum ShipmentStatus {
   PENDING
   PICKED
@@ -88,12 +108,16 @@ enum ShipmentStatus {
   CANCELLED
 }
 
+/// Enum: BackorderStatus
+/// Use Case: Status tracking for out-of-stock items awaiting replenishment or warehouse transfer.
 enum BackorderStatus {
   PENDING_REPLENISHMENT
   ALLOCATED
   CANCELLED
 }
 
+/// Enum: SubscriptionStatus
+/// Use Case: Recurring subscription contract lifecycle state (active, paused, cancelled, expired).
 enum SubscriptionStatus {
   ACTIVE
   PAUSED
@@ -101,12 +125,16 @@ enum SubscriptionStatus {
   EXPIRED
 }
 
+/// Enum: BillingInterval
+/// Use Case: Cadence for recurring subscription billing cycles and automated invoice generation.
 enum BillingInterval {
   MONTHLY
   QUARTERLY
   ANNUALLY
 }
 
+/// Enum: InvoiceStatus
+/// Use Case: Accounts receivable status tracking draft invoices, issued balances, payments, and overdue accounts.
 enum InvoiceStatus {
   DRAFT
   ISSUED
@@ -115,6 +143,8 @@ enum InvoiceStatus {
   OVERDUE
 }
 
+/// Enum: PaymentMethod
+/// Use Case: Supported settlement instruments for customer invoice payments (Credit Card, ACH, Wire, Check).
 enum PaymentMethod {
   CREDIT_CARD
   ACH
@@ -122,6 +152,8 @@ enum PaymentMethod {
   CHECK
 }
 
+/// Enum: PaymentStatus
+/// Use Case: Transaction settlement status for invoice payments and customer refunds.
 enum PaymentStatus {
   PENDING
   COMPLETED
@@ -129,6 +161,8 @@ enum PaymentStatus {
   REFUNDED
 }
 
+/// Enum: CreditNoteStatus
+/// Use Case: Lifecycle state of issued credit notes applied toward customer invoices.
 enum CreditNoteStatus {
   ISSUED
   APPLIED
@@ -136,6 +170,8 @@ enum CreditNoteStatus {
   VOID
 }
 
+/// Enum: JobStatus
+/// Use Case: Asynchronous compute worker job lifecycle state machine.
 enum JobStatus {
   PENDING
   PROCESSING
@@ -143,6 +179,8 @@ enum JobStatus {
   FAILED
 }
 
+/// Enum: LogLevel
+/// Use Case: Severity classification for compute worker task logs.
 enum LogLevel {
   INFO
   WARN
@@ -182,7 +220,7 @@ model User {
   customerProfile       Customer?            @relation("customer_portal_user")
 
   // Team & Workspace Onboarding
-  invitations           invitations[]
+  sentInvitations       Invitation[]         @relation("user_invitations")
 
   // Infrastructure Audit & Workflows
   createdWarehouses     Warehouse[]          @relation("warehouse_creator")
@@ -264,7 +302,7 @@ model Organization {
   salesManagers         SalesManager[]
   salesReps             SalesRepresentative[]
   financeOpsUsers       FinanceOpsUser[]
-  invitations           invitations[]
+  invitations           Invitation[]
   warehouses            Warehouse[]
 
   // Business Domain Relations
@@ -404,9 +442,9 @@ model Customer {
   @@map("customers")
 }
 
-/// Model: invitations
+/// Model: Invitation
 /// Use Case: Team member and portal user invitations with cryptographic tokens and lifecycle statuses.
-model invitations {
+model Invitation {
   id             String           @id @default(cuid())
   email          String
   role           UserRole
@@ -420,12 +458,13 @@ model invitations {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
-  user           User             @relation(fields: [invitedById], references: [id], onDelete: Cascade)
-  organizations  Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy      User             @relation("user_invitations", fields: [invitedById], references: [id], onDelete: Cascade)
 
   @@index([email])
   @@index([organizationId])
   @@index([token])
+  @@map("invitations")
 }
 
 // =============================================================================

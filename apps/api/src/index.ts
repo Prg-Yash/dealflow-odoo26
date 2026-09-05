@@ -4,6 +4,10 @@ import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
 import { prisma, JobStatus } from "@repo/db";
 import { ENV } from "./config/env.js";
 import { auth } from "./lib/auth.js";
+import { authRouter } from "./routes/auth.routes.js";
+import { organizationRouter } from "./routes/organization.routes.js";
+import { warehouseRouter } from "./routes/warehouse.routes.js";
+import { memberRouter } from "./routes/member.routes.js";
 
 const app = express();
 
@@ -68,33 +72,11 @@ app.get("/api/health", async (_req: Request, res: Response) => {
   });
 });
 
-// Authenticated Session Inspector
-app.get("/api/me", async (req: Request, res: Response) => {
-  try {
-    const session = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
-    });
-
-    if (!session) {
-      return res.status(401).json({
-        authenticated: false,
-        user: null,
-        session: null,
-      });
-    }
-
-    return res.json({
-      authenticated: true,
-      user: session.user,
-      session: session.session,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      error: "Failed to retrieve session",
-      message: (error as Error).message,
-    });
-  }
-});
+// Domain API Routers
+app.use("/api", authRouter);
+app.use("/api/organizations", organizationRouter);
+app.use("/api/warehouses", warehouseRouter);
+app.use("/api", memberRouter);
 
 // Demo Background Job Trigger (Interacts with @repo/db)
 app.post("/api/jobs/trigger", async (req: Request, res: Response) => {
