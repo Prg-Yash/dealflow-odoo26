@@ -3,43 +3,25 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Eye, EyeOff, Lock, Mail, Users } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { AuthCard } from "@repo/ui";
 import { signIn } from "../../../lib/auth-client";
-import { ROLES, ALL_ROLES, inferRoleFromEmail, getRoleRedirect, setStoredRole, type UserRole } from "../../../lib/roles";
+import { inferRoleFromEmail, getRoleRedirect, setStoredRole } from "../../../lib/roles";
 import { isValidEmail, isValidPassword } from "../../../lib/validation";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("rep.alex@dealflow360.com");
-  const [password, setPassword] = useState("Password123!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [emailTouched, setEmailTouched] = useState(false);
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<UserRole>("sales_rep");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const emailError = emailTouched && !isValidEmail(email) ? "Please enter a valid email address." : null;
   const passwordError = passwordTouched && !isValidPassword(password) ? "Password must be at least 8 characters." : null;
   const isFormValid = isValidEmail(email) && isValidPassword(password);
-
-  const handleRoleSelect = (roleKey: UserRole) => {
-    const roleConfig = ROLES[roleKey];
-    setSelectedRole(roleKey);
-    setEmail(roleConfig.defaultEmail);
-    setPassword("Password123!");
-    setEmailTouched(false);
-    setPasswordTouched(false);
-    setError(null);
-  };
-
-  const handleEmailChange = (newEmail: string) => {
-    setEmail(newEmail);
-    setEmailTouched(true);
-    const inferred = inferRoleFromEmail(newEmail);
-    setSelectedRole(inferred);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,48 +73,6 @@ export default function LoginPage() {
         </div>
       }
     >
-      {/* 5-User Role Quick Selector */}
-      <div className="flex flex-col gap-2 p-3.5 rounded-xl bg-slate-50 border border-slate-200/70">
-        <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-          <span className="inline-flex items-center gap-1.5">
-            <Users size={14} className="text-[#ff5e3a]" />
-            Demo User Credentials (Click to prefill):
-          </span>
-          <span className="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-medium">
-            Password: Password123!
-          </span>
-          <span className="text-[10px] text-slate-400 font-normal">Click to fill</span>
-        </div>
-        <div className="grid grid-cols-3 sm:grid-cols-5 gap-1">
-          {ALL_ROLES.map((r) => {
-            const isActive = selectedRole === r.id;
-            return (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => handleRoleSelect(r.id)}
-                className={`px-1.5 py-1 rounded-lg text-[11px] font-medium text-center transition-all cursor-pointer truncate ${
-                  isActive
-                    ? "bg-[#0f172a] text-white shadow-xs font-semibold"
-                    : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-                }`}
-                title={`${r.title} — ${r.defaultEmail}`}
-              >
-                {r.label}
-              </button>
-            );
-          })}
-        </div>
-        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1.5 border-t border-slate-200/60 mt-0.5">
-          <span className="truncate">
-            User: <strong className="text-slate-800">{ROLES[selectedRole]?.defaultName}</strong> &bull; <span className="font-mono text-slate-600">{ROLES[selectedRole]?.defaultEmail}</span>
-          </span>
-          <span className="text-[#ff5e3a] font-medium shrink-0 ml-2">
-            Role: {ROLES[selectedRole]?.label}
-          </span>
-        </div>
-      </div>
-
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
           {error}
@@ -153,7 +93,10 @@ export default function LoginPage() {
               type="email"
               required
               value={email}
-              onChange={(e) => handleEmailChange(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setEmailTouched(true);
+              }}
               placeholder="name@company.com"
               className={`w-full bg-[#f8fafc] rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-[#0f172a] placeholder:text-slate-400 transition-all outline-none border ${
                 emailError
@@ -209,7 +152,7 @@ export default function LoginPage() {
         </div>
 
         {/* Action Row */}
-        <div className="pt-2">
+        <div className="pt-2 flex flex-col gap-2">
           <button
             type="submit"
             disabled={loading || !isFormValid}
@@ -218,15 +161,6 @@ export default function LoginPage() {
             <span>{loading ? "Signing in..." : "Log In"}</span>
             <ArrowRight size={16} />
           </button>
-
-          <div className="text-center">
-            <Link
-              href={`/forgot-password${email ? `?email=${encodeURIComponent(email)}` : ""}`}
-              className="text-xs text-slate-500 hover:text-[#ff5e3a] transition-colors font-medium"
-            >
-              Forgot Password?
-            </Link>
-          </div>
         </div>
       </form>
     </AuthCard>

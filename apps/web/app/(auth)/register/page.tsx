@@ -11,11 +11,11 @@ import { isValidEmail, isValidPassword, isValidName } from "../../../lib/validat
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [fullName, setFullName] = useState("Sarah Jenkins");
-  const [workEmail, setWorkEmail] = useState("s.jenkins@acmetechnologies.com");
-  const [companyName, setCompanyName] = useState("Acme Technologies, Inc.");
+  const [fullName, setFullName] = useState("");
+  const [workEmail, setWorkEmail] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [role, setRole] = useState<UserRole>("sales_rep");
-  const [password, setPassword] = useState("SecurePassword123!");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [nameTouched, setNameTouched] = useState(false);
   const [emailTouched, setEmailTouched] = useState(false);

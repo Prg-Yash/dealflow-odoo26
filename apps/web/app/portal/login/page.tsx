@@ -10,7 +10,7 @@ import { isValidToken } from "../../../lib/validation";
 
 export default function CustomerPortalLoginPage() {
   const router = useRouter();
-  const [tokenOrEmail, setTokenOrEmail] = useState("DF-Q1042");
+  const [tokenOrEmail, setTokenOrEmail] = useState("");
   const [tokenTouched, setTokenTouched] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -27,13 +27,8 @@ export default function CustomerPortalLoginPage() {
     setLoading(true);
     setStoredRole("customer");
 
-    const token = tokenOrEmail.trim() || "DF-Q1042";
+    const token = tokenOrEmail.trim();
     router.push(`/portal?token=${encodeURIComponent(token)}`);
-  };
-
-  const handleQuickToken = (token: string) => {
-    setTokenOrEmail(token);
-    setTokenTouched(false);
   };
 
   return (
@@ -62,37 +57,6 @@ export default function CustomerPortalLoginPage() {
         </div>
       }
     >
-      {/* Quick Demo Tokens */}
-      <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/70 text-left">
-        <span className="block text-[11px] font-semibold text-slate-500 mb-1.5">
-          Active Quote Proposals (Click to test):
-        </span>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => handleQuickToken("DF-Q1042")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition cursor-pointer ${
-              tokenOrEmail === "DF-Q1042"
-                ? "bg-slate-900 text-white shadow-sm"
-                : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
-            }`}
-          >
-            DF-Q1042 (Acme Cloud)
-          </button>
-          <button
-            type="button"
-            onClick={() => handleQuickToken("DF-Q2055")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition cursor-pointer ${
-              tokenOrEmail === "DF-Q2055"
-                ? "bg-slate-900 text-white shadow-sm"
-                : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
-            }`}
-          >
-            DF-Q2055 (FinTech)
-          </button>
-        </div>
-      </div>
-
       {/* Form Elements */}
       <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-left">
         <div className="flex flex-col gap-1.5">
@@ -110,8 +74,8 @@ export default function CustomerPortalLoginPage() {
                 setTokenOrEmail(e.target.value);
                 setTokenTouched(true);
               }}
-              placeholder="e.g. DF-Q1042"
-              className={`w-full bg-[#f8fafc] rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-[#0f172a] placeholder:text-slate-400 outline-none transition-all font-mono border ${
+              placeholder="e.g. DF-Q1042 or buyer@acmecorp.com"
+              className={`w-full bg-[#f8fafc] rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-[#0f172a] placeholder:text-slate-400 outline-none transition-all border ${
                 tokenError
                   ? "border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-200"
                   : "border-slate-200 focus:border-[#ff5e3a] focus:ring-2 focus:ring-[#ff5e3a]/20"
@@ -121,16 +85,14 @@ export default function CustomerPortalLoginPage() {
           {tokenError && <span className="text-[11px] text-red-500 font-medium">{tokenError}</span>}
         </div>
 
-        <div className="pt-2">
-          <button
-            type="submit"
-            disabled={loading || !isFormValid}
-            className="w-full inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white font-semibold text-sm transition-all shadow-md shadow-[#ff5e3a]/25 active:translate-y-0.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <span>{loading ? "Verifying..." : "Access Quotation"}</span>
-            <ArrowRight size={16} />
-          </button>
-        </div>
+        <button
+          type="submit"
+          disabled={loading || !isFormValid}
+          className="w-full inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white font-semibold text-sm transition-all shadow-md shadow-[#ff5e3a]/25 active:translate-y-0.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <span>{loading ? "Verifying..." : "Access Quotation Portal"}</span>
+          <ArrowRight size={16} />
+        </button>
       </form>
     </AuthCard>
   );

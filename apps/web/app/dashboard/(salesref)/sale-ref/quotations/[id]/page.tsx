@@ -12,7 +12,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { SalesNav, ApprovalTracker, QuotationLineItems } from "@repo/ui";
-import { INITIAL_QUOTATIONS, type Quotation } from "../../../lib/sales-data";
+import { INITIAL_QUOTATIONS, type Quotation } from "../../../../../../lib/sales-data";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -70,7 +70,7 @@ export default function QuotationDetailPage({ params }: Props) {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 py-4 border-b border-slate-200">
           <div>
             <div className="flex items-center gap-2 mb-1.5 text-xs text-slate-500 font-medium">
-              <Link href="/quotations" className="hover:text-[#ff5e3a] transition-colors flex items-center gap-1">
+              <Link href="/dashboard/sale-ref/quotations" className="hover:text-[#ff5e3a] transition-colors flex items-center gap-1">
                 <ArrowLeft size={13} />
                 <span>Quotations</span>
               </Link>
