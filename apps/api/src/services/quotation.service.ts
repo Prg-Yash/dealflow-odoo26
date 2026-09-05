@@ -22,9 +22,26 @@ import type {
 // =============================================================================
 
 async function getSalesRepForUser(orgId: string, userId: string) {
-  return prisma.salesRepresentative.findFirst({
+  let rep = await prisma.salesRepresentative.findFirst({
     where: { userId, organizationId: orgId },
   });
+  if (!rep) {
+    const user = await prisma.user.findFirst({ where: { id: userId } });
+    if (user && user.role === UserRole.SALES_REP) {
+      rep = await prisma.salesRepresentative.create({
+        data: {
+          userId,
+          organizationId: orgId,
+          historicalAvgDiscount: 0,
+        },
+      }).catch(async () => {
+        return prisma.salesRepresentative.findFirst({
+          where: { userId, organizationId: orgId },
+        });
+      });
+    }
+  }
+  return rep;
 }
 
 function verifyRepOwnership(
@@ -156,28 +173,169 @@ export async function createQuotation(
   userRole: UserRole,
   input: CreateQuotationInput
 ) {
-  const customer = await prisma.customer.findFirst({
-    where: { id: input.customerId, organizationId: orgId },
-    include: { tier: true, salesRep: true },
-  });
-  if (!customer) throw new AppError(404, "NOT_FOUND", "Customer not found.");
-
-  let salesRepId: string | undefined;
-
+  let rep: any = null;
   if (userRole === UserRole.SALES_REP) {
-    const rep = await getSalesRepForUser(orgId, userId);
-    if (rep) salesRepId = rep.id;
+    rep = await getSalesRepForUser(orgId, userId);
   }
 
+  let customer: any = null;
+
+  // 1. Dynamic Customer Lookup or Creation
+  if (input.customerId) {
+    customer = await prisma.customer.findFirst({
+      where: { id: input.customerId, organizationId: orgId },
+      include: { tier: true, salesRep: true },
+    });
+  } else if (input.customerEmail) {
+    const email = input.customerEmail.trim().toLowerCase();
+    customer = await prisma.customer.findFirst({
+      where: { email, organizationId: orgId },
+      include: { tier: true, salesRep: true },
+    });
+
+    if (!customer) {
+      // Lookup or create Portal User for this customer
+      let customerUser = await prisma.user.findFirst({
+        where: { email },
+      });
+
+      if (!customerUser) {
+        const cryptoMod = await import("crypto");
+        const rawPassword = cryptoMod.randomBytes(6).toString("hex") + "!A1";
+        let hashedPassword = "";
+        try {
+          const { hashPassword } = await import("better-auth/crypto");
+          hashedPassword = await hashPassword(rawPassword);
+        } catch {
+          hashedPassword = cryptoMod.createHash("sha256").update(rawPassword).digest("hex");
+        }
+
+        customerUser = await prisma.user.create({
+          data: {
+            name: (input.customerName || input.companyName || email.split("@")[0] || "Customer").trim(),
+            email,
+            role: UserRole.CUSTOMER,
+            organizationId: orgId,
+          },
+        });
+
+        await prisma.account.create({
+          data: {
+            id: `acc-${customerUser.id}`,
+            accountId: customerUser.id,
+            providerId: "credential",
+            userId: customerUser.id,
+            password: hashedPassword,
+          },
+        });
+      }
+
+      // Default tier in organization
+      let tier = await prisma.customerTier.findFirst({
+        where: { organizationId: orgId },
+      });
+      if (!tier) {
+        tier = await prisma.customerTier.create({
+          data: {
+            organizationId: orgId,
+            name: "Standard",
+            code: "STANDARD",
+            discountCeiling: 10.0,
+            description: "Standard Commercial Tier",
+          },
+        });
+      }
+
+      const repId = rep?.id || undefined;
+
+      customer = await prisma.customer.create({
+        data: {
+          organizationId: orgId,
+          name: (input.companyName || input.customerName || customerUser.name || "Customer Organization").trim(),
+          email,
+          phone: input.customerPhone || null,
+          company: input.companyName || null,
+          tierId: tier.id,
+          salesRepId: repId,
+          portalUserId: customerUser.id,
+        },
+        include: { tier: true, salesRep: true },
+      });
+    }
+  }
+
+  if (!customer) {
+    throw new AppError(
+      400,
+      "CUSTOMER_REQUIRED",
+      "Please select an existing customer or provide a valid customer email."
+    );
+  }
+
+  // Ensure Customer record is linked to a portal User with CUSTOMER role and Account credentials
+  if (customer.email) {
+    let customerUser = await prisma.user.findFirst({
+      where: { email: customer.email },
+    });
+
+    if (!customerUser) {
+      const cryptoMod = await import("crypto");
+      const rawPassword = cryptoMod.randomBytes(6).toString("hex") + "!A1";
+      let hashedPassword = "";
+      try {
+        const { hashPassword } = await import("better-auth/crypto");
+        hashedPassword = await hashPassword(rawPassword);
+      } catch {
+        hashedPassword = cryptoMod.createHash("sha256").update(rawPassword).digest("hex");
+      }
+
+      customerUser = await prisma.user.create({
+        data: {
+          name: (customer.name || customer.company || customer.email.split("@")[0] || "Customer").trim(),
+          email: customer.email,
+          role: UserRole.CUSTOMER,
+          organizationId: orgId,
+        },
+      });
+
+      await prisma.account.create({
+        data: {
+          id: `acc-${customerUser.id}`,
+          accountId: customerUser.id,
+          providerId: "credential",
+          userId: customerUser.id,
+          password: hashedPassword,
+        },
+      });
+    }
+
+    if (!customer.portalUserId || customer.portalUserId !== customerUser.id) {
+      await prisma.customer.update({
+        where: { id: customer.id },
+        data: { portalUserId: customerUser.id },
+      });
+      customer.portalUserId = customerUser.id;
+    }
+  }
+
+  let salesRepId: string | undefined = rep?.id;
+
   if (!salesRepId && input.salesRepId) {
-    const rep = await prisma.salesRepresentative.findFirst({
+    const explicitRep = await prisma.salesRepresentative.findFirst({
       where: { id: input.salesRepId, organizationId: orgId },
     });
-    if (rep) salesRepId = rep.id;
+    if (explicitRep) salesRepId = explicitRep.id;
   }
 
   if (!salesRepId && customer.salesRepId) {
     salesRepId = customer.salesRepId;
+  }
+
+  if (!salesRepId) {
+    const fallbackRep = await prisma.salesRepresentative.findFirst({
+      where: { organizationId: orgId },
+    });
+    if (fallbackRep) salesRepId = fallbackRep.id;
   }
 
   if (!salesRepId) {
@@ -215,7 +373,7 @@ export async function createQuotation(
 
   const expiresAt = input.expiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-  return prisma.quotation.create({
+  const createdQuotation = await prisma.quotation.create({
     data: {
       quoteNumber,
       title: input.title,
@@ -232,6 +390,69 @@ export async function createQuotation(
       customer: { include: { tier: true } },
       salesRep: { include: { user: true } },
       lines: true,
+    },
+  });
+
+  // If initial line items are provided, insert them and recalculate totals
+  if (input.lines && input.lines.length > 0) {
+    for (let i = 0; i < input.lines.length; i++) {
+      const lineInput = input.lines[i]!;
+      const product = await prisma.product.findFirst({
+        where: { id: lineInput.productId, organizationId: orgId },
+        include: { category: true },
+      });
+
+      if (product) {
+        let variant = null;
+        if (lineInput.variantId) {
+          variant = await prisma.productVariant.findFirst({
+            where: { id: lineInput.variantId, productId: product.id },
+          });
+        }
+
+        const unitPrice =
+          lineInput.unitPrice !== undefined
+            ? lineInput.unitPrice
+            : variant
+            ? product.basePrice + variant.extraPrice
+            : product.basePrice;
+
+        const costPrice = variant
+          ? product.costPrice + variant.costPriceDelta
+          : product.costPrice;
+
+        await prisma.quotationLine.create({
+          data: {
+            quotationId: createdQuotation.id,
+            productId: product.id,
+            variantId: variant?.id,
+            itemType: lineInput.itemType ?? product.category.type,
+            description: lineInput.description ?? product.name,
+            quantity: lineInput.quantity,
+            unitPrice,
+            costPrice,
+            discountPercent: lineInput.discountPercent,
+            sortOrder: i,
+          },
+        });
+      }
+    }
+
+    await recalculateQuotation(prisma, createdQuotation.id, orgId);
+  }
+
+  return prisma.quotation.findUniqueOrThrow({
+    where: { id: createdQuotation.id },
+    include: {
+      customer: { include: { tier: true } },
+      salesRep: { include: { user: true } },
+      lines: {
+        include: {
+          product: { include: { category: true } },
+          variant: true,
+        },
+        orderBy: { sortOrder: "asc" },
+      },
     },
   });
 }
@@ -263,7 +484,7 @@ export async function listQuotations(
       salesRep: { include: { user: true } },
       lines: {
         include: {
-          product: { select: { id: true, name: true, sku: true } },
+          product: { select: { id: true, name: true, sku: true, categoryId: true, category: true } },
         },
       },
     },
@@ -317,11 +538,11 @@ export async function addQuotationLine(
   });
   if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
 
-  if (quotation.stage !== QuoteStage.DRAFT) {
+  if (quotation.stage !== QuoteStage.DRAFT && quotation.stage !== QuoteStage.NEGOTIATION) {
     throw new AppError(
       400,
       "INVALID_STAGE",
-      "Lines can only be added to quotations in DRAFT stage."
+      "Lines can only be added to quotations in DRAFT or NEGOTIATION stage."
     );
   }
 
@@ -360,20 +581,39 @@ export async function addQuotationLine(
   });
 
   return prisma.$transaction(async (tx) => {
-    await tx.quotationLine.create({
-      data: {
+    // Check if line with same productId already exists on this quotation
+    const existingLine = await tx.quotationLine.findFirst({
+      where: {
         quotationId,
         productId: product.id,
-        variantId: variant?.id,
-        itemType: input.itemType ?? product.category.type,
-        description: input.description ?? product.name,
-        quantity: input.quantity,
-        unitPrice,
-        costPrice,
-        discountPercent: input.discountPercent,
-        sortOrder: lineCount,
+        variantId: variant?.id ?? null,
       },
     });
+
+    if (existingLine) {
+      await tx.quotationLine.update({
+        where: { id: existingLine.id },
+        data: {
+          quantity: existingLine.quantity + (input.quantity || 1),
+          ...(input.unitPrice !== undefined ? { unitPrice: input.unitPrice } : {}),
+        },
+      });
+    } else {
+      await tx.quotationLine.create({
+        data: {
+          quotationId,
+          productId: product.id,
+          variantId: variant?.id,
+          itemType: input.itemType ?? product.category.type,
+          description: input.description ?? product.name,
+          quantity: Math.max(1, input.quantity || 1),
+          unitPrice,
+          costPrice,
+          discountPercent: input.discountPercent ?? 0,
+          sortOrder: lineCount,
+        },
+      });
+    }
 
     return recalculateQuotation(tx, quotationId, orgId);
   });
@@ -392,11 +632,11 @@ export async function updateQuotationLine(
   });
   if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
 
-  if (quotation.stage !== QuoteStage.DRAFT) {
+  if (quotation.stage !== QuoteStage.DRAFT && quotation.stage !== QuoteStage.NEGOTIATION) {
     throw new AppError(
       400,
       "INVALID_STAGE",
-      "Lines can only be updated for quotations in DRAFT stage."
+      "Lines can only be updated for quotations in DRAFT or NEGOTIATION stage."
     );
   }
 
@@ -437,11 +677,11 @@ export async function deleteQuotationLine(
   });
   if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
 
-  if (quotation.stage !== QuoteStage.DRAFT) {
+  if (quotation.stage !== QuoteStage.DRAFT && quotation.stage !== QuoteStage.NEGOTIATION) {
     throw new AppError(
       400,
       "INVALID_STAGE",
-      "Lines can only be removed from quotations in DRAFT stage."
+      "Lines can only be removed from quotations in DRAFT or NEGOTIATION stage."
     );
   }
 
@@ -480,11 +720,11 @@ export async function submitQuotation(
   });
   if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
 
-  if (quotation.stage !== QuoteStage.DRAFT) {
+  if (quotation.stage !== QuoteStage.DRAFT && quotation.stage !== QuoteStage.NEGOTIATION) {
     throw new AppError(
       400,
       "INVALID_STAGE",
-      `Only quotations in DRAFT stage can be submitted. Current stage is ${quotation.stage}.`
+      `Only quotations in DRAFT or NEGOTIATION stage can be submitted. Current stage is ${quotation.stage}.`
     );
   }
 

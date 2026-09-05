@@ -1524,6 +1524,71 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
                     </div>
                   </div>
 
+                  {/* All Quotations Assigned to Customer Profile */}
+                  <div className="md:col-span-2 bg-[#f8fafc] border border-slate-200 p-5 rounded-2xl space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                      <div>
+                        <span className="text-xs font-bold uppercase text-slate-700 flex items-center gap-1.5">
+                          <FileText size={14} className="text-[#ff5e3a]" />
+                          <span>All Quotations Assigned to Your Profile ({customerQuotations.length})</span>
+                        </span>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Active proposals and commercial quotes created for your organization
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setViewMode("list");
+                          setActiveTab("quotation");
+                        }}
+                        className="text-xs font-bold text-[#ff5e3a] hover:underline cursor-pointer"
+                      >
+                        View in Catalog &rarr;
+                      </button>
+                    </div>
+
+                    {customerQuotations.length === 0 ? (
+                      <div className="text-center py-6 text-xs text-slate-400">
+                        No active quotations found for your account yet.
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {customerQuotations.map((q: any) => (
+                          <div
+                            key={q.id || q.quoteNumber}
+                            className="bg-white border border-slate-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs hover:border-[#ff5e3a]/40 transition"
+                          >
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-xs text-slate-900">
+                                  {q.quoteNumber || q.id}
+                                </span>
+                                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                                  {q.stage || "DRAFT"}
+                                </span>
+                              </div>
+                              <div className="text-xs text-slate-700 font-semibold">{q.title}</div>
+                              <div className="text-[11px] text-slate-400">
+                                Total: <strong className="text-slate-800">₹{(Number(q.grandTotal) || 0).toLocaleString()}</strong> &bull; Valid: {q.expiresAt ? new Date(q.expiresAt).toLocaleDateString() : "—"}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleSelectToken(q.portalToken || q.quoteNumber || q.id);
+                                setActiveTab("quotation");
+                              }}
+                              className="px-4 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-bold shadow-xs active:translate-y-0.5 transition flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                              <span>Open &amp; Negotiate Proposal</span>
+                              <ChevronRight size={13} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Customer Portal Session Management & Sign Out */}
                   <div className="md:col-span-2 pt-6 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 bg-[#f8fafc] rounded-2xl p-5 border border-slate-200 shadow-xs">
                     <div className="flex items-center gap-3.5">
