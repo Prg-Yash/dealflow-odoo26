@@ -165,7 +165,8 @@ export async function adjustStock({
       stockLevel = await client.stockLevel.update({
         where: { id: stockLevel.id },
         data: {
-          quantityOnHand: { increment: quantityDelta },
+          ...(qDelta !== 0 && { quantityOnHand: { increment: qDelta } }),
+          ...(rDelta !== 0 && { quantityReserved: { increment: rDelta } }),
         },
         include: {
           warehouse: true,
@@ -179,8 +180,8 @@ export async function adjustStock({
           warehouseId,
           productId,
           variantId: normalizedVariantId,
-          quantityOnHand: Math.max(0, quantityDelta),
-          quantityReserved: 0,
+          quantityOnHand: Math.max(0, qDelta),
+          quantityReserved: Math.max(0, rDelta),
           reorderPoint: 10,
         },
         include: {

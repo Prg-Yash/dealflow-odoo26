@@ -61,8 +61,8 @@ export async function createFulfillmentOrder(
   const count = await prisma.fulfillmentOrder.count();
   const year = new Date().getFullYear();
   let fulfillmentNumber = `FUL-${year}-${String(count + 1).padStart(4, "0")}`;
-  const existingNum = await prisma.fulfillmentOrder.findUnique({
-    where: { fulfillmentNumber },
+  const existingNum = await prisma.fulfillmentOrder.findFirst({
+    where: { fulfillmentNumber, organizationId: orgId },
   });
   if (existingNum) {
     fulfillmentNumber = `FUL-${year}-${String(count + 1).padStart(4, "0")}-${Math.floor(1000 + Math.random() * 9000)}`;

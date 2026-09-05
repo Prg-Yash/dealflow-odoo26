@@ -76,10 +76,12 @@ export async function processBackorderConsolidationJob(
           },
         });
 
-        await tx.stockLevel.update({
-          where: { warehouseId_productId: { warehouseId: wh.id, productId } },
-          data: { quantityReserved: { increment: alloc } },
-        });
+        if (sl) {
+          await tx.stockLevel.update({
+            where: { id: sl.id },
+            data: { quantityReserved: { increment: alloc } },
+          });
+        }
 
         await tx.stockMovement.create({
           data: {

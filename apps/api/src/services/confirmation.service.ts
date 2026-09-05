@@ -22,7 +22,7 @@ export interface ConfirmQuotationResult {
 async function generateUniqueInvoiceNumber(tx: Prisma.TransactionClient, year: number): Promise<string> {
   const count = await tx.invoice.count();
   let num = `INV-${year}-${String(count + 1).padStart(4, "0")}`;
-  const existing = await tx.invoice.findUnique({ where: { invoiceNumber: num } });
+  const existing = await tx.invoice.findFirst({ where: { invoiceNumber: num } });
   if (existing) {
     num = `INV-${year}-${String(count + 1).padStart(4, "0")}-${Math.floor(1000 + Math.random() * 9000)}`;
   }
@@ -32,7 +32,7 @@ async function generateUniqueInvoiceNumber(tx: Prisma.TransactionClient, year: n
 async function generateUniqueSubscriptionNumber(tx: Prisma.TransactionClient, year: number): Promise<string> {
   const count = await tx.subscription.count();
   let num = `SUB-${year}-${String(count + 1).padStart(4, "0")}`;
-  const existing = await tx.subscription.findUnique({ where: { subscriptionNumber: num } });
+  const existing = await tx.subscription.findFirst({ where: { subscriptionNumber: num } });
   if (existing) {
     num = `SUB-${year}-${String(count + 1).padStart(4, "0")}-${Math.floor(1000 + Math.random() * 9000)}`;
   }
@@ -42,7 +42,7 @@ async function generateUniqueSubscriptionNumber(tx: Prisma.TransactionClient, ye
 async function generateUniqueFulfillmentNumber(tx: Prisma.TransactionClient, year: number): Promise<string> {
   const count = await tx.fulfillmentOrder.count();
   let num = `FUL-${year}-${String(count + 1).padStart(4, "0")}`;
-  const existing = await tx.fulfillmentOrder.findUnique({ where: { fulfillmentNumber: num } });
+  const existing = await tx.fulfillmentOrder.findFirst({ where: { fulfillmentNumber: num } });
   if (existing) {
     num = `FUL-${year}-${String(count + 1).padStart(4, "0")}-${Math.floor(1000 + Math.random() * 9000)}`;
   }

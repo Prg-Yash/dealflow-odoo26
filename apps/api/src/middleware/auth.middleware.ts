@@ -9,6 +9,7 @@ export interface AuthenticatedUser extends User {
   salesRep?: any | null;
   salesManager?: any | null;
   financeOpsUser?: any | null;
+  customerProfile?: any | null;
 }
 
 export interface AuthRequest extends Request {
