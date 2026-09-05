@@ -23,6 +23,7 @@ import {
   Check,
   AlertTriangle,
 } from "lucide-react";
+import { useDashboardAuth } from "../../../../layout";
 import { BrandLogo, ProfileModal } from "@repo/ui";
 import {
   INITIAL_MANAGER_APPROVALS,
@@ -32,6 +33,7 @@ import {
 import { useQuotation, useUpdateQuotationStage } from "../../../../../../lib/query";
 
 export default function ManagerApprovalDetailPage() {
+  const { signOut } = useDashboardAuth();
   const params = useParams();
   const [profileOpen, setProfileOpen] = useState(false);
   const rawId = params.id as string;
@@ -176,6 +178,7 @@ export default function ManagerApprovalDetailPage() {
                 </div>
               </button>
               <ProfileModal
+                onSignOut={signOut}
                 open={profileOpen}
                 onClose={() => setProfileOpen(false)}
                 user={{
@@ -184,7 +187,6 @@ export default function ManagerApprovalDetailPage() {
                   initials: "EV",
                   role: "manager",
                 }}
-                onSignOut={() => { window.location.href = "/login"; }}
               />
             </div>
           </div>

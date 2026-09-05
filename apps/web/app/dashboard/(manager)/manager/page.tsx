@@ -18,6 +18,7 @@ import {
   Search,
   SlidersHorizontal,
 } from "lucide-react";
+import { useDashboardAuth } from "../../layout";
 import { BrandLogo, ProfileModal } from "@repo/ui";
 import {
   INITIAL_MANAGER_APPROVALS,
@@ -35,6 +36,7 @@ import {
 } from "../../../../lib/query";
 
 export default function ManagerDashboardPage() {
+  const { signOut } = useDashboardAuth();
   const [activeView, setActiveView] = useState<"approvals" | "telemetry" | "team">("approvals");
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -348,7 +350,8 @@ export default function ManagerDashboardPage() {
               </div>
             </button>
             <ProfileModal
-              open={profileOpen}
+                onSignOut={signOut}
+                open={profileOpen}
               onClose={() => setProfileOpen(false)}
               user={{
                 name: "Elena Vance",
@@ -356,7 +359,6 @@ export default function ManagerDashboardPage() {
                 initials: "EV",
                 role: "manager",
               }}
-              onSignOut={() => { window.location.href = "/login"; }}
             />
           </div>
         </div>

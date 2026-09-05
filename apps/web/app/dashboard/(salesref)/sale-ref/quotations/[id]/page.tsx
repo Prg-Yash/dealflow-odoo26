@@ -49,7 +49,7 @@ export default function QuotationDetailPage({ params }: Props) {
   const resolvedParams = use(params);
   const quoteId = resolvedParams.id;
 
-  const { user } = useDashboardAuth();
+  const { user, signOut } = useDashboardAuth();
 
   // Queries & Mutations
   const { data: apiQuote, isLoading, error } = useQuotation(quoteId);
@@ -319,7 +319,7 @@ export default function QuotationDetailPage({ params }: Props) {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center gap-3">
-        <Loader2 size={28} className="animate-spin text-[#0066cc]" />
+        <Loader2 size={28} className="animate-spin text-[#ff5e3a]" />
         <span className="text-xs text-slate-500 font-medium">Loading quotation details...</span>
       </div>
     );
@@ -337,7 +337,7 @@ export default function QuotationDetailPage({ params }: Props) {
         </p>
         <Link
           href="/dashboard/sale-ref/quotations"
-          className="mt-5 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0066cc] text-white text-xs font-bold shadow-xs hover:bg-[#0052a3] transition"
+          className="mt-5 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff5e3a] text-white text-xs font-bold shadow-xs hover:bg-[#ea4e28] transition"
         >
           <ArrowLeft size={13} />
           <span>Back to Quotations List</span>
@@ -353,6 +353,7 @@ export default function QuotationDetailPage({ params }: Props) {
     <div className="min-h-screen bg-[#f8fafc] text-[#0f172a] font-sans antialiased">
       {/* Role-Aware Navigation */}
       <SalesNav
+        onSignOut={signOut}
         activeTab="quotations"
         userName={user?.name || "Sales Representative"}
         userInitials={userInitials}
@@ -365,7 +366,7 @@ export default function QuotationDetailPage({ params }: Props) {
         <div className="flex items-center gap-2 pt-2 text-xs text-slate-500 font-medium">
           <Link
             href="/dashboard/sale-ref/quotations"
-            className="hover:text-[#0066cc] transition-colors flex items-center gap-1"
+            className="hover:text-[#ff5e3a] transition-colors flex items-center gap-1"
           >
             <ArrowLeft size={13} />
             <span>Quotations</span>
@@ -529,7 +530,7 @@ export default function QuotationDetailPage({ params }: Props) {
                   disabled={isReadOnlyForSalesRep}
                   value={priceList}
                   onChange={(e) => setPriceList(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none focus:border-[#0066cc] disabled:bg-slate-50 disabled:text-slate-500 cursor-pointer"
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none focus:border-[#ff5e3a] disabled:bg-slate-50 disabled:text-slate-500 cursor-pointer"
                 >
                   <option value="Standard Commercial 2026">Standard Commercial 2026</option>
                   <option value="Enterprise Tier A">Enterprise Tier A (Preferred)</option>
@@ -588,7 +589,7 @@ export default function QuotationDetailPage({ params }: Props) {
                                 min={1}
                                 value={item.quantity}
                                 onChange={(e) => handleQuantityChange(idx, parseInt(e.target.value) || 1)}
-                                className="w-16 px-2 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
+                                className="w-16 px-2 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#ff5e3a]"
                               />
                             )}
                           </td>
@@ -608,7 +609,7 @@ export default function QuotationDetailPage({ params }: Props) {
                                   max={100}
                                   value={item.discountPercent}
                                   onChange={(e) => handleDiscountChange(idx, parseFloat(e.target.value) || 0)}
-                                  className="w-16 px-2 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
+                                  className="w-16 px-2 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#ff5e3a]"
                                 />
                                 <span className="text-slate-400 font-semibold">%</span>
                               </div>
@@ -658,7 +659,7 @@ export default function QuotationDetailPage({ params }: Props) {
                   <select
                     value={selectedCatalogProductId}
                     onChange={(e) => setSelectedCatalogProductId(e.target.value)}
-                    className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none focus:border-[#0066cc] cursor-pointer"
+                    className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none focus:border-[#ff5e3a] cursor-pointer"
                   >
                     <option value="">Select product from organization catalog...</option>
                     {(apiProducts || []).map((p) => (
@@ -672,7 +673,7 @@ export default function QuotationDetailPage({ params }: Props) {
                   type="button"
                   onClick={handleAddCatalogProduct}
                   disabled={!selectedCatalogProductId || addLineMutation.isPending}
-                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-[#0066cc] hover:bg-[#0052a3] disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-[#ff5e3a] hover:bg-[#ea4e28] disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
                 >
                   {addLineMutation.isPending ? (
                     <Loader2 size={13} className="animate-spin" />
@@ -697,7 +698,7 @@ export default function QuotationDetailPage({ params }: Props) {
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
-                <ShieldCheck size={14} className="text-[#0066cc]" />
+                <ShieldCheck size={14} className="text-[#ff5e3a]" />
                 <span>Governance &amp; Risk Threshold Analysis</span>
               </span>
               <span className="text-[11px] text-slate-500">
@@ -722,7 +723,7 @@ export default function QuotationDetailPage({ params }: Props) {
 
               <div className="bg-white p-3 rounded-xl border border-slate-200">
                 <span className="text-[10px] font-bold text-slate-400 uppercase">Total Order Value</span>
-                <div className="text-base font-black text-[#0066cc] mt-0.5">
+                <div className="text-base font-black text-[#ff5e3a] mt-0.5">
                   ₹{riskSummary.totalOrderValue.toLocaleString()}
                 </div>
               </div>
@@ -779,7 +780,7 @@ export default function QuotationDetailPage({ params }: Props) {
                   className="bg-slate-50/90 hover:bg-slate-100/90 disabled:opacity-60 disabled:cursor-not-allowed border border-slate-200 rounded-2xl p-4 text-left transition-all group flex flex-col justify-between cursor-pointer"
                 >
                   <div>
-                    <div className="font-bold text-xs text-slate-900 group-hover:text-[#0066cc] flex items-center justify-between">
+                    <div className="font-bold text-xs text-slate-900 group-hover:text-[#ff5e3a] flex items-center justify-between">
                       <span>+ {rec.name}</span>
                       <span className="text-[10px] font-semibold text-slate-500">₹{rec.basePrice}</span>
                     </div>
@@ -791,7 +792,7 @@ export default function QuotationDetailPage({ params }: Props) {
                     <span className="text-[11px] font-bold text-emerald-600">
                       Standard Add-on
                     </span>
-                    <span className="text-[10px] font-bold text-[#0066cc] group-hover:underline">
+                    <span className="text-[10px] font-bold text-[#ff5e3a] group-hover:underline">
                       + Add to quote &rarr;
                     </span>
                   </div>
@@ -857,7 +858,7 @@ export default function QuotationDetailPage({ params }: Props) {
                     type="button"
                     onClick={handleSubmitForApproval}
                     disabled={submitMutation.isPending || riskSummary.isEmpty}
-                    className="px-5 py-2 rounded-xl bg-[#0066cc] hover:bg-[#0052a3] text-white font-bold text-xs shadow-md shadow-[#0066cc]/25 active:translate-y-0.5 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    className="px-5 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white font-bold text-xs shadow-md shadow-[#ff5e3a]/25 active:translate-y-0.5 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                   >
                     {submitMutation.isPending ? (
                       <Loader2 size={14} className="animate-spin" />

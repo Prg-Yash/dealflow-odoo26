@@ -17,6 +17,7 @@ import {
   ArrowUpRight,
   ChevronRight,
 } from "lucide-react";
+import { useDashboardAuth } from "../../layout";
 import { BrandLogo, ProfileModal } from "@repo/ui";
 import {
   INITIAL_FINANCE_APPROVALS,
@@ -37,6 +38,7 @@ import {
 } from "../../../../lib/query";
 
 export default function FinanceDashboardPage() {
+  const { signOut } = useDashboardAuth();
   const [activeView, setActiveView] = useState<"approvals" | "fulfillment" | "subscriptions" | "invoices">("approvals");
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -271,7 +273,8 @@ export default function FinanceDashboardPage() {
               </div>
             </button>
             <ProfileModal
-              open={profileOpen}
+                onSignOut={signOut}
+                open={profileOpen}
               onClose={() => setProfileOpen(false)}
               user={{
                 name: "Fiona Ops",
@@ -279,7 +282,6 @@ export default function FinanceDashboardPage() {
                 initials: "FO",
                 role: "finance",
               }}
-              onSignOut={() => { window.location.href = "/login"; }}
             />
           </div>
         </div>

@@ -46,7 +46,7 @@ interface LineItemState {
 
 export default function NewQuotationPage() {
   const router = useRouter();
-  const { user } = useDashboardAuth();
+  const { user, signOut } = useDashboardAuth();
 
   const { data: apiCustomers, isLoading: loadingCustomers } = useCustomers();
   const { data: apiProducts, isLoading: loadingProducts } = useProducts();
@@ -292,6 +292,7 @@ export default function NewQuotationPage() {
     <div className="min-h-screen bg-[#f8fafc] text-[#0f172a] font-sans antialiased">
       {/* Role-Aware Navigation Header */}
       <SalesNav
+        onSignOut={signOut}
         activeTab="new-quote"
         userName={user?.name || "Sales Representative"}
         userInitials={userInitials}
@@ -306,7 +307,7 @@ export default function NewQuotationPage() {
             <div className="flex items-center gap-2 mb-1 text-xs text-slate-500 font-medium">
               <Link
                 href="/dashboard/sale-ref/quotations"
-                className="hover:text-[#0066cc] transition-colors flex items-center gap-1"
+                className="hover:text-[#ff5e3a] transition-colors flex items-center gap-1"
               >
                 <ArrowLeft size={13} />
                 <span>Quotations</span>
@@ -347,7 +348,7 @@ export default function NewQuotationPage() {
             <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
-                  <Building2 size={18} className="text-[#0066cc]" />
+                  <Building2 size={18} className="text-[#ff5e3a]" />
                   <h2 className="text-sm font-bold text-slate-900">Customer Organization</h2>
                 </div>
 
@@ -358,7 +359,7 @@ export default function NewQuotationPage() {
                     disabled={!apiCustomers || apiCustomers.length === 0}
                     className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
                       customerMode === "existing"
-                        ? "bg-white text-[#0066cc] font-bold shadow-xs"
+                        ? "bg-white text-[#ff5e3a] font-bold shadow-xs"
                         : "text-slate-600 hover:text-slate-900 disabled:opacity-50"
                     }`}
                   >
@@ -369,7 +370,7 @@ export default function NewQuotationPage() {
                     onClick={() => setCustomerMode("new")}
                     className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
                       customerMode === "new"
-                        ? "bg-white text-[#0066cc] font-bold shadow-xs"
+                        ? "bg-white text-[#ff5e3a] font-bold shadow-xs"
                         : "text-slate-600 hover:text-slate-900"
                     }`}
                   >
@@ -385,14 +386,14 @@ export default function NewQuotationPage() {
                   </label>
                   {loadingCustomers ? (
                     <div className="py-3 flex items-center gap-2 text-xs text-slate-400">
-                      <Loader2 size={14} className="animate-spin text-[#0066cc]" />
+                      <Loader2 size={14} className="animate-spin text-[#ff5e3a]" />
                       <span>Loading organization customers...</span>
                     </div>
                   ) : (
                     <select
                       value={selectedCustomerId}
                       onChange={(e) => setSelectedCustomerId(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs font-semibold text-slate-800 outline-none cursor-pointer"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 focus:border-[#ff5e3a] rounded-xl text-xs font-semibold text-slate-800 outline-none cursor-pointer"
                     >
                       {apiCustomers?.map((c) => (
                         <option key={c.id} value={c.id}>
@@ -406,7 +407,7 @@ export default function NewQuotationPage() {
                 /* Auto-Provisioning Customer Fields */
                 <div className="space-y-3 pt-1">
                   <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-200/80 text-[11px] text-blue-800 flex items-center gap-2">
-                    <ShieldCheck size={14} className="text-[#0066cc] shrink-0" />
+                    <ShieldCheck size={14} className="text-[#ff5e3a] shrink-0" />
                     <span>
                       If customer does not have an account, DealFlow 360 will automatically create a portal user and assign this quotation.
                     </span>
@@ -415,7 +416,7 @@ export default function NewQuotationPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                        Customer Email <span className="text-[#0066cc]">*</span>
+                        Customer Email <span className="text-[#ff5e3a]">*</span>
                       </label>
                       <div className="relative">
                         <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -425,7 +426,7 @@ export default function NewQuotationPage() {
                           value={customerEmail}
                           onChange={(e) => setCustomerEmail(e.target.value)}
                           placeholder="procurement@client.com"
-                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs text-slate-900 outline-none font-medium"
+                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#ff5e3a] rounded-xl text-xs text-slate-900 outline-none font-medium"
                         />
                       </div>
                     </div>
@@ -441,7 +442,7 @@ export default function NewQuotationPage() {
                           value={companyName}
                           onChange={(e) => setCompanyName(e.target.value)}
                           placeholder="e.g. Acme Corp"
-                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs text-slate-900 outline-none font-medium"
+                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#ff5e3a] rounded-xl text-xs text-slate-900 outline-none font-medium"
                         />
                       </div>
                     </div>
@@ -459,7 +460,7 @@ export default function NewQuotationPage() {
                           value={customerName}
                           onChange={(e) => setCustomerName(e.target.value)}
                           placeholder="e.g. Johnathan Ward"
-                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs text-slate-900 outline-none font-medium"
+                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#ff5e3a] rounded-xl text-xs text-slate-900 outline-none font-medium"
                         />
                       </div>
                     </div>
@@ -475,7 +476,7 @@ export default function NewQuotationPage() {
                           value={customerPhone}
                           onChange={(e) => setCustomerPhone(e.target.value)}
                           placeholder="+1 (555) 019-2834"
-                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs text-slate-900 outline-none font-medium"
+                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#ff5e3a] rounded-xl text-xs text-slate-900 outline-none font-medium"
                         />
                       </div>
                     </div>
@@ -494,7 +495,7 @@ export default function NewQuotationPage() {
                     value={quoteTitle}
                     onChange={(e) => setQuoteTitle(e.target.value)}
                     placeholder="e.g. Enterprise Solution & Hardware Modernization"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs text-slate-900 font-medium outline-none"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#ff5e3a] rounded-xl text-xs text-slate-900 font-medium outline-none"
                   />
                 </div>
 
@@ -506,7 +507,7 @@ export default function NewQuotationPage() {
                     type="date"
                     value={validUntil}
                     onChange={(e) => setValidUntil(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#0066cc] rounded-xl text-xs text-slate-900 font-medium outline-none"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 focus:border-[#ff5e3a] rounded-xl text-xs text-slate-900 font-medium outline-none"
                   />
                 </div>
               </div>
@@ -516,7 +517,7 @@ export default function NewQuotationPage() {
             <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
-                  <Package size={18} className="text-[#0066cc]" />
+                  <Package size={18} className="text-[#ff5e3a]" />
                   <h2 className="text-sm font-bold text-slate-900">Quotation Line Items</h2>
                 </div>
 
@@ -539,7 +540,7 @@ export default function NewQuotationPage() {
                     type="button"
                     onClick={handleAddProduct}
                     disabled={!selectedProductId}
-                    className="px-3 py-1.5 rounded-xl bg-[#0066cc] hover:bg-[#0052a3] disabled:opacity-50 text-white text-xs font-bold transition cursor-pointer"
+                    className="px-3 py-1.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] disabled:opacity-50 text-white text-xs font-bold transition cursor-pointer"
                   >
                     Add
                   </button>
@@ -589,7 +590,7 @@ export default function NewQuotationPage() {
                                 min={1}
                                 value={item.quantity}
                                 onChange={(e) => handleUpdateQty(idx, parseInt(e.target.value) || 1)}
-                                className="w-16 px-2 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
+                                className="w-16 px-2 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#ff5e3a]"
                               />
                             </td>
                             <td className="py-3.5 px-4 text-right">
@@ -598,7 +599,7 @@ export default function NewQuotationPage() {
                                 min={0}
                                 value={item.unitPrice}
                                 onChange={(e) => handleUpdatePrice(idx, parseFloat(e.target.value) || 0)}
-                                className="w-24 px-2 py-1 text-right font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
+                                className="w-24 px-2 py-1 text-right font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#ff5e3a]"
                               />
                             </td>
                             <td className="py-3.5 px-3 text-center">
@@ -609,7 +610,7 @@ export default function NewQuotationPage() {
                                   max={100}
                                   value={item.discountPercent}
                                   onChange={(e) => handleUpdateDiscount(idx, parseFloat(e.target.value) || 0)}
-                                  className="w-16 px-2 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
+                                  className="w-16 px-2 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#ff5e3a]"
                                 />
                                 <span className="text-slate-400 font-semibold">%</span>
                               </div>
@@ -679,7 +680,7 @@ export default function NewQuotationPage() {
 
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-sm">
                   <span className="font-bold text-slate-800">Net Contract Total:</span>
-                  <span className="font-black text-[#0066cc] text-base">
+                  <span className="font-black text-[#ff5e3a] text-base">
                     ₹{riskSummary.totalOrderValue.toLocaleString()}
                   </span>
                 </div>
@@ -732,7 +733,7 @@ export default function NewQuotationPage() {
                   type="button"
                   disabled={isSubmitting || items.length === 0}
                   onClick={() => handleSaveQuotation(true)}
-                  className="w-full py-2.5 px-4 rounded-xl bg-[#0066cc] hover:bg-[#0052a3] text-white text-xs font-bold shadow-md shadow-[#0066cc]/25 transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  className="w-full py-2.5 px-4 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-bold shadow-md shadow-[#ff5e3a]/25 transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                   <span>Submit for Approval</span>
