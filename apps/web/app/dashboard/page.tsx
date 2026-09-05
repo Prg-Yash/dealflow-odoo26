@@ -14,10 +14,8 @@ import {
 import { SalesNav, PipelineStageBar } from "@repo/ui";
 import {
   getStoredRole,
-  setStoredRole,
   type UserRole,
   ROLES,
-  ALL_ROLES,
 } from "../../lib/roles";
 import {
   PIPELINE_STAGES,
@@ -27,7 +25,7 @@ import {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [activeRole, setActiveRole] = useState<UserRole>(() => getStoredRole());
+  const [activeRole] = useState<UserRole>(() => getStoredRole());
   const [quotations] = useState<Quotation[]>(INITIAL_QUOTATIONS);
   const [selectedFilter, setSelectedFilter] = useState<string>("all");
 
@@ -36,15 +34,6 @@ export default function DashboardPage() {
       router.push("/portal");
     }
   }, [activeRole, router]);
-
-  const handleSwitchRole = (newRole: UserRole) => {
-    setStoredRole(newRole);
-    if (newRole === "customer") {
-      router.push("/portal");
-    } else {
-      setActiveRole(newRole);
-    }
-  };
 
   const currentRole = ROLES[activeRole];
 
@@ -94,23 +83,6 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-2.5">
-            {/* Quick Role Switcher for Demo Testing */}
-            <div className="hidden md:flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 shadow-xs">
-              <span className="text-[10px] font-bold uppercase text-slate-400 px-2">Role:</span>
-              {ALL_ROLES.map((r) => (
-                <button
-                  key={r.id}
-                  onClick={() => handleSwitchRole(r.id)}
-                  className={`px-2 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${activeRole === r.id
-                    ? "bg-slate-900 text-white shadow-xs"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-                    }`}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
-
             <Link
               href="/quotations/new"
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-bold shadow-md shadow-[#ff5e3a]/25 active:translate-y-0.5 transition-all cursor-pointer"
