@@ -197,11 +197,11 @@ export default function ProfilePage() {
       <header className="w-full border-b border-slate-200 bg-white/95 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky top-0 z-30">
         <BrandLogo href="/dashboard" subtitle="Profile & Session" />
         <Link
-          href="/dashboard"
+          href={demoRole === "customer" ? "/portal" : "/dashboard"}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition"
         >
           <ArrowLeft size={14} />
-          <span>To Dashboard</span>
+          <span>{demoRole === "customer" ? "To Customer Portal" : "To Dashboard"}</span>
         </Link>
       </header>
 
@@ -288,11 +288,11 @@ export default function ProfilePage() {
             </button>
 
             <Link
-              href="/dashboard"
+              href={demoRole === "customer" ? "/portal" : "/dashboard"}
               className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 font-semibold text-xs hover:bg-slate-50 transition"
             >
               <Home size={14} />
-              <span>Dashboard</span>
+              <span>{demoRole === "customer" ? "Customer Portal" : "Dashboard"}</span>
             </Link>
 
             <button

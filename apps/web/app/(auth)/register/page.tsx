@@ -17,7 +17,7 @@ import {
   Sparkles,
   ArrowLeftRight,
 } from "lucide-react";
-import { AuthCard } from "@repo/ui";
+import { AuthCard, useToast } from "@repo/ui";
 import { signUp } from "../../../lib/auth-client";
 import { setStoredRole } from "../../../lib/roles";
 import { isValidEmail, isValidPassword, isValidName } from "../../../lib/validation";
@@ -27,6 +27,7 @@ type SignupMode = "customer" | "admin";
 export default function RegisterPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { toast } = useToast();
 
   // Mode state: default is "customer"
   const [mode, setMode] = useState<SignupMode>("customer");
@@ -184,7 +185,9 @@ export default function RegisterPage() {
       }
     } catch (err: any) {
       console.error("Registration error:", err);
-      setError(err?.message || "Registration encountered an issue. Please try again.");
+      const errMsg = err?.message || "Registration encountered an issue. Please try again.";
+      setError(errMsg);
+      toast.error("Registration Failed", errMsg);
     } finally {
       setLoading(false);
     }
@@ -274,12 +277,6 @@ export default function RegisterPage() {
           <span>Switch form</span>
         </button>
       </div>
-
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 mb-2">
-          {error}
-        </div>
-      )}
 
       {/* Form Elements */}
       <form onSubmit={handleSubmit} className="flex flex-col gap-3.5 text-left">
