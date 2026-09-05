@@ -80,6 +80,34 @@ export interface PortalQuoteData {
   } | null;
 }
 
+export interface ActivePortalQuote {
+  id: string;
+  token: string;
+  quoteNumber: string;
+  title: string;
+  label: string;
+  stage: string;
+  customer: string;
+  customerEmail?: string;
+  grandTotal: number;
+  lineCount?: number;
+  createdAt: string;
+}
+
+/**
+ * Hook to fetch all active quotations directly from the database for the quote directory & switcher
+ */
+export function usePortalActiveQuotes() {
+  return useQuery({
+    queryKey: ["portal", "active-quotes"],
+    queryFn: async () => {
+      const res = await api.get<any>("/api/portal/active-quotes");
+      const list = res?.data || res || [];
+      return (Array.isArray(list) ? list : []) as ActivePortalQuote[];
+    },
+  });
+}
+
 /**
  * Hook to fetch customer portal quotation by secure portal token
  */

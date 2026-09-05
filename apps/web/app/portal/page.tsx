@@ -1,22 +1,94 @@
 "use client";
 
-import { Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { CustomerNegotiationPortal } from "./components/CustomerNegotiationPortal";
+import { getStoredRole } from "../../lib/roles";
+import { authClient } from "../../lib/auth-client";
 
 function PortalContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const token = searchParams.get("token") || "DF-Q1042";
+  const urlToken = searchParams.get("token");
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
+  const [resolvedToken, setResolvedToken] = useState<string>("");
+  const [customerEmail, setCustomerEmail] = useState<string>("");
 
-  return <CustomerNegotiationPortal initialToken={token} />;
+  useEffect(() => {
+    async function checkAuth() {
+      // 1. Check Better Auth session for a customer role
+      try {
+        const { data: session } = await authClient.getSession();
+        if (session?.user?.email) {
+          const email = session.user.email;
+          setCustomerEmail(email);
+          // If logged in via session, use token from URL or derive from session
+          const tok = urlToken?.trim() || "current";
+          setResolvedToken(tok);
+          setIsAuthorized(true);
+
+          // Clean URL: remove token from address bar for security
+          if (urlToken) {
+            window.history.replaceState({}, "", "/portal");
+          }
+          return;
+        }
+      } catch {
+        // Session not available
+      }
+
+      // 2. If explicit token is in URL (customer entered it via portal/login), authorize
+      if (urlToken && urlToken.trim().length > 0) {
+        setResolvedToken(urlToken.trim());
+        setIsAuthorized(true);
+
+        // Clean token from URL after reading it
+        window.history.replaceState({}, "", "/portal");
+        return;
+      }
+
+      // 3. Check demo_role cookie (fallback for session-less token-based auth)
+      const role = getStoredRole();
+      const hasCustomerCookie = typeof document !== "undefined" && document.cookie.includes("demo_role=customer");
+
+      if (role === "customer" || hasCustomerCookie) {
+        setResolvedToken("current");
+        setIsAuthorized(true);
+        return;
+      }
+
+      // 4. Unauthenticated -> Redirect to unified /login
+      setIsAuthorized(false);
+      router.replace("/login");
+    }
+
+    checkAuth();
+  }, [urlToken, router]);
+
+  if (isAuthorized === null) {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-[#ff5e3a] border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-xs font-semibold text-slate-600">Verifying customer authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthorized) {
+    return null;
+  }
+
+  return <CustomerNegotiationPortal initialToken={resolvedToken || "current"} customerEmail={customerEmail} />;
 }
 
 export default function CustomerPortalPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[#070A0F] flex items-center justify-center text-xs font-mono text-emerald-400">
-          Decrypting customer quotation portal...
+        <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center text-xs font-semibold text-slate-600">
+          Loading customer portal...
         </div>
       }
     >

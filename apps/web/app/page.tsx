@@ -13,12 +13,12 @@ export default function Home() {
 
           <div className="hidden sm:flex items-center gap-6 text-sm font-medium text-slate-600">
             <Link href="/login" className="hover:text-slate-900 transition-colors">
-              Internal Login
+              Sign In
             </Link>
             <Link href="/register" className="hover:text-slate-900 transition-colors">
               Org Sign Up
             </Link>
-            <Link href="/portal/login" className="hover:text-slate-900 transition-colors">
+            <Link href="/portal" className="hover:text-slate-900 transition-colors">
               Customer Portal
             </Link>
           </div>
@@ -101,7 +101,7 @@ export default function Home() {
 
           {/* Card 3: Customer Portal */}
           <Link
-            href="/portal/login"
+            href="/portal"
             className="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5"
           >
             <div className="w-10 h-10 rounded-2xl bg-[#c4e7ff]/60 flex items-center justify-center text-[#00668a] mb-4 group-hover:bg-[#00668a] group-hover:text-white transition-colors">
@@ -114,7 +114,7 @@ export default function Home() {
               Customer Quotation Portal
             </h2>
             <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-              Secure proposal access via quote token (e.g. DF-Q1042) or buyer email for customer negotiations.
+              Secure client portal for reviewing, negotiating counter-proposals, and e-signing quotations.
             </p>
             <div className="mt-4 flex items-center gap-1.5 text-xs font-bold text-[#00668a] group-hover:translate-x-1 transition-transform">
               <span>Open Screen</span>

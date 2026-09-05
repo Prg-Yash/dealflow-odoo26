@@ -1,6 +1,22 @@
-import type { Response, NextFunction } from "express";
+import type { Request, Response, NextFunction } from "express";
 import type { PortalRequest } from "../middleware/portalAuth.js";
 import * as portalService from "../services/portal.service.js";
+
+export async function listActiveQuotations(
+  _req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const quotations = await portalService.listActivePortalQuotations();
+    return res.json({
+      success: true,
+      data: quotations,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 
 export async function getQuotation(
   req: PortalRequest,

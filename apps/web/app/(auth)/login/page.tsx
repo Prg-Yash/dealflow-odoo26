@@ -153,6 +153,75 @@ export default function LoginPage() {
           {passwordError && <span className="text-[11px] text-red-500 font-medium">{passwordError}</span>}
         </div>
 
+        {/* Quick Role Tester Pills */}
+        <div className="pt-1 pb-1">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5">
+            Quick Test Credentials (1-Click Fill)
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                setEmail("buyer@acmecorp.com");
+                setPassword("Password123!");
+                setEmailTouched(true);
+                setPasswordTouched(true);
+              }}
+              className="px-2.5 py-1.5 rounded-lg border border-orange-200 bg-orange-50/70 hover:bg-orange-100/80 text-[11px] font-semibold text-[#ff5e3a] transition text-left"
+            >
+              💼 Customer / Buyer
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEmail("rep.alex@dealflow360.com");
+                setPassword("Password123!");
+                setEmailTouched(true);
+                setPasswordTouched(true);
+              }}
+              className="px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50/70 hover:bg-blue-100/80 text-[11px] font-semibold text-blue-700 transition text-left"
+            >
+              🎯 Sales Rep
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEmail("manager.elena@dealflow360.com");
+                setPassword("Password123!");
+                setEmailTouched(true);
+                setPasswordTouched(true);
+              }}
+              className="px-2.5 py-1.5 rounded-lg border border-amber-200 bg-amber-50/70 hover:bg-amber-100/80 text-[11px] font-semibold text-amber-700 transition text-left"
+            >
+              👑 Sales Manager
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEmail("finance.marcus@dealflow360.com");
+                setPassword("Password123!");
+                setEmailTouched(true);
+                setPasswordTouched(true);
+              }}
+              className="px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100/80 text-[11px] font-semibold text-emerald-700 transition text-left"
+            >
+              💳 Finance / RevOps
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEmail("admin@dealflow360.com");
+                setPassword("Password123!");
+                setEmailTouched(true);
+                setPasswordTouched(true);
+              }}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 hover:bg-slate-200 text-[11px] font-semibold text-slate-700 transition text-left"
+            >
+              ⚙️ System Admin
+            </button>
+          </div>
+        </div>
+
         {/* Action Row */}
         <div className="pt-2 flex flex-col gap-2">
           <button
