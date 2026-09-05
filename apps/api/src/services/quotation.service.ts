@@ -10,6 +10,7 @@ import {
   calculateBlendedRisk,
   type RiskLineInput,
 } from "../lib/risk-engine.js";
+import { hashPassword } from "../lib/passwords.js";
 import { triggerApprovalWorkflow } from "./approval.service.js";
 import type {
   CreateQuotationInput,
@@ -216,13 +217,7 @@ export async function createQuotation(
       if (!customerUser) {
         const cryptoMod = await import("crypto");
         const rawPassword = cryptoMod.randomBytes(6).toString("hex") + "!A1";
-        let hashedPassword = "";
-        try {
-          const { hashPassword } = await import("better-auth/crypto");
-          hashedPassword = await hashPassword(rawPassword);
-        } catch {
-          hashedPassword = cryptoMod.createHash("sha256").update(rawPassword).digest("hex");
-        }
+        const hashedPassword = await hashPassword(rawPassword);
 
         customerUser = await prisma.user.create({
           data: {
@@ -303,13 +298,7 @@ export async function createQuotation(
     if (!customerUser) {
       const cryptoMod = await import("crypto");
       const rawPassword = cryptoMod.randomBytes(6).toString("hex") + "!A1";
-      let hashedPassword = "";
-      try {
-        const { hashPassword } = await import("better-auth/crypto");
-        hashedPassword = await hashPassword(rawPassword);
-      } catch {
-        hashedPassword = cryptoMod.createHash("sha256").update(rawPassword).digest("hex");
-      }
+      const hashedPassword = await hashPassword(rawPassword);
 
       customerUser = await prisma.user.create({
         data: {

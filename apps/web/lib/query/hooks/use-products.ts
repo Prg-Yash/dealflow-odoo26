@@ -232,6 +232,7 @@ export interface PriceListData {
   id: string;
   name: string;
   currency: string;
+  customerTiers?: Array<{ id: string; name: string; code: string; discountCeiling: number }>;
   customerTierId?: string | null;
   customerTier?: { id: string; name: string; code: string; discountCeiling: number };
   isDefault: boolean;
@@ -264,7 +265,7 @@ export function useCreatePriceList() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (body: { name: string; currency: string; customerTierId?: string; isDefault?: boolean }) =>
+    mutationFn: (body: { name: string; currency: string; customerTierIds?: string[]; customerTierId?: string; isDefault?: boolean }) =>
       api.post<PriceListData>("/api/price-lists", body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["price-lists"] });
@@ -279,7 +280,7 @@ export function useUpdatePriceList() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: Partial<{ name: string; currency: string; customerTierId: string | null; isDefault: boolean }> }) =>
+    mutationFn: ({ id, body }: { id: string; body: Partial<{ name: string; currency: string; customerTierIds: string[]; customerTierId: string | null; isDefault: boolean }> }) =>
       api.patch<PriceListData>(`/api/price-lists/${id}`, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["price-lists"] });
@@ -297,6 +298,92 @@ export function useDeletePriceList() {
     mutationFn: (id: string) => api.delete(`/api/price-lists/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["price-lists"] });
+    },
+  });
+}
+
+export interface ProductRecommendationData {
+  id: string;
+  sourceProductId: string;
+  recommendedProductId: string;
+  coPurchaseScore: number;
+  promotionalTag?: string | null;
+  minMarginThreshold: number;
+  isActive: boolean;
+  sourceProduct?: { id: string; name: string; sku?: string; basePrice?: number; costPrice?: number };
+  recommendedProduct?: { id: string; name: string; sku?: string; basePrice?: number; costPrice?: number };
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Hook to fetch all Product Recommendations
+ */
+export function useProductRecommendations() {
+  return useQuery({
+    queryKey: ["product-recommendations"],
+    queryFn: () => api.get<ProductRecommendationData[]>("/api/product-recommendations"),
+  });
+}
+
+/**
+ * Mutation: Create Product Recommendation pairing
+ */
+export function useCreateProductRecommendation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body: {
+      sourceProductId: string;
+      recommendedProductId: string;
+      coPurchaseScore?: number;
+      promotionalTag?: string;
+      minMarginThreshold?: number;
+      isActive?: boolean;
+    }) => api.post<ProductRecommendationData>("/api/product-recommendations", body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["product-recommendations"] });
+    },
+  });
+}
+
+/**
+ * Mutation: Update Product Recommendation pairing
+ */
+export function useUpdateProductRecommendation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      id,
+      body,
+    }: {
+      id: string;
+      body: Partial<{
+        sourceProductId: string;
+        recommendedProductId: string;
+        coPurchaseScore: number;
+        promotionalTag: string | null;
+        minMarginThreshold: number;
+        isActive: boolean;
+      }>;
+    }) => api.patch<ProductRecommendationData>(`/api/product-recommendations/${id}`, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["product-recommendations"] });
+    },
+  });
+}
+
+/**
+ * Mutation: Delete Product Recommendation pairing
+ */
+export function useDeleteProductRecommendation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/api/product-recommendations/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["product-recommendations"] });
     },
   });
 }

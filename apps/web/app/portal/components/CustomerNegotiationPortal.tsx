@@ -819,24 +819,50 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
             <RefreshCw size={32} className="animate-spin text-[#ff5e3a] mx-auto" />
             <p className="text-sm font-semibold text-slate-600">Retrieving official quotation from DealFlow360...</p>
           </div>
-        ) : error ? (
-          <div className="bg-white border border-red-200 rounded-2xl p-8 max-w-lg mx-auto text-center space-y-4 shadow-sm">
-            <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center mx-auto text-red-600">
-              <AlertTriangle size={24} />
+        ) : error && !quotation ? (
+          <div className="bg-white border border-slate-200 rounded-3xl p-8 max-w-xl mx-auto text-center space-y-5 shadow-sm">
+            <div className="w-14 h-14 bg-orange-50 border border-orange-200 rounded-2xl flex items-center justify-center mx-auto text-[#ff5e3a]">
+              <Sparkles size={28} />
             </div>
-            <h3 className="text-base font-bold text-slate-900">Quotation Link Not Found</h3>
-            <p className="text-xs text-slate-600">{error}</p>
-            <div className="pt-2 flex items-center justify-center gap-2">
+            <div className="space-y-1.5">
+              <h3 className="text-lg font-bold text-slate-900">Welcome to DealFlow 360 Customer Portal</h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                Your customer account is registered and active. When your assigned sales representative creates or publishes a quotation for your company, it will automatically appear here for your review, line-level commentary, and discount negotiation.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 text-left space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-500 font-medium">Logged in Account:</span>
+                <span className="font-semibold text-slate-900">{customerEmail || signerEmail || "Customer Account"}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-500 font-medium">Portal Status:</span>
+                <span className="inline-flex items-center gap-1 font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[10px]">
+                  <CheckCircle2 size={11} /> Verified Customer
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex flex-wrap items-center justify-center gap-2.5">
               <button
-                onClick={() => router.push("/login")}
-                className="px-5 py-2.5 bg-[#ff5e3a] text-white text-xs font-semibold rounded-xl hover:bg-[#ea4e28] shadow-sm transition"
+                onClick={() => fetchQuotationData(token)}
+                className="px-5 py-2.5 bg-[#ff5e3a] text-white text-xs font-semibold rounded-xl hover:bg-[#ea4e28] shadow-sm transition flex items-center gap-1.5 cursor-pointer"
               >
-                Go to Sign In
+                <RefreshCw size={13} />
+                <span>Refresh Proposals</span>
+              </button>
+              <button
+                onClick={() => setActiveTab("profile")}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <User size={13} />
+                <span>View Profile</span>
               </button>
               <button
                 onClick={handleSignOut}
                 disabled={loggingOut}
-                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition flex items-center gap-1.5"
+                className="px-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold rounded-xl transition flex items-center gap-1.5 cursor-pointer border border-red-200"
               >
                 <LogOut size={13} />
                 <span>Sign Out</span>
