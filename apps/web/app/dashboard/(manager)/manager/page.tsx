@@ -205,13 +205,8 @@ export default function ManagerDashboardPage() {
             </nav>
           </div>
 
-          {/* Right: Live Sync & Manager Profile */}
+          {/* Right: Manager Profile */}
           <div className="flex items-center gap-3 shrink-0">
-            <div className="hidden sm:flex items-center gap-1.5 px-3 h-8 rounded-full bg-emerald-50 border border-emerald-200/80 text-[11px] font-medium text-emerald-800 whitespace-nowrap">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Live Sync</span>
-            </div>
-
             <Link
               href="/profile"
               className="flex items-center gap-2.5 pl-2.5 sm:border-l sm:border-slate-200 cursor-pointer"

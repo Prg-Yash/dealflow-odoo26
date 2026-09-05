@@ -175,13 +175,8 @@ export default function FinanceDashboardPage() {
             </nav>
           </div>
 
-          {/* Right: Live Sync & Isolated User Profile */}
+          {/* Right: Isolated User Profile */}
           <div className="flex items-center gap-3 shrink-0">
-            <div className="hidden sm:flex items-center gap-1.5 px-3 h-8 rounded-full bg-emerald-50 border border-emerald-200/80 text-[11px] font-medium text-emerald-800 whitespace-nowrap">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Live Sync</span>
-            </div>
-
             <Link
               href="/profile"
               className="flex items-center gap-2.5 pl-2.5 sm:border-l sm:border-slate-200 cursor-pointer"
@@ -285,7 +280,7 @@ export default function FinanceDashboardPage() {
             <div className="bg-white rounded-2xl border border-black/[0.06] shadow-xs overflow-hidden">
               <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-base font-bold text-[#0f172a]">High-Risk Exception Queue</h2>
+                  <h2 className="text-xl font-bold text-[#0f172a]">High-Risk Exception Queue</h2>
                   <p className="text-xs text-slate-400 mt-0.5">
                     Requires immediate review from Finance Operations
                   </p>
@@ -335,95 +330,110 @@ export default function FinanceDashboardPage() {
                     key={item.id}
                     className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-5 hover:bg-slate-50/60 transition"
                   >
-                    <div className="space-y-2 max-w-xl">
+                    <div className="space-y-3 w-full lg:max-w-xl">
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
                           href={`#`}
-                          className="font-mono text-xs font-bold text-[#ff5e3a] hover:underline"
+                          className="font-mono text-sm font-bold text-[#ff5e3a] hover:underline"
                         >
                           {item.quoteId}
                         </Link>
                         <span className="text-slate-300">&bull;</span>
-                        <span className="font-bold text-sm text-slate-900">{item.account}</span>
-                        <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[10px] font-bold border border-amber-200">
+                        <span className="font-bold text-base text-slate-900">{item.account}</span>
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-bold border border-amber-200">
                           {item.accountTier}
                         </span>
                         <span className="text-slate-300">&bull;</span>
-                        <span className="text-[11px] text-slate-400 font-bold uppercase tracking-wider text-rose-500">
-                          {item.escalationReason}
-                        </span>
+                      </div>
+                      
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        {item.escalationReason}
                       </div>
 
-                      <p className="text-xs text-slate-600 bg-slate-50/80 p-3 rounded-xl border border-slate-200/70">
-                        <span className="font-bold text-slate-700">Justification: </span>
+                      <p className="text-xs text-slate-600 bg-slate-50/80 px-4 py-2.5 rounded-full border border-slate-100 flex items-center">
+                        <span className="font-bold text-slate-700 mr-1.5">Justification:</span>
                         {item.reason}
                       </p>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-6">
-                      <div>
-                        <div className="text-[10px] uppercase font-bold text-slate-400">Deal Value</div>
-                        <div className="text-base font-extrabold text-slate-900 font-mono">
-                          ${item.dealSize.toLocaleString()}
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="text-[10px] uppercase font-bold text-slate-400">Discount Req.</div>
-                        <div className="text-base font-bold text-amber-600">
-                          {item.discountRequested}%
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="text-[10px] uppercase font-bold text-slate-400">Margin</div>
-                        <div className="text-base font-bold text-rose-600">
-                          {item.marginProjected}% <span className="text-[10px] text-slate-400 font-normal">({item.targetMargin}% flr)</span>
-                        </div>
-                      </div>
-
-                      {item.status === "PENDING" ? (
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenDecisionModal(item, "approve")}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer transition shrink-0 whitespace-nowrap"
-                          >
-                            <Check size={13} strokeWidth={3} />
-                            <span>Approve</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenDecisionModal(item, "revise")}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-amber-300 text-amber-700 hover:bg-amber-50 text-xs font-bold cursor-pointer transition shrink-0 whitespace-nowrap"
-                          >
-                            <RotateCcw size={12} />
-                            <span>Revise</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenDecisionModal(item, "reject")}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-bold cursor-pointer transition shrink-0 whitespace-nowrap"
-                          >
-                            <XCircle size={13} />
-                            <span>Reject</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-3">
-                          <span
-                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold capitalize ${
-                              item.status === "APPROVED"
-                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                : item.status === "REVISION_REQUESTED"
-                                ? "bg-amber-50 text-amber-700 border border-amber-200"
-                                : "bg-rose-50 text-rose-700 border border-rose-200"
-                            }`}
-                          >
-                            {item.status.replace("_", " ")}
+                    <div className="mt-4 lg:mt-0 shrink-0">
+                      <div className="grid grid-cols-[100px_110px_160px] gap-x-4 gap-y-3">
+                        {/* Stats Row */}
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase font-bold text-slate-400">Deal Value</span>
+                          <span className="text-lg font-extrabold text-slate-900 font-mono">
+                            ${item.dealSize.toLocaleString()}
                           </span>
                         </div>
-                      )}
+
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase font-bold text-slate-400">Discount Req.</span>
+                          <span className="text-lg font-bold text-amber-600 font-mono">
+                            {item.discountRequested}%
+                          </span>
+                        </div>
+
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase font-bold text-slate-400">Margin</span>
+                          <span className="text-lg font-bold text-rose-600 font-mono">
+                            {item.marginProjected}% <span className="text-[11px] text-slate-400 font-normal">({item.targetMargin}% flr)</span>
+                          </span>
+                        </div>
+
+                        {/* Actions Row */}
+                        {item.status === "PENDING" ? (
+                          <>
+                            <div className="flex justify-start items-start">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDecisionModal(item, "approve")}
+                                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#00a86b] hover:bg-[#00905a] text-white text-xs font-bold transition whitespace-nowrap"
+                              >
+                                <Check size={14} strokeWidth={3} />
+                                <span>Approve</span>
+                              </button>
+                            </div>
+                            <div className="flex justify-start items-start">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDecisionModal(item, "revise")}
+                                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white border border-amber-200 text-amber-600 hover:bg-amber-50 text-xs font-bold transition whitespace-nowrap"
+                              >
+                                <RotateCcw size={13} />
+                                <span>Revise</span>
+                              </button>
+                            </div>
+                            <div className="flex justify-start items-start">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDecisionModal(item, "reject")}
+                                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-bold transition whitespace-nowrap"
+                              >
+                                <XCircle size={14} />
+                                <span>Reject</span>
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div />
+                            <div />
+                            <div className="flex justify-end items-start mt-1">
+                              <span
+                                className={`inline-flex items-center px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+                                  item.status === "APPROVED"
+                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                    : item.status === "REVISION_REQUESTED"
+                                    ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                    : "bg-rose-50 text-rose-700 border border-rose-100"
+                                }`}
+                              >
+                                {item.status.replace("_", " ")}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -518,7 +528,7 @@ export default function FinanceDashboardPage() {
                   </span>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0f172a] tracking-tight mt-1">
-                  Subscriptions (List)
+                  Subscriptions
                 </h1>
                 <p className="text-xs text-slate-500 mt-1">
                   Every recurring plan across every customer, regardless of which order it came from.
@@ -527,14 +537,17 @@ export default function FinanceDashboardPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="px-4 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold cursor-pointer">
-                {subscriptions.filter(s => s.status === 'Active').length} Active
+              <div className="px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-emerald-100/50">
+                <span className="font-black text-sm">{subscriptions.filter(s => s.status === 'Active').length}</span>
+                <span className="font-semibold">Active</span>
               </div>
-              <div className="px-4 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-xs font-bold cursor-pointer">
-                {subscriptions.filter(s => s.status === 'Paused').length} Paused
+              <div className="px-4 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-xs flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-amber-100/50">
+                <span className="font-black text-sm">{subscriptions.filter(s => s.status === 'Paused').length}</span>
+                <span className="font-semibold">Paused</span>
               </div>
-              <div className="px-4 py-1.5 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer">
-                {subscriptions.filter(s => s.status === 'Cancelled').length} Cancelled
+              <div className="px-4 py-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 text-xs flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-rose-100/50">
+                <span className="font-black text-sm">{subscriptions.filter(s => s.status === 'Cancelled').length}</span>
+                <span className="font-semibold">Cancelled</span>
               </div>
             </div>
 
@@ -598,7 +611,7 @@ export default function FinanceDashboardPage() {
                   </span>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0f172a] tracking-tight mt-1">
-                  Invoices (List)
+                  Invoices
                 </h1>
                 <p className="text-xs text-slate-500 mt-1">
                   Every invoice generated from one-time and recurring orders.
@@ -607,11 +620,13 @@ export default function FinanceDashboardPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="px-4 py-1.5 rounded-xl bg-rose-400 text-white text-xs font-bold shadow-sm cursor-pointer border border-rose-500">
-                4 Unpaid
+              <div className="px-4 py-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 text-xs flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-rose-100/50">
+                <span className="font-black text-sm">4</span>
+                <span className="font-semibold">Unpaid</span>
               </div>
-              <div className="px-4 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold shadow-sm cursor-pointer border border-emerald-700">
-                21 Paid
+              <div className="px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-emerald-100/50">
+                <span className="font-black text-sm">21</span>
+                <span className="font-semibold">Paid</span>
               </div>
             </div>
 
@@ -642,11 +657,11 @@ export default function FinanceDashboardPage() {
                       </td>
                       <td className="py-4 px-4">
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                          inv.status === 'OVERDUE' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                          (inv.status === 'OVERDUE' || inv.status === 'ISSUED') ? 'bg-rose-50 text-rose-700 border-rose-200' :
                           inv.status === 'DRAFT' ? 'bg-slate-100 text-slate-600 border-slate-200' :
                           'bg-emerald-50 text-emerald-700 border-emerald-200'
                         }`}>
-                          {inv.status === 'OVERDUE' ? 'Unpaid' : inv.status === 'ISSUED' ? 'Unpaid' : 'Paid'}
+                          {(inv.status === 'OVERDUE' || inv.status === 'ISSUED') ? 'Unpaid' : 'Paid'}
                         </span>
                       </td>
                       <td className="py-4 px-6">
