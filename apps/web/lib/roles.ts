@@ -21,7 +21,7 @@ export const ROLES: Record<UserRole, RoleConfig> = {
     defaultEmail: "rep.alex@dealflow360.com",
     defaultName: "Alex Rivera",
     defaultOrg: "Apex Enterprise Technologies Inc",
-    targetPath: "/dashboard",
+    targetPath: "/dashboard/sale-ref",
     badgeVariant: "info",
   },
   manager: {
@@ -32,7 +32,7 @@ export const ROLES: Record<UserRole, RoleConfig> = {
     defaultEmail: "manager.elena@dealflow360.com",
     defaultName: "Elena Rostova",
     defaultOrg: "Apex Enterprise Technologies Inc",
-    targetPath: "/dashboard",
+    targetPath: "/dashboard/manager",
     badgeVariant: "warning",
   },
   finance: {
@@ -43,7 +43,7 @@ export const ROLES: Record<UserRole, RoleConfig> = {
     defaultEmail: "finance.marcus@dealflow360.com",
     defaultName: "Marcus Vance",
     defaultOrg: "Apex Enterprise Technologies Inc",
-    targetPath: "/dashboard",
+    targetPath: "/dashboard/finance",
     badgeVariant: "success",
   },
   admin: {
@@ -54,7 +54,7 @@ export const ROLES: Record<UserRole, RoleConfig> = {
     defaultEmail: "admin@dealflow360.com",
     defaultName: "System Administrator",
     defaultOrg: "Apex Enterprise Technologies Inc",
-    targetPath: "/dashboard",
+    targetPath: "/dashboard/admin",
     badgeVariant: "default",
   },
   customer: {
@@ -109,5 +109,10 @@ export function inferRoleFromEmail(email: string): UserRole {
 }
 
 export function getRoleRedirect(role: UserRole): string {
-  return role === "customer" ? "/portal" : "/dashboard";
+  if (role === "customer") return "/portal";
+  if (role === "admin") return "/dashboard/admin";
+  if (role === "sales_rep") return "/dashboard/sale-ref";
+  if (role === "manager") return "/dashboard/manager";
+  if (role === "finance") return "/dashboard/finance";
+  return "/dashboard/sale-ref";
 }

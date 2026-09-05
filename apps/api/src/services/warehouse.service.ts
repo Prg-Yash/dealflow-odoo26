@@ -94,6 +94,7 @@ export interface AdjustStockParams {
   organizationId: string;
   warehouseId: string;
   productId: string;
+  variantId?: string | null;
   quantityDelta: number;
   movementType?: StockMovementType;
   referenceId?: string;
@@ -110,6 +111,7 @@ export async function adjustStock({
   organizationId,
   warehouseId,
   productId,
+  variantId,
   quantityDelta,
   movementType = StockMovementType.ADJUSTMENT,
   referenceId,
@@ -126,29 +128,71 @@ export async function adjustStock({
     if (!warehouse) throw new AppError(400, "INVALID_WAREHOUSE", "Warehouse not found in this organization.");
     if (!product) throw new AppError(400, "INVALID_PRODUCT", "Product not found in this organization.");
 
-    // Atomic update or initialization of StockLevel
-    const stockLevel = await client.stockLevel.upsert({
+    let validatedVariant = null;
+    if (variantId) {
+      validatedVariant = await client.productVariant.findFirst({
+        where: { id: variantId, productId },
+      });
+      if (!validatedVariant) {
+        throw new AppError(400, "INVALID_VARIANT", "Product variant not found for this product.");
+      }
+    }
+
+    const normalizedVariantId = variantId || null;
+
+    // Locate existing stock level record (supports both base product and variant stock)
+    let stockLevel = await client.stockLevel.findFirst({
       where: {
-        warehouseId_productId: { warehouseId, productId },
-      },
-      create: {
         warehouseId,
         productId,
-        quantityOnHand: Math.max(0, quantityDelta),
-        quantityReserved: 0,
-        reorderPoint: 10,
+        variantId: normalizedVariantId,
       },
-      update: {
-        quantityOnHand: { increment: quantityDelta },
+      include: {
+        warehouse: true,
+        product: true,
+        variant: true,
       },
     });
 
+    if (stockLevel) {
+      stockLevel = await client.stockLevel.update({
+        where: { id: stockLevel.id },
+        data: {
+          quantityOnHand: { increment: quantityDelta },
+        },
+        include: {
+          warehouse: true,
+          product: true,
+          variant: true,
+        },
+      });
+    } else {
+      stockLevel = await client.stockLevel.create({
+        data: {
+          warehouseId,
+          productId,
+          variantId: normalizedVariantId,
+          quantityOnHand: Math.max(0, quantityDelta),
+          quantityReserved: 0,
+          reorderPoint: 10,
+        },
+        include: {
+          warehouse: true,
+          product: true,
+          variant: true,
+        },
+      });
+    }
+
     // Enforce non-negative physical stock
     if (stockLevel.quantityOnHand < 0) {
+      const itemLabel = validatedVariant
+        ? `${product.name} (${validatedVariant.attributeName}: ${validatedVariant.attributeValue})`
+        : product.name;
       throw new AppError(
         400,
         "INSUFFICIENT_STOCK",
-        `Stock adjustment would cause negative on-hand quantity (${stockLevel.quantityOnHand}) for product '${product.name}' in warehouse '${warehouse.name}'.`
+        `Stock adjustment would cause negative on-hand quantity (${stockLevel.quantityOnHand}) for '${itemLabel}' in warehouse '${warehouse.name}'.`
       );
     }
 
@@ -157,6 +201,7 @@ export async function adjustStock({
       data: {
         warehouseId,
         productId,
+        variantId: normalizedVariantId,
         quantity: quantityDelta,
         movementType,
         referenceId,
@@ -193,10 +238,12 @@ export async function listStockLevels(organizationId: string, query?: StockLevel
       warehouse: { organizationId },
       ...(query?.productId ? { productId: query.productId } : {}),
       ...(query?.warehouseId ? { warehouseId: query.warehouseId } : {}),
+      ...(query?.variantId ? { variantId: query.variantId } : {}),
     },
     include: {
       warehouse: { select: { id: true, name: true, code: true, shippingCostWeight: true } },
       product: { select: { id: true, name: true, sku: true, basePrice: true } },
+      variant: { select: { id: true, attributeName: true, attributeValue: true, sku: true, extraPrice: true } },
     },
     orderBy: [{ warehouse: { name: "asc" } }, { product: { name: "asc" } }],
   });
@@ -226,6 +273,7 @@ export async function getStockLevelById(organizationId: string, id: string) {
     include: {
       warehouse: true,
       product: true,
+      variant: true,
     },
   });
 
@@ -260,6 +308,14 @@ export async function getStockAvailable(organizationId: string, id: string) {
       name: stockLevel.product.name,
       sku: stockLevel.product.sku,
     },
+    variant: stockLevel.variant
+      ? {
+          id: stockLevel.variant.id,
+          attributeName: stockLevel.variant.attributeName,
+          attributeValue: stockLevel.variant.attributeValue,
+          sku: stockLevel.variant.sku,
+        }
+      : null,
   };
 }
 
@@ -274,6 +330,7 @@ export async function manualAdjustStock(
     organizationId,
     warehouseId: current.warehouseId,
     productId: current.productId,
+    variantId: input.variantId !== undefined ? input.variantId : current.variantId,
     quantityDelta: input.quantityDelta,
     movementType: input.movementType,
     referenceId: input.referenceId,

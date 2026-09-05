@@ -31,3 +31,4 @@ export { NotificationModal, type DealNotification } from "./components/notificat
 export { QuotationBuilderSidebar, MODULAR_BLOCK_DEFINITIONS, type DocumentBlockDefinition } from "./components/quotation-builder-sidebar";
 export { QuotationBuilderCanvas } from "./components/quotation-builder-canvas";
 export { ShareQuotationModal } from "./components/share-quotation-modal";
+export { AdminNav, type AdminNavProps, type AdminNavTabItem } from "./components/admin-nav";

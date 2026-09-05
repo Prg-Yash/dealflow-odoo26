@@ -13,6 +13,8 @@
   "dependencies": {
     "@repo/db": "*",
     "@repo/ui": "*",
+    "@tanstack/react-query": "^5.67.2",
+    "@tanstack/react-query-devtools": "^5.67.2",
     "better-auth": "^1.1.21",
     "next": "16.3.2",
     "react": "19.2.8",
