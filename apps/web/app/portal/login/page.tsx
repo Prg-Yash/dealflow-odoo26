@@ -26,6 +26,9 @@ export default function CustomerPortalLoginPage() {
 
     setLoading(true);
     setStoredRole("customer");
+    if (typeof document !== "undefined") {
+      document.cookie = "demo_role=customer; path=/; max-age=86400; SameSite=Lax";
+    }
 
     const token = tokenOrEmail.trim();
     router.push(`/portal?token=${encodeURIComponent(token)}`);
