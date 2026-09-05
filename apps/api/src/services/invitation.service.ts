@@ -191,28 +191,39 @@ export async function acceptInvitation({
   // Atomic transaction for role profile creation, user assignment, and invitation status
   const finalUserId = targetUserId;
   return await prisma.$transaction(async (tx) => {
-    // If role is SALES_REP, enforce valid manager in the same organization
+    // If role is SALES_REP, optionally attach valid manager in the same organization
+    let assignedManagerId: string | null = null;
     if (invitation.role === UserRole.SALES_REP) {
-      if (!metadata.managerId) {
-        throw new Error("A SalesRepresentative must reference an existing SalesManager in the same organization.");
+      if (metadata.managerId) {
+        const manager = await tx.salesManager.findFirst({
+          where: {
+            id: metadata.managerId,
+            organizationId: invitation.organizationId,
+          },
+        });
+        if (manager) {
+          assignedManagerId = manager.id;
+        }
       }
-      const manager = await tx.salesManager.findFirst({
-        where: {
-          id: metadata.managerId,
-          organizationId: invitation.organizationId,
-        },
-      });
-      if (!manager) {
-        throw new Error("A SalesRepresentative must reference an existing SalesManager in the same organization.");
+      
+      // If no manager specified, assign to an existing manager in the organization if available
+      if (!assignedManagerId) {
+        const defaultManager = await tx.salesManager.findFirst({
+          where: { organizationId: invitation.organizationId },
+        });
+        if (defaultManager) {
+          assignedManagerId = defaultManager.id;
+        }
       }
     }
 
-    // Update user's organization and assigned role
+    // Update user's organization and assigned role, and mark email as verified
     const updatedUser = await tx.user.update({
       where: { id: finalUserId },
       data: {
         organizationId: invitation.organizationId,
         role: invitation.role,
+        emailVerified: true,
         ...(name ? { name: name.trim() } : {}),
       },
     });
@@ -225,14 +236,14 @@ export async function acceptInvitation({
           create: {
             userId: finalUserId,
             organizationId: invitation.organizationId,
-            managerId: metadata.managerId || null,
+            managerId: assignedManagerId,
             commissionRate: metadata.commissionRate ? Number(metadata.commissionRate) : 0,
             targetQuota: metadata.targetQuota ? Number(metadata.targetQuota) : null,
             historicalAvgDiscount: 0,
           },
           update: {
             organizationId: invitation.organizationId,
-            managerId: metadata.managerId || undefined,
+            managerId: assignedManagerId || undefined,
             commissionRate: metadata.commissionRate ? Number(metadata.commissionRate) : undefined,
             targetQuota: metadata.targetQuota ? Number(metadata.targetQuota) : undefined,
           },
@@ -329,4 +340,47 @@ export async function revokeInvitation(id: string, organizationId: string) {
       status: InvitationStatus.REVOKED,
     },
   });
+}
+
+export async function resendInvitation(invitationId: string, organizationId: string) {
+  const invitation = await prisma.invitation.findFirst({
+    where: {
+      id: invitationId,
+      organizationId,
+    },
+    include: {
+      organization: true,
+      invitedBy: true,
+    },
+  });
+
+  if (!invitation) {
+    throw new Error("Invitation not found.");
+  }
+
+  if (invitation.status !== InvitationStatus.PENDING) {
+    throw new Error(`Cannot resend an invitation that has already been ${invitation.status.toLowerCase()}.`);
+  }
+
+  // Extend expiration date to 7 days from now
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const updatedInvitation = await prisma.invitation.update({
+    where: { id: invitation.id },
+    data: { expiresAt },
+  });
+
+  const inviteUrl = `${ENV.WEB_ORIGIN}/invite/accept?token=${invitation.token}`;
+
+  await sendInvitationEmail({
+    email: invitation.email,
+    organizationName: invitation.organization.name,
+    role: invitation.role,
+    inviteUrl,
+    inviterName: invitation.invitedBy?.name || "An Administrator",
+  });
+
+  return {
+    invitation: updatedInvitation,
+    inviteUrl,
+  };
 }

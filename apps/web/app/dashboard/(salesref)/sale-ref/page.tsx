@@ -22,12 +22,14 @@ import {
   INITIAL_QUOTATIONS,
   type Quotation,
 } from "../../../../lib/sales-data";
+import { useQuotations } from "../../../../lib/query";
 
 export default function DashboardPage() {
   const router = useRouter();
   const [activeRole] = useState<UserRole>(() => getStoredRole());
-  const [quotations] = useState<Quotation[]>(INITIAL_QUOTATIONS);
   const [selectedFilter, setSelectedFilter] = useState<string>("all");
+
+  const { data: apiQuotes } = useQuotations();
 
   useEffect(() => {
     if (activeRole === "customer") {
@@ -37,9 +39,47 @@ export default function DashboardPage() {
 
   const currentRole = ROLES[activeRole];
 
-  // Pipeline stage bar data calculated from sales data
-  const totalPipelineVal = PIPELINE_STAGES.reduce((acc, s) => acc + s.value, 0);
-  const stageBarData = PIPELINE_STAGES.map((s) => ({
+  // Dynamic quotations from database
+  const quotations: Quotation[] = apiQuotes
+    ? apiQuotes.map((q) => ({
+      id: q.quoteNumber || q.id,
+      customerOrg: q.customer?.name || "Acme Corporation",
+      customerName: q.customer?.name || "Procurement Team",
+      customerEmail: (q.customer as any)?.email || "procurement@example.com",
+      tier: (q.customer as any)?.tier?.name || "Enterprise",
+      title: q.title || "Enterprise Proposal",
+      contractTotal: q.grandTotal || 0,
+      avgMarginPercent: q.grossMarginPercent || 40,
+      stage: q.stage.toLowerCase().replace("_approval", "") as any,
+      validUntil: q.expiresAt ? new Date(q.expiresAt).toLocaleDateString() : new Date().toLocaleDateString(),
+      assignedRep: q.salesRep?.user?.name || "You",
+      capex: Math.round((q.grandTotal || 0) * 0.3),
+      arr: Math.round((q.grandTotal || 0) * 0.7),
+      createdAt: new Date(q.createdAt).toLocaleDateString(),
+      revision: 1,
+      items: [],
+    }))
+    : [];
+
+  // Pipeline stage bar data calculated dynamically
+  const stageStats = [
+    { id: "draft", label: "Draft Proposals", barColor: "bg-slate-400" },
+    { id: "pending", label: "In Review", barColor: "bg-amber-400" },
+    { id: "approved", label: "Approved", barColor: "bg-blue-400" },
+    { id: "negotiation", label: "Negotiation", barColor: "bg-purple-400" },
+    { id: "confirmed", label: "Confirmed", barColor: "bg-emerald-500" },
+  ].map((stage) => {
+    const matching = quotations.filter((q) => q.stage === stage.id || (stage.id === "pending" && q.stage === ("pending_approval" as any)));
+    const value = matching.reduce((acc, q) => acc + q.contractTotal, 0);
+    return {
+      ...stage,
+      count: matching.length,
+      value,
+    };
+  });
+
+  const totalPipelineVal = stageStats.reduce((acc, s) => acc + s.value, 0) || 1;
+  const stageBarData = stageStats.map((s) => ({
     id: s.id,
     label: s.label,
     count: s.count,
@@ -50,7 +90,7 @@ export default function DashboardPage() {
 
   const filteredQuotes = selectedFilter === "all"
     ? quotations
-    : quotations.filter((q) => q.stage === selectedFilter);
+    : quotations.filter((q) => q.stage === selectedFilter || (selectedFilter === "pending" && q.stage === ("pending_approval" as any)));
 
   return (
     <div className="min-h-screen bg-[#f9f9f9] text-[#0f172a] font-sans antialiased">
@@ -104,7 +144,7 @@ export default function DashboardPage() {
               </span>
             </div>
             <div className="my-3 flex items-baseline justify-between">
-              <span className="text-3xl font-extrabold text-[#0f172a] tracking-tight">$1.42M</span>
+              <span className="text-3xl font-extrabold text-[#0f172a] tracking-tight">₹1.42M</span>
               <span className="text-xs font-semibold text-slate-400">20 active deals</span>
             </div>
             <div className="h-8 w-full pt-1">
@@ -207,7 +247,7 @@ export default function DashboardPage() {
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                 <span className="text-3xl font-black text-[#0f172a]">78%</span>
-                <span className="text-[11px] font-semibold text-slate-400">$1.1M / $1.4M</span>
+                <span className="text-[11px] font-semibold text-slate-400">₹1.1M / ₹1.4M</span>
               </div>
             </div>
             <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs text-slate-600 font-medium">
@@ -265,7 +305,7 @@ export default function DashboardPage() {
                           <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 mt-1"></span>
                         </div>
                         <div className="text-base sm:text-lg font-black text-[#0f172a] tracking-tight">
-                          ${quote.contractTotal.toLocaleString()}
+                          ₹{quote.contractTotal.toLocaleString()}
                         </div>
                         <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
                           <span className="text-slate-400 font-medium font-mono text-[11px]">{quote.id}</span>
@@ -317,50 +357,58 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
-                {filteredQuotes.map((q) => (
-                  <tr key={q.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3.5 px-4 font-mono font-bold text-slate-900">{q.id}</td>
-                    <td className="py-3.5 px-4">
-                      <div className="font-semibold text-slate-900">{q.customerOrg}</div>
-                      <div className="text-[11px] text-slate-400">{q.customerName}</div>
-                    </td>
-                    <td className="py-3.5 px-4 font-medium">{q.tier}</td>
-                    <td className="py-3.5 px-4 font-extrabold text-slate-900">
-                      ${q.contractTotal.toLocaleString()}
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-500">
-                      ${Math.round(q.arr / 1000)}k / ${Math.round(q.capex / 1000)}k
-                    </td>
-                    <td className="py-3.5 px-4 font-semibold text-emerald-600">
-                      {q.avgMarginPercent}%
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold capitalize ${q.stage === "confirmed"
-                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                          : q.stage === "approved"
-                            ? "bg-sky-50 text-sky-700 border border-sky-200"
-                            : q.stage === "pending"
-                              ? "bg-orange-50 text-[#ff5e3a] border border-orange-200"
-                              : q.stage === "negotiation"
-                                ? "bg-amber-50 text-amber-800 border border-amber-200"
-                                : "bg-slate-100 text-slate-600 border border-slate-200"
-                          }`}
-                      >
-                        {q.stage}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <Link
-                        href={`/dashboard/sale-ref/quotations/${q.id}`}
-                        className="inline-flex items-center gap-1 font-semibold text-[#ff5e3a] hover:underline"
-                      >
-                        <span>Open</span>
-                        <ArrowUpRight size={13} />
-                      </Link>
+                {filteredQuotes.length > 0 ? (
+                  filteredQuotes.map((q) => (
+                    <tr key={q.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3.5 px-4 font-mono font-bold text-slate-900">{q.id}</td>
+                      <td className="py-3.5 px-4">
+                        <div className="font-semibold text-slate-900">{q.customerOrg}</div>
+                        <div className="text-[11px] text-slate-400">{q.customerName}</div>
+                      </td>
+                      <td className="py-3.5 px-4 font-medium">{q.tier}</td>
+                      <td className="py-3.5 px-4 font-extrabold text-slate-900">
+                        ₹{q.contractTotal.toLocaleString()}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-500">
+                        ₹{Math.round(q.arr / 1000)}k / ₹{Math.round(q.capex / 1000)}k
+                      </td>
+                      <td className="py-3.5 px-4 font-semibold text-emerald-600">
+                        {q.avgMarginPercent}%
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold capitalize ${q.stage === "confirmed"
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            : q.stage === "approved"
+                              ? "bg-sky-50 text-sky-700 border border-sky-200"
+                              : q.stage === "pending"
+                                ? "bg-orange-50 text-[#ff5e3a] border border-orange-200"
+                                : q.stage === "negotiation"
+                                  ? "bg-amber-50 text-amber-800 border border-amber-200"
+                                  : "bg-slate-100 text-slate-600 border border-slate-200"
+                            }`}
+                        >
+                          {q.stage}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <Link
+                          href={`/dashboard/sale-ref/quotations/${q.id}`}
+                          className="inline-flex items-center gap-1 font-semibold text-[#ff5e3a] hover:underline"
+                        >
+                          <span>Open</span>
+                          <ArrowUpRight size={13} />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={8} className="py-8 text-center text-xs text-slate-400">
+                      No quotations found in current pipeline. Click &quot;New Quotation&quot; above to create one.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>

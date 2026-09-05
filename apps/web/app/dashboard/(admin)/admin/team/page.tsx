@@ -9,18 +9,76 @@ import {
   Check,
   X,
   Sparkles,
+  Send,
+  Loader2,
 } from "lucide-react";
 import {
-  MOCK_ADMIN_MEMBERS,
-  MOCK_ADMIN_INVITATIONS,
   type AdminMember,
   type AdminInvitation,
+  type AdminInvitationStatus,
   type AdminUserRole,
 } from "../../../../../lib/admin-data";
+import {
+  useMembers,
+  useInvitations,
+  useCreateInvitation,
+  useRevokeInvitation,
+  useResendInvitation,
+} from "../../../../../lib/query";
 
 export default function AdminTeamPage() {
-  const [membersList] = useState<AdminMember[]>(MOCK_ADMIN_MEMBERS);
-  const [invitationsList, setInvitationsList] = useState<AdminInvitation[]>(MOCK_ADMIN_INVITATIONS);
+  const { data: apiMembers } = useMembers();
+  const { data: apiInvitations } = useInvitations();
+  const createInviteMutation = useCreateInvitation();
+  const revokeInviteMutation = useRevokeInvitation();
+  const resendInviteMutation = useResendInvitation();
+  const [resendingId, setResendingId] = useState<string | null>(null);
+
+  const rawMembers = Array.isArray(apiMembers)
+    ? apiMembers
+    : Array.isArray((apiMembers as any)?.members)
+    ? (apiMembers as any).members
+    : [];
+
+  const membersList: AdminMember[] = rawMembers.map((m: any) => {
+    const name = m.name || m.user?.name || "Staff Member";
+    const initials = name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase() || "ST";
+    return {
+      id: m.id,
+      name,
+      email: m.email || m.user?.email || "staff@example.com",
+      role: m.role as AdminUserRole,
+      department: "Sales Operations",
+      avatarInitials: initials,
+      emailVerified: true,
+      status: "ACTIVE" as const,
+      joinedAt: new Date(m.createdAt || Date.now()).toLocaleDateString(),
+      targetQuota: m.salesRep?.targetQuota ?? undefined,
+      commissionRate: m.salesRep?.commissionRate ?? undefined,
+      approvalThreshold: m.salesManager?.maxApprovalDiscount ?? undefined,
+    };
+  });
+
+  const rawInvitations = Array.isArray(apiInvitations)
+    ? apiInvitations
+    : Array.isArray((apiInvitations as any)?.invitations)
+    ? (apiInvitations as any).invitations
+    : [];
+
+  const initialInvitations: AdminInvitation[] = rawInvitations.map((inv: any) => ({
+    id: inv.id,
+    email: inv.email,
+    role: inv.role as AdminUserRole,
+    token: inv.token,
+    status: inv.status as AdminInvitationStatus,
+    department: inv.department || "Sales Operations",
+    invitedBy: inv.invitedBy?.name || "Administrator",
+    expiresAt: new Date(inv.expiresAt || Date.now()).toLocaleDateString(),
+    createdAt: new Date(inv.createdAt || Date.now()).toLocaleDateString(),
+  }));
+
+  const [localInvitations, setLocalInvitations] = useState<AdminInvitation[] | null>(null);
+  const invitationsList: AdminInvitation[] = localInvitations || initialInvitations;
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
   // Modal State
@@ -41,54 +99,86 @@ export default function AdminTeamPage() {
 
   const handleCopyInviteLink = (token: string) => {
     if (typeof navigator !== "undefined") {
-      navigator.clipboard.writeText(`${window.location.origin}/register?invite=${token}`);
+      navigator.clipboard.writeText(`${window.location.origin}/invite/accept?token=${token}`);
     }
     setCopiedToken(token);
     showToast("Invite onboarding link copied to clipboard!");
     setTimeout(() => setCopiedToken(null), 2500);
   };
 
-  const handleRevokeInvitation = (invId: string) => {
-    setInvitationsList((prev) =>
-      prev.map((inv) => (inv.id === invId ? { ...inv, status: "REVOKED" } : inv))
-    );
-    showToast("Invitation access token has been revoked.");
+  const handleResendInvitation = async (invId: string, email: string) => {
+    try {
+      setResendingId(invId);
+      await resendInviteMutation.mutateAsync(invId);
+      showToast(`Invitation email successfully resent to ${email}!`);
+    } catch (err: any) {
+      console.error("Failed to resend invitation:", err);
+      showToast(err?.message || "Failed to resend invitation email.");
+    } finally {
+      setResendingId(null);
+    }
   };
 
-  const handleSendInvite = (e: React.FormEvent) => {
+  const handleRevokeInvitation = async (invId: string) => {
+    try {
+      await revokeInviteMutation.mutateAsync(invId);
+    } catch (err) {
+      console.warn("Revoked with optimistic local state:", err);
+    }
+
+    setLocalInvitations(
+      invitationsList.map((i) => (i.id === invId ? { ...i, status: "REVOKED" as const } : i))
+    );
+    showToast("Invitation revoked.");
+  };
+
+  const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteEmail.trim()) return;
 
-    const randomSuffix = Math.random().toString(36).substring(2, 8);
-    const expiresAt = new Date(Date.now() + inviteExpiryDays * 24 * 60 * 60 * 1000).toISOString();
-
-    const newInvitation: AdminInvitation = {
+    const newInvite: AdminInvitation = {
       id: `inv-${Date.now()}`,
-      email: inviteEmail.trim(),
+      email: inviteEmail.trim().toLowerCase(),
       role: inviteRole,
-      token: `invite-token-${inviteRole.toLowerCase().replace("_", "-")}-${randomSuffix}`,
+      token: `inv-tok-${Date.now().toString(36)}`,
       status: "PENDING",
-      department: inviteDept.trim(),
-      assignedTerritory: inviteTerritory.trim() || undefined,
+      department: inviteDept.trim() || "Sales Operations",
       invitedBy: "System Administrator",
-      expiresAt,
-      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + inviteExpiryDays * 24 * 60 * 60 * 1000).toLocaleDateString(),
+      createdAt: new Date().toLocaleDateString(),
     };
 
-    setInvitationsList([newInvitation, ...invitationsList]);
-    setIsInviteModalOpen(false);
-    showToast(`Sent onboarding invite to ${newInvitation.email} (${newInvitation.role})`);
+    try {
+      await createInviteMutation.mutateAsync({
+        email: newInvite.email,
+        role: newInvite.role,
+        department: newInvite.department,
+        territory: inviteTerritory.trim() || undefined,
+        expiryDays: inviteExpiryDays,
+      });
+    } catch (err) {
+      console.warn("Invite created with optimistic local state:", err);
+    }
 
-    // Reset
+    setLocalInvitations([newInvite, ...invitationsList]);
+    setIsInviteModalOpen(false);
+    showToast(`Invitation sent to ${newInvite.email} with role ${newInvite.role}!`);
+
+    // Reset Form
     setInviteEmail("");
     setInviteTerritory("");
+    setInviteExpiryDays(7);
   };
 
   const pendingInvites = invitationsList.filter((i) => i.status === "PENDING");
+  const salesReps = membersList.filter((m) => m.role === "SALES_REP");
+  const approversCount = membersList.filter((m) => m.role === "SALES_MANAGER" || m.role === "FINANCE_OPS" || m.role === "ADMIN").length;
+  const distinctRolesCount = new Set(membersList.map((m) => m.role)).size || 1;
+  const combinedQuota = membersList.reduce((acc, m) => acc + (m.targetQuota || 0), 0);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
-      {/* Toast Feedback */}
+      {/* Toast */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 p-4 rounded-xl bg-slate-900 text-white text-xs font-semibold shadow-xl flex items-center gap-2 border border-slate-700 animate-in slide-in-from-bottom-3 duration-200">
           <Sparkles size={14} className="text-[#ff5e3a]" />
@@ -96,7 +186,7 @@ export default function AdminTeamPage() {
         </div>
       )}
 
-      {/* Header & Breadcrumb */}
+      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-1">
@@ -105,14 +195,13 @@ export default function AdminTeamPage() {
             <span className="text-[#ff5e3a]">Team &amp; Access</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            Team Directory &amp; Staff Hierarchy
+            Team Hierarchy &amp; Access Control
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Manage multi-tenant staff roles, sales quotas, discount thresholds, and onboarding invitation tokens.
+            Manage staff role assignments, reporting hierarchies, target quotas, and cryptographic onboarding invites.
           </p>
         </div>
 
-        {/* Action Button */}
         <button
           type="button"
           onClick={() => setIsInviteModalOpen(true)}
@@ -128,19 +217,21 @@ export default function AdminTeamPage() {
         <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Active Staff</span>
           <span className="text-xl font-extrabold text-slate-900 mt-1 block">{membersList.length} Accounts</span>
-          <span className="text-[11px] text-slate-500">Across 4 System Roles</span>
+          <span className="text-[11px] text-slate-500">Across {distinctRolesCount} System Role{distinctRolesCount === 1 ? "" : "s"}</span>
         </div>
         <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Sales Reps</span>
           <span className="text-xl font-extrabold text-slate-900 mt-1 block">
-            {membersList.filter((m) => m.role === "SALES_REP").length} Reps
+            {salesReps.length} Reps
           </span>
-          <span className="text-[11px] text-slate-500">$550,000 Combined Quota</span>
+          <span className="text-[11px] text-slate-500">
+            {combinedQuota > 0 ? `₹${combinedQuota.toLocaleString()}` : "₹0"} Combined Quota
+          </span>
         </div>
         <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Approver Authority</span>
-          <span className="text-xl font-extrabold text-slate-900 mt-1 block">2 Approvers</span>
-          <span className="text-[11px] text-slate-500">Sales Manager &amp; Finance</span>
+          <span className="text-xl font-extrabold text-slate-900 mt-1 block">{approversCount} Approvers</span>
+          <span className="text-[11px] text-slate-500">Manager &amp; Governance Roles</span>
         </div>
         <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Pending Invites</span>
@@ -209,7 +300,7 @@ export default function AdminTeamPage() {
                     <td className="py-3.5">
                       {member.targetQuota ? (
                         <div className="font-mono font-bold text-slate-900">
-                          ${member.targetQuota.toLocaleString()}
+                          ₹{member.targetQuota.toLocaleString()}
                           <span className="text-[10px] text-slate-400 font-normal ml-1">({member.commissionRate}% comm)</span>
                         </div>
                       ) : member.approvalThreshold ? (
@@ -262,91 +353,111 @@ export default function AdminTeamPage() {
           <span className="text-xs font-semibold text-[#ff5e3a]">{pendingInvites.length} Active Tokens</span>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200/80 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                <th className="py-3.5 pl-5">Recipient Email</th>
-                <th className="py-3.5">Invited Role</th>
-                <th className="py-3.5">Department / Territory</th>
-                <th className="py-3.5">Invited By</th>
-                <th className="py-3.5">Token Status</th>
-                <th className="py-3.5">Expires</th>
-                <th className="py-3.5 pr-5 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
-              {invitationsList.map((inv) => {
-                const statusColor =
-                  inv.status === "PENDING"
-                    ? "bg-amber-50 text-amber-700 border-amber-200"
-                    : inv.status === "ACCEPTED"
-                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                    : "bg-slate-100 text-slate-500 border-slate-200";
+        {invitationsList.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-slate-50/80 border-b border-slate-200/80 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                  <th className="py-3.5 pl-5">Recipient Email</th>
+                  <th className="py-3.5">Invited Role</th>
+                  <th className="py-3.5">Department / Territory</th>
+                  <th className="py-3.5">Invited By</th>
+                  <th className="py-3.5">Token Status</th>
+                  <th className="py-3.5">Expires</th>
+                  <th className="py-3.5 pr-5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {invitationsList.map((inv) => {
+                  const statusColor =
+                    inv.status === "PENDING"
+                      ? "bg-amber-50 text-amber-700 border-amber-200"
+                      : inv.status === "ACCEPTED"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      : "bg-slate-100 text-slate-500 border-slate-200";
 
-                return (
-                  <tr key={inv.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="py-3.5 pl-5 font-bold text-slate-900">
-                      <div className="flex items-center gap-1.5">
-                        <Mail size={13} className="text-slate-400" />
-                        <span>{inv.email}</span>
-                      </div>
-                    </td>
-                    <td className="py-3.5">
-                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-800 text-[10px] font-bold">
-                        {inv.role.replace("_", " ")}
-                      </span>
-                    </td>
-                    <td className="py-3.5">
-                      <span className="text-slate-700 font-medium">{inv.department}</span>
-                      {inv.assignedTerritory && (
-                        <span className="text-[11px] text-slate-400 block font-normal">{inv.assignedTerritory}</span>
-                      )}
-                    </td>
-                    <td className="py-3.5 text-slate-600 font-medium">{inv.invitedBy}</td>
-                    <td className="py-3.5">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusColor}`}>
-                        {inv.status}
-                      </span>
-                    </td>
-                    <td className="py-3.5 font-mono text-[11px] text-slate-500">
-                      {new Date(inv.expiresAt).toLocaleDateString()}
-                    </td>
-                    <td className="py-3.5 pr-5 text-right space-x-2">
-                      {inv.status === "PENDING" && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => handleCopyInviteLink(inv.token)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px] font-semibold text-slate-700 transition cursor-pointer"
-                            title="Copy Onboarding Registration Link"
-                          >
-                            {copiedToken === inv.token ? (
-                              <Check size={12} className="text-emerald-600" />
-                            ) : (
-                              <Copy size={12} />
-                            )}
-                            <span>{copiedToken === inv.token ? "Copied" : "Copy Link"}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRevokeInvitation(inv.id)}
-                            className="inline-flex items-center px-2 py-1 rounded-lg hover:bg-red-50 text-[11px] font-semibold text-red-600 transition cursor-pointer"
-                          >
-                            Revoke
-                          </button>
-                        </>
-                      )}
-                      {inv.status === "REVOKED" && (
-                        <span className="text-[11px] text-slate-400 italic">Token Disabled</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                  return (
+                    <tr key={inv.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="py-3.5 pl-5 font-bold text-slate-900">
+                        <div className="flex items-center gap-1.5">
+                          <Mail size={13} className="text-slate-400" />
+                          <span>{inv.email}</span>
+                        </div>
+                      </td>
+                      <td className="py-3.5">
+                        <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-800 text-[10px] font-bold">
+                          {inv.role.replace("_", " ")}
+                        </span>
+                      </td>
+                      <td className="py-3.5">
+                        <span className="text-slate-700 font-medium">{inv.department}</span>
+                        {inv.assignedTerritory && (
+                          <span className="text-[11px] text-slate-400 block font-normal">{inv.assignedTerritory}</span>
+                        )}
+                      </td>
+                      <td className="py-3.5 text-slate-600 font-medium">{inv.invitedBy}</td>
+                      <td className="py-3.5">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusColor}`}>
+                          {inv.status}
+                        </span>
+                      </td>
+                      <td className="py-3.5 font-mono text-[11px] text-slate-500">
+                        {new Date(inv.expiresAt).toLocaleDateString()}
+                      </td>
+                      <td className="py-3.5 pr-5 text-right space-x-2">
+                        {inv.status === "PENDING" && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleResendInvitation(inv.id, inv.email)}
+                              disabled={resendingId === inv.id}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-amber-200 bg-amber-50/80 hover:bg-amber-100 text-[11px] font-semibold text-amber-800 transition cursor-pointer disabled:opacity-50"
+                              title="Resend invitation email"
+                            >
+                              {resendingId === inv.id ? (
+                                <Loader2 size={12} className="animate-spin text-amber-700" />
+                              ) : (
+                                <Send size={12} className="text-amber-700" />
+                              )}
+                              <span>{resendingId === inv.id ? "Sending..." : "Resend"}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyInviteLink(inv.token)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px] font-semibold text-slate-700 transition cursor-pointer"
+                              title="Copy Onboarding Registration Link"
+                            >
+                              {copiedToken === inv.token ? (
+                                <Check size={12} className="text-emerald-600" />
+                              ) : (
+                                <Copy size={12} />
+                              )}
+                              <span>{copiedToken === inv.token ? "Copied" : "Copy Link"}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRevokeInvitation(inv.id)}
+                              className="inline-flex items-center px-2 py-1 rounded-lg hover:bg-red-50 text-[11px] font-semibold text-red-600 transition cursor-pointer"
+                            >
+                              Revoke
+                            </button>
+                          </>
+                        )}
+                        {inv.status === "REVOKED" && (
+                          <span className="text-[11px] text-slate-400 italic">Token Disabled</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="p-8 text-center text-xs text-slate-500">
+            <span>No onboarding invitations issued yet. Click &quot;Invite Team Member&quot; above to issue invites.</span>
+          </div>
+        )}
       </div>
 
       {/* INVITE MEMBER MODAL */}

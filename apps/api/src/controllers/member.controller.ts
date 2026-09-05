@@ -8,6 +8,7 @@ import {
   acceptInvitation as acceptInvitationService,
   listInvitations as listInvitationsService,
   revokeInvitation as revokeInvitationService,
+  resendInvitation as resendInvitationService,
 } from "../services/invitation.service.js";
 
 export const createInvitation = asyncHandler(async (req: AuthRequest, res: Response) => {
@@ -49,6 +50,16 @@ export const revokeInvitation = asyncHandler(async (req: AuthRequest, res: Respo
   const invitationId = req.params.id as string;
   await revokeInvitationService(invitationId, req.user!.organizationId!);
   return res.json({ message: "Invitation revoked successfully." });
+});
+
+export const resendInvitation = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const invitationId = req.params.id as string;
+  const result = await resendInvitationService(invitationId, req.user!.organizationId!);
+  return res.json({
+    message: `Invitation resent successfully to ${result.invitation.email}.`,
+    invitation: result.invitation,
+    inviteUrl: result.inviteUrl,
+  });
 });
 
 export const verifyInvitation = asyncHandler(async (req: Request, res: Response) => {

@@ -305,7 +305,7 @@ model Organization {
   id          String   @id @default(cuid())
   name        String
   slug        String?  @unique
-  currency    String   @default("USD")
+  currency    String   @default("INR")
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -577,7 +577,7 @@ model ProductVariant {
 model PriceList {
   id             String   @id @default(cuid())
   name           String // e.g. "Gold Tier Preferred Price List"
-  currency       String   @default("USD")
+  currency       String   @default("INR")
   customerTierId String?
   organizationId String
   isDefault      Boolean  @default(false)

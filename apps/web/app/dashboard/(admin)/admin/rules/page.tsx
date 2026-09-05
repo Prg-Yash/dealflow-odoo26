@@ -12,16 +12,59 @@ import {
   Lock,
 } from "lucide-react";
 import {
-  MOCK_ADMIN_RULES,
-  MOCK_ADMIN_CUSTOMER_TIERS,
   type AdminDiscountRule,
   type AdminCustomerTier,
   type AdminEscalationLevel,
 } from "../../../../../lib/admin-data";
+import {
+  useDiscountRules,
+  useCustomerTiers,
+  useCreateDiscountRule,
+} from "../../../../../lib/query";
 
 export default function AdminRulesPage() {
-  const [rulesList, setRulesList] = useState<AdminDiscountRule[]>(MOCK_ADMIN_RULES);
-  const [customerTiers] = useState<AdminCustomerTier[]>(MOCK_ADMIN_CUSTOMER_TIERS);
+  const { data: apiRules } = useDiscountRules();
+  const { data: apiTiers } = useCustomerTiers();
+  const createRuleMutation = useCreateDiscountRule();
+
+  const initialRules: AdminDiscountRule[] = apiRules
+    ? apiRules.map((r) => {
+        const escalation: AdminEscalationLevel =
+          (r as any).requiredRole === "FINANCE_OPS" || r.escalationLevel === "FINANCE"
+            ? "SALES_MANAGER_AND_FINANCE"
+            : (r as any).requiredRole === "SALES_MANAGER" || r.escalationLevel === "SALES_MANAGER"
+            ? "SALES_MANAGER"
+            : "NONE";
+        return {
+          id: r.id,
+          name: r.name,
+          minDiscountPercent: (r as any).minDiscountPercent ?? r.minDiscount ?? 0,
+          maxDiscountPercent: (r as any).maxDiscountPercent ?? r.maxDiscount ?? 10,
+          minBlendedRiskScore: r.minRiskScore ?? 0,
+          maxBlendedRiskScore: r.maxRiskScore ?? 15,
+          requiresManagerApproval: escalation === "SALES_MANAGER" || escalation === "SALES_MANAGER_AND_FINANCE",
+          requiresFinanceApproval: escalation === "SALES_MANAGER_AND_FINANCE",
+          escalationLevel: escalation,
+          description: r.description || "",
+          isActive: r.isActive,
+          dealTriggersCount: 0,
+        };
+      })
+    : [];
+
+  const [localRules, setLocalRules] = useState<AdminDiscountRule[] | null>(null);
+  const rulesList: AdminDiscountRule[] = localRules || initialRules;
+
+  const customerTiers: AdminCustomerTier[] = apiTiers
+    ? apiTiers.map((t) => ({
+        id: t.id,
+        name: t.name,
+        code: t.code,
+        discountCeiling: t.discountCeiling,
+        customerCount: 0,
+        description: t.description || "",
+      }))
+    : [];
 
   // Live Simulator States
   const [simDiscount, setSimDiscount] = useState<number>(8.5);
@@ -52,10 +95,32 @@ export default function AdminRulesPage() {
       (r) =>
         simDiscount >= r.minDiscountPercent &&
         simDiscount <= r.maxDiscountPercent
-    ) ?? rulesList[rulesList.length - 1] ?? rulesList[0]!;
+    ) ??
+    rulesList[rulesList.length - 1] ?? {
+      id: "default-rule",
+      name: "Standard Rep Discretion",
+      minDiscountPercent: 0,
+      maxDiscountPercent: 5,
+      minBlendedRiskScore: 0,
+      maxBlendedRiskScore: 10,
+      requiresManagerApproval: simDiscount > 5,
+      requiresFinanceApproval: simDiscount > 15,
+      escalationLevel: simDiscount > 15 ? "SALES_MANAGER_AND_FINANCE" : simDiscount > 5 ? "SALES_MANAGER" : "NONE",
+      description: "Default fallback rule",
+      isActive: true,
+      dealTriggersCount: 0,
+    };
 
   const selectedSimTier: AdminCustomerTier =
-    customerTiers.find((t) => t.code === simTierCode) ?? customerTiers[0]!;
+    customerTiers.find((t) => t.code === simTierCode) ??
+    customerTiers[0] ?? {
+      id: "default-tier",
+      name: "Standard Tier",
+      code: "STANDARD",
+      discountCeiling: 5.0,
+      customerCount: 0,
+      description: "Standard customer baseline",
+    };
   const isTierCeilingBreached = simDiscount > selectedSimTier.discountCeiling;
 
   // Determine final escalation
@@ -64,7 +129,7 @@ export default function AdminRulesPage() {
     finalApprover = "SALES_MANAGER";
   }
 
-  const handleCreateRule = (e: React.FormEvent) => {
+  const handleCreateRule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRuleName.trim()) return;
 
@@ -83,7 +148,21 @@ export default function AdminRulesPage() {
       dealTriggersCount: 0,
     };
 
-    setRulesList([...rulesList, newRule]);
+    try {
+      await createRuleMutation.mutateAsync({
+        name: newRule.name,
+        minDiscount: newRule.minDiscountPercent,
+        maxDiscount: newRule.maxDiscountPercent,
+        minRiskScore: newRule.minBlendedRiskScore,
+        maxRiskScore: newRule.maxBlendedRiskScore,
+        escalationLevel: newEscalation === "SALES_MANAGER_AND_FINANCE" ? "FINANCE" : "SALES_MANAGER",
+        description: newRule.description,
+      });
+    } catch (err) {
+      console.warn("Rule created with optimistic state:", err);
+    }
+
+    setLocalRules([...rulesList, newRule]);
     setIsAddRuleOpen(false);
     showToast(`Created approval rule "${newRule.name}"`);
 

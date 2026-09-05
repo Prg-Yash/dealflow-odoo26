@@ -39,13 +39,13 @@ async function main() {
     where: { slug: "apex-tech" },
     update: {
       name: "Apex Enterprise Technologies Inc",
-      currency: "USD",
+      currency: "INR",
     },
     create: {
       id: "org-apex-01",
       name: "Apex Enterprise Technologies Inc",
       slug: "apex-tech",
-      currency: "USD",
+      currency: "INR",
     },
   });
   console.log(`✓ Organization ready: ${org.name} (${org.id})`);
@@ -639,7 +639,12 @@ async function main() {
   const products: Record<string, any> = {};
   for (const p of productsData) {
     products[p.sku] = await prisma.product.upsert({
-      where: { sku: p.sku },
+      where: {
+        organizationId_sku: {
+          organizationId: org.id,
+          sku: p.sku,
+        },
+      },
       update: {
         name: p.name,
         description: p.description,
@@ -649,7 +654,6 @@ async function main() {
         unit: p.unit,
         taxRate: p.taxRate,
         isPromoted: p.isPromoted,
-        organizationId: org.id,
         isActive: true,
       },
       create: {
@@ -685,24 +689,32 @@ async function main() {
   ];
 
   for (const st of stockAllocations) {
-    await prisma.stockLevel.upsert({
+    const existing = await prisma.stockLevel.findFirst({
       where: {
-        warehouseId_productId: {
-          warehouseId: st.warehouseId,
-          productId: st.productId,
-        },
-      },
-      update: {
-        quantityOnHand: st.onHand,
-        quantityReserved: st.reserved,
-      },
-      create: {
         warehouseId: st.warehouseId,
         productId: st.productId,
-        quantityOnHand: st.onHand,
-        quantityReserved: st.reserved,
+        variantId: null,
       },
     });
+
+    if (existing) {
+      await prisma.stockLevel.update({
+        where: { id: existing.id },
+        data: {
+          quantityOnHand: st.onHand,
+          quantityReserved: st.reserved,
+        },
+      });
+    } else {
+      await prisma.stockLevel.create({
+        data: {
+          warehouseId: st.warehouseId,
+          productId: st.productId,
+          quantityOnHand: st.onHand,
+          quantityReserved: st.reserved,
+        },
+      });
+    }
   }
   console.log("  ✓ Real-time stock levels populated across Denver, Newark, and San Jose.");
 
@@ -726,7 +738,12 @@ async function main() {
 
   // QUOTE 1: DRAFT (Acme Corp / Alex Rivera - Healthy margins, rep discretion)
   const q1 = await prisma.quotation.upsert({
-    where: { quoteNumber: "QT-2026-0001" },
+    where: {
+      organizationId_quoteNumber: {
+        organizationId: org.id,
+        quoteNumber: "QT-2026-0001",
+      },
+    },
     update: {
       stage: QuoteStage.DRAFT,
     },
@@ -824,7 +841,12 @@ async function main() {
 
   // QUOTE 2: PENDING_APPROVAL (Beta Industries / Sarah Chen - Category Ceiling Breach)
   const q2 = await prisma.quotation.upsert({
-    where: { quoteNumber: "QT-2026-0002" },
+    where: {
+      organizationId_quoteNumber: {
+        organizationId: org.id,
+        quoteNumber: "QT-2026-0002",
+      },
+    },
     update: {
       stage: QuoteStage.PENDING_APPROVAL,
     },
@@ -946,7 +968,12 @@ async function main() {
 
   // QUOTE 3: APPROVED (OmniCorp / Alex Rivera - Manager Sign-off Recorded)
   const q3 = await prisma.quotation.upsert({
-    where: { quoteNumber: "QT-2026-0003" },
+    where: {
+      organizationId_quoteNumber: {
+        organizationId: org.id,
+        quoteNumber: "QT-2026-0003",
+      },
+    },
     update: {
       stage: QuoteStage.APPROVED,
     },
@@ -1058,7 +1085,12 @@ async function main() {
 
   // QUOTE 4: NEGOTIATION (QuantumLeap / Sarah Chen - Live Portal Link Active)
   const q4 = await prisma.quotation.upsert({
-    where: { quoteNumber: "QT-2026-0004" },
+    where: {
+      organizationId_quoteNumber: {
+        organizationId: org.id,
+        quoteNumber: "QT-2026-0004",
+      },
+    },
     update: {
       stage: QuoteStage.NEGOTIATION,
     },
@@ -1155,7 +1187,12 @@ async function main() {
 
   // QUOTE 5: CONFIRMED (Acme Corp / Alex Rivera - Ready for fulfillment & billing)
   const q5 = await prisma.quotation.upsert({
-    where: { quoteNumber: "QT-2026-0005" },
+    where: {
+      organizationId_quoteNumber: {
+        organizationId: org.id,
+        quoteNumber: "QT-2026-0005",
+      },
+    },
     update: {
       stage: QuoteStage.CONFIRMED,
     },
@@ -1363,7 +1400,12 @@ async function main() {
 
   // A. One-Time Hardware & Services Invoice for QT-2026-0005 (Acme Corp)
   const inv1 = await (prisma as any).invoice.upsert({
-    where: { invoiceNumber: "INV-2026-0001" },
+    where: {
+      organizationId_invoiceNumber: {
+        organizationId: org.id,
+        invoiceNumber: "INV-2026-0001",
+      },
+    },
     update: {
       totalAmount: 18472.0,
       amountPaid: 10000.0,
@@ -1438,7 +1480,7 @@ async function main() {
       notes: "50% upfront milestone wire transfer received from Acme Corp.",
     },
   });
-  console.log("  ✓ Invoice [INV-2026-0001] ($18,472.00, $10,000 Paid via Wire - Status: ISSUED)");
+  console.log("  ✓ Invoice [INV-2026-0001] (₹18,472.00, ₹10,000 Paid via Wire - Status: ISSUED)");
 
   // B. Recurring SaaS Subscription for QT-2026-0004 (QuantumLeap Labs)
   const periodStart = new Date();
@@ -1446,7 +1488,12 @@ async function main() {
   const nextBilling = new Date(periodEnd);
 
   const sub1 = await (prisma as any).subscription.upsert({
-    where: { subscriptionNumber: "SUB-2026-0001" },
+    where: {
+      organizationId_subscriptionNumber: {
+        organizationId: org.id,
+        subscriptionNumber: "SUB-2026-0001",
+      },
+    },
     update: {
       status: "ACTIVE",
       currentMrr: 4250.0,
@@ -1478,7 +1525,7 @@ async function main() {
         quantity: 25,
         unitPrice: 120.0,
         discountPercent: 15.0,
-        recurringAmount: 2550.0, // 25 * $102
+        recurringAmount: 2550.0, // 25 * ₹102
       },
       {
         subscriptionId: sub1.id,
@@ -1486,14 +1533,19 @@ async function main() {
         quantity: 25,
         unitPrice: 80.0,
         discountPercent: 15.0,
-        recurringAmount: 1700.0, // 25 * $68
+        recurringAmount: 1700.0, // 25 * ₹68
       },
     ],
   });
 
   // Monthly Recurring Invoice for Subscription 1
   const inv2 = await (prisma as any).invoice.upsert({
-    where: { invoiceNumber: "INV-2026-0002" },
+    where: {
+      organizationId_invoiceNumber: {
+        organizationId: org.id,
+        invoiceNumber: "INV-2026-0002",
+      },
+    },
     update: {
       status: "PAID",
       amountPaid: 4250.0,
@@ -1530,12 +1582,17 @@ async function main() {
       notes: "Automated ACH auto-debit for monthly SaaS subscription.",
     },
   });
-  console.log("  ✓ Subscription [SUB-2026-0001] (QuantumLeap Labs - MRR: $4,250.00, Status: ACTIVE)");
-  console.log("  ✓ Monthly Invoice [INV-2026-0002] ($4,250.00 PAID via ACH)");
+  console.log("  ✓ Subscription [SUB-2026-0001] (QuantumLeap Labs - MRR: ₹4,250.00, Status: ACTIVE)");
+  console.log("  ✓ Monthly Invoice [INV-2026-0002] (₹4,250.00 PAID via ACH)");
 
   // C. Proration Credit Note for Mid-Cycle Seat Adjustment
   await (prisma as any).creditNote.upsert({
-    where: { creditNoteNumber: "CN-2026-0001" },
+    where: {
+      organizationId_creditNoteNumber: {
+        organizationId: org.id,
+        creditNoteNumber: "CN-2026-0001",
+      },
+    },
     update: {
       amount: 340.0,
       status: "ISSUED",
@@ -1550,7 +1607,7 @@ async function main() {
       status: "ISSUED",
     },
   });
-  console.log("  ✓ Credit Note [CN-2026-0001] ($340.00 - Mid-Cycle License Proration)");
+  console.log("  ✓ Credit Note [CN-2026-0001] (₹340.00 - Mid-Cycle License Proration)");
 
   // 11. Customer Negotiation Portal, Interactive Comments, Counter-Proposals & E-Signatures (Phase 8)
   console.log("\n[11/11] Seeding Negotiation Portal Comments, Counter-Proposals & E-Signatures (Phase 8)...");
@@ -1600,7 +1657,7 @@ async function main() {
       quotationId: q4.id,
       proposedGrandTotal: 20850.0,
       proposedDiscountPercent: 14.8,
-      customerNotes: "We are requesting a total bundle price of $20,850 ($667.20 reduction) to fit our Q1 CAPEX budget.",
+      customerNotes: "We are requesting a total bundle price of ₹20,850 (₹667.20 reduction) to fit our Q1 CAPEX budget.",
       status: CounterProposalStatus.PENDING,
       createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
     },
@@ -1625,11 +1682,11 @@ async function main() {
   console.log("  🎉 Seeding Completed Successfully!");
   console.log("==================================================");
   console.log("Pipeline Sample Deals:");
-  console.log("  📝 QT-2026-0001 : DRAFT            (Acme Corp - $12,428, 46.3% margin)");
-  console.log("  ⏳ QT-2026-0002 : PENDING_APPROVAL (Beta Ind - $9,689, 2-Step Escalation)");
-  console.log("  ✅ QT-2026-0003 : APPROVED         (OmniCorp - $10,820, Manager Approved)");
-  console.log("  💬 QT-2026-0004 : NEGOTIATION      (QuantumLeap - $21,517, Portal Token: portal-token-quantum-04)");
-  console.log("  🎯 QT-2026-0005 : CONFIRMED        (Acme Corp - $18,472, Ready for Split Fulfillment)");
+  console.log("  📝 QT-2026-0001 : DRAFT            (Acme Corp - ₹12,428, 46.3% margin)");
+  console.log("  ⏳ QT-2026-0002 : PENDING_APPROVAL (Beta Ind - ₹9,689, 2-Step Escalation)");
+  console.log("  ✅ QT-2026-0003 : APPROVED         (OmniCorp - ₹10,820, Manager Approved)");
+  console.log("  💬 QT-2026-0004 : NEGOTIATION      (QuantumLeap - ₹21,517, Portal Token: portal-token-quantum-04)");
+  console.log("  🎯 QT-2026-0005 : CONFIRMED        (Acme Corp - ₹18,472, Ready for Split Fulfillment)");
   console.log("==================================================");
 }
 

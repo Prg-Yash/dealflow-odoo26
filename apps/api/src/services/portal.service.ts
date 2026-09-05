@@ -286,7 +286,7 @@ export async function acceptCounterProposal(
     // Parse potential line-level discounts from customerNotes e.g. "[Line cl...: 25%]"
     const lineDiscountOverrides = new Map<string, number>();
     if (counterProposal.customerNotes) {
-      const regex = /\[Line\s+([a-zA-Z0-9_\-]+):\s*([0-9.]+)%\]/g;
+      const regex = /\[Line\s+([a-zA-Z0-9_-]+):\s*([0-9.]+)%\]/g;
       let match;
       while ((match = regex.exec(counterProposal.customerNotes)) !== null) {
         const lineId = match[1];
@@ -378,7 +378,7 @@ export async function acceptCounterProposal(
       riskResult.lines.some((l) => l.isCeilingBreached);
 
     let requiresManagerApproval = approvalEvaluation.requiresManagerApproval;
-    let requiresFinanceApproval = approvalEvaluation.requiresFinanceApproval;
+    const requiresFinanceApproval = approvalEvaluation.requiresFinanceApproval;
 
     if (scoreExceedsApprovedThreshold && !requiresManagerApproval && !requiresFinanceApproval) {
       requiresManagerApproval = true;
@@ -389,7 +389,7 @@ export async function acceptCounterProposal(
       requiresManagerApproval ||
       requiresFinanceApproval;
 
-    let updatedProposalStatus = CounterProposalStatus.ACCEPTED;
+    const updatedProposalStatus = CounterProposalStatus.ACCEPTED;
     let responseNotes = overrideNotes || "Counter-proposal accepted by sales representative.";
 
     if (requiresReapproval) {

@@ -26,12 +26,69 @@ import {
   type InvoiceRecord,
   type ApprovalStatus,
 } from "../../../../lib/finance-data";
+import {
+  useInvoices,
+  useFulfillmentOrders,
+  useQuotations,
+  useUpdateQuotationStage,
+} from "../../../../lib/query";
 
 export default function FinanceDashboardPage() {
   const [activeView, setActiveView] = useState<"approvals" | "fulfillment" | "billing">("approvals");
-  const [approvals, setApprovals] = useState<FinanceApprovalRequest[]>(INITIAL_FINANCE_APPROVALS);
-  const [fulfillments] = useState<FulfillmentRecord[]>(INITIAL_FULFILLMENT_RECORDS);
-  const [invoices] = useState<InvoiceRecord[]>(INITIAL_INVOICE_RECORDS);
+
+  // Live TanStack Query Hooks
+  const { data: apiInvoices } = useInvoices();
+  const { data: apiFulfillment } = useFulfillmentOrders();
+  const { data: apiQuotes } = useQuotations({ stage: "PENDING_APPROVAL" });
+  const updateStageMutation = useUpdateQuotationStage();
+
+  const initialApprovals: FinanceApprovalRequest[] = apiQuotes && apiQuotes.length > 0
+    ? apiQuotes.map((q) => ({
+        id: q.id,
+        quoteId: q.quoteNumber || q.id,
+        account: q.customer?.name || "Corporate Client",
+        accountTier: ((q.customer as any)?.tier?.name as any) || "Gold",
+        dealSize: q.grandTotal || 0,
+        discountRequested: q.discountPercent || 15,
+        marginProjected: q.grossMarginPercent || 38,
+        targetMargin: 45.0,
+        reason: q.notes || "Standard finance approval required.",
+        status: (q.stage === "APPROVED" ? "APPROVED" : q.stage === "CANCELLED" ? "REJECTED" : "PENDING") as ApprovalStatus,
+        submittedAt: new Date(q.createdAt).toLocaleDateString(),
+        slaHoursLeft: 24,
+        blendedRiskScore: q.blendedRiskScore || 12,
+        escalationReason: `Quote escalated for ${q.discountPercent || 15}% discount threshold`,
+      }))
+    : INITIAL_FINANCE_APPROVALS;
+
+  const initialFulfillments: FulfillmentRecord[] = apiFulfillment && apiFulfillment.length > 0
+    ? apiFulfillment.map((f) => ({
+        id: f.fulfillmentNumber,
+        quoteId: f.quotationId || "Q-1045",
+        account: "Apex Strategic Partner",
+        status: (f.status === "FULFILLED" ? "FULFILLED" : f.status === "PARTIALLY_FULFILLED" ? "PARTIALLY_FULFILLED" : "PENDING") as any,
+        warehouseSplit: (f.shipments?.length || 0) > 1,
+        itemsPending: f.lines?.reduce((acc: number, l: any) => acc + (l.pendingQuantity || 0), 0) || 0,
+        itemsTotal: f.lines?.reduce((acc: number, l: any) => acc + (l.quantity || 0), 0) || 10,
+        backorderRisk: Boolean(f.backorders && f.backorders.length > 0),
+        expectedShipDate: new Date(f.promisedDate || f.createdAt).toLocaleDateString(),
+      }))
+    : INITIAL_FULFILLMENT_RECORDS;
+
+  const initialInvoices: InvoiceRecord[] = apiInvoices && apiInvoices.length > 0
+    ? apiInvoices.map((inv) => ({
+        id: inv.invoiceNumber,
+        account: "Enterprise Account",
+        amount: inv.totalAmount,
+        status: (inv.status === "PARTIALLY_PAID" ? "ISSUED" : inv.status) as any,
+        dueDate: new Date(inv.dueDate).toLocaleDateString(),
+        paymentMethod: "ACH Transfer",
+      }))
+    : INITIAL_INVOICE_RECORDS;
+
+  const [approvals, setApprovals] = useState<FinanceApprovalRequest[]>(initialApprovals);
+  const [fulfillments] = useState<FulfillmentRecord[]>(initialFulfillments);
+  const [invoices] = useState<InvoiceRecord[]>(initialInvoices);
   
   const [searchQuery, setSearchQuery] = useState("");
   const [approvalFilter, setApprovalFilter] = useState<"pending" | "all">("pending");
@@ -88,6 +145,13 @@ export default function FinanceDashboardPage() {
           : item
       )
     );
+
+    if (request.id.startsWith("q-") || request.id.length > 15) {
+      updateStageMutation.mutate({
+        id: request.id,
+        stage: type === "approve" ? "APPROVED" : type === "reject" ? "CANCELLED" : "DRAFT",
+      });
+    }
 
     setModalSuccessMsg(`Finance decision logged: ${request.quoteId} is now ${newStatus.replace("_", " ")}.`);
     setTimeout(() => {
@@ -221,7 +285,7 @@ export default function FinanceDashboardPage() {
                 </div>
                 <div className="mt-3">
                   <div className="text-3xl font-black text-[#0f172a] tracking-tight">
-                    ${totalExceptionsValue.toLocaleString()}
+                    ₹{totalExceptionsValue.toLocaleString()}
                   </div>
                   <div className="text-xs text-slate-500 font-semibold mt-1">
                     Pending Finance Authorization
@@ -347,7 +411,7 @@ export default function FinanceDashboardPage() {
                       <div>
                         <div className="text-[10px] uppercase font-bold text-slate-400">Deal Value</div>
                         <div className="text-base font-extrabold text-slate-900 font-mono">
-                          ${item.dealSize.toLocaleString()}
+                          ₹{item.dealSize.toLocaleString()}
                         </div>
                       </div>
 
@@ -526,7 +590,7 @@ export default function FinanceDashboardPage() {
                         )}
                       </td>
                       <td className="py-4 px-4 font-mono font-bold text-slate-900 text-sm">
-                        ${inv.amount.toLocaleString()}
+                        ₹{inv.amount.toLocaleString()}
                       </td>
                       <td className="py-4 px-4">
                         <div className="text-slate-800">{inv.dueDate}</div>

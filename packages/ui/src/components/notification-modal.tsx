@@ -21,7 +21,7 @@ const DEFAULT_NOTIFICATIONS: DealNotification[] = [
   {
     id: "notif-1",
     title: "Quotation Q-1042 Approved",
-    message: "Marcus Vance (Sales Director) approved Acme Corporation proposal ($68,500) for customer delivery.",
+    message: "Marcus Vance (Sales Director) approved Acme Corporation proposal (₹68,500) for customer delivery.",
     timestamp: "10m ago",
     type: "approval",
     quoteId: "Q-1042",
@@ -31,7 +31,7 @@ const DEFAULT_NOTIFICATIONS: DealNotification[] = [
   {
     id: "notif-2",
     title: "Tier 2 Approval Requested",
-    message: "OmniRetail Global requested 15% discount on cluster license ($114,200). Awaiting FinOps sign-off.",
+    message: "OmniRetail Global requested 15% discount on cluster license (₹114,200). Awaiting FinOps sign-off.",
     timestamp: "45m ago",
     type: "escalation",
     quoteId: "Q-1044",
@@ -41,7 +41,7 @@ const DEFAULT_NOTIFICATIONS: DealNotification[] = [
   {
     id: "notif-3",
     title: "Contract Signed & PO Issued",
-    message: "Northstar Labs executed quotation Q-1046 ($96,500). Ready for fulfillment handoff.",
+    message: "Northstar Labs executed quotation Q-1046 (₹96,500). Ready for fulfillment handoff.",
     timestamp: "2h ago",
     type: "confirmed",
     quoteId: "Q-1046",

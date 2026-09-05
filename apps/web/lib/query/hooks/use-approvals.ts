@@ -1,0 +1,186 @@
+"use client";
+
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { api } from "../api-client";
+import { queryKeys } from "../query-keys";
+import {
+  createOptimisticMutationOptions,
+  optimisticAppendItem,
+  optimisticUpdateItemInList,
+  optimisticRemoveItemFromList,
+} from "../optimistic-helpers";
+
+export interface DiscountApprovalRuleData {
+  id: string;
+  name: string;
+  minDiscount: number;
+  maxDiscount: number;
+  minRiskScore: number;
+  maxRiskScore: number;
+  escalationLevel: "SALES_MANAGER" | "FINANCE";
+  priority: number;
+  isActive: boolean;
+  description?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DealAnomalyData {
+  quotationId: string;
+  quoteNumber: string;
+  title: string;
+  repId: string;
+  repName: string;
+  customerName: string;
+  discountPercent: number;
+  repHistoricalAvgDiscount: number;
+  discountDeviation: number;
+  isHighDiscountAnomaly: boolean;
+  isStalledAnomaly: boolean;
+  daysSinceLastActivity: number;
+  blendedRiskScore: number;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  recommendation: string;
+}
+
+/**
+ * Hook to fetch discount approval rules
+ */
+export function useDiscountRules() {
+  return useQuery({
+    queryKey: queryKeys.approvals.rules(),
+    queryFn: () => api.get<DiscountApprovalRuleData[]>("/api/discount-approval-rules"),
+  });
+}
+
+/**
+ * Hook to fetch discount anomalies
+ */
+export function useDealAnomalies(filters?: { minDeviation?: number; asOfDate?: string }) {
+  return useQuery({
+    queryKey: [...queryKeys.approvals.all, "anomalies", filters],
+    queryFn: () => api.get<{ count: number; anomalies: DealAnomalyData[] }>("/api/deal-health/anomalies", { params: filters }),
+  });
+}
+
+/**
+ * Hook to fetch stalled quotations
+ */
+export function useStalledQuotations(filters?: { thresholdDays?: number }) {
+  return useQuery({
+    queryKey: [...queryKeys.approvals.all, "stalled", filters],
+    queryFn: () => api.get<any>("/api/deal-health/stalled", { params: filters }),
+  });
+}
+
+/**
+ * Mutation: Create discount approval rule
+ */
+export function useCreateDiscountRule() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body: {
+      name: string;
+      minDiscount: number;
+      maxDiscount: number;
+      minRiskScore: number;
+      maxRiskScore: number;
+      escalationLevel: "SALES_MANAGER" | "FINANCE";
+      priority?: number;
+      description?: string;
+    }) => api.post<DiscountApprovalRuleData>("/api/discount-approval-rules", body),
+
+    ...createOptimisticMutationOptions<
+      { name: string; minDiscount: number; maxDiscount: number; minRiskScore: number; maxRiskScore: number; escalationLevel: "SALES_MANAGER" | "FINANCE"; priority?: number; description?: string },
+      DiscountApprovalRuleData[]
+    >({
+      queryClient,
+      queryKey: queryKeys.approvals.rules(),
+      updateFn: (oldList, variables) => {
+        const optimisticRule: DiscountApprovalRuleData = {
+          id: `temp-${Date.now()}`,
+          name: variables.name,
+          minDiscount: variables.minDiscount,
+          maxDiscount: variables.maxDiscount,
+          minRiskScore: variables.minRiskScore,
+          maxRiskScore: variables.maxRiskScore,
+          escalationLevel: variables.escalationLevel,
+          priority: variables.priority ?? 1,
+          isActive: true,
+          description: variables.description ?? null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        return optimisticAppendItem(oldList, optimisticRule, "start");
+      },
+    }),
+  });
+}
+
+/**
+ * Mutation: Update discount approval rule
+ */
+export function useUpdateDiscountRule() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Partial<DiscountApprovalRuleData> }) =>
+      api.patch<DiscountApprovalRuleData>(`/api/discount-approval-rules/${id}`, body),
+
+    ...createOptimisticMutationOptions<{ id: string; body: Partial<DiscountApprovalRuleData> }, DiscountApprovalRuleData[]>({
+      queryClient,
+      queryKey: queryKeys.approvals.rules(),
+      updateFn: (oldList, { id, body }) => optimisticUpdateItemInList(oldList, id, body),
+    }),
+  });
+}
+
+/**
+ * Mutation: Delete discount approval rule
+ */
+export function useDeleteDiscountRule() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/api/discount-approval-rules/${id}`),
+
+    ...createOptimisticMutationOptions<string, DiscountApprovalRuleData[]>({
+      queryClient,
+      queryKey: queryKeys.approvals.rules(),
+      updateFn: (oldList, id) => optimisticRemoveItemFromList(oldList, id),
+    }),
+  });
+}
+
+/**
+ * Mutation: Accept customer counter-proposal
+ */
+export function useAcceptCounterProposal() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
+      api.post(`/api/counter-proposals/${id}/accept`, { reason }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.quotations.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.approvals.all });
+    },
+  });
+}
+
+/**
+ * Mutation: Reject customer counter-proposal
+ */
+export function useRejectCounterProposal() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
+      api.post(`/api/counter-proposals/${id}/reject`, { reason }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.quotations.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.approvals.all });
+    },
+  });
+}

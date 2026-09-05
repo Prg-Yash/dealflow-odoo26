@@ -3,10 +3,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Eye, EyeOff, User, Mail, Building2, Lock } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, User, Mail, Building2, Lock, ShieldCheck } from "lucide-react";
 import { AuthCard } from "@repo/ui";
-import { signUp } from "../../../lib/auth-client";
-import { ALL_ROLES, setStoredRole, getRoleRedirect, type UserRole } from "../../../lib/roles";
+import { signIn } from "../../../lib/auth-client";
+import { setStoredRole } from "../../../lib/roles";
 import { isValidEmail, isValidPassword, isValidName } from "../../../lib/validation";
 
 export default function RegisterPage() {
@@ -14,7 +14,6 @@ export default function RegisterPage() {
   const [fullName, setFullName] = useState("");
   const [workEmail, setWorkEmail] = useState("");
   const [companyName, setCompanyName] = useState("");
-  const [role, setRole] = useState<UserRole>("sales_rep");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [nameTouched, setNameTouched] = useState(false);
@@ -45,24 +44,55 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      setStoredRole(role);
+      setStoredRole("admin");
+      document.cookie = `demo_role=admin; path=/; max-age=86400; SameSite=Lax`;
 
-      // Attempt Better Auth sign up with graceful demo fallback
+      // 1. Call API to register Administrator and create the Organization
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
       try {
-        await signUp.email({
-          email: workEmail,
-          password,
-          name: fullName,
+        const response = await fetch(`${apiUrl}/api/admin/register`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            name: fullName.trim(),
+            email: workEmail.trim().toLowerCase(),
+            password,
+            organizationName: companyName.trim(),
+            currency: "INR",
+          }),
         });
-      } catch (authErr) {
-        console.warn("Better Auth sign up fallback to demo mode:", authErr);
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          // If already exists or error, throw to catch
+          if (response.status >= 400 && response.status < 500) {
+            throw new Error(errData.message || errData.error || "Registration failed. Please check your details.");
+          }
+        }
+      } catch (apiErr: any) {
+        if (apiErr.message && !apiErr.message.includes("fetch")) {
+          throw apiErr;
+        }
+        console.warn("Backend registration fallback:", apiErr);
       }
 
-      router.push(getRoleRedirect(role));
-    } catch (err) {
-      console.warn("Backend unavailable, fallback to demo mode:", err);
-      setStoredRole(role);
-      router.push(getRoleRedirect(role));
+      // 2. Automatically authenticate session with Better Auth
+      try {
+        await signIn.email({
+          email: workEmail.trim().toLowerCase(),
+          password,
+        });
+      } catch (authErr) {
+        console.warn("Auto sign-in fallback:", authErr);
+      }
+
+      router.push("/dashboard/admin");
+    } catch (err: any) {
+      console.error("Registration error:", err);
+      setError(err?.message || "Failed to create administrator account. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -70,8 +100,8 @@ export default function RegisterPage() {
 
   return (
     <AuthCard
-      title="Create Account"
-      description="Join DealFlow360 to collaborate on deals and quotations"
+      title="Create Organization"
+      description="Set up your enterprise workspace and administrator account"
       activeTab="signup"
       linkComponent={Link}
       footerNote={
@@ -147,10 +177,10 @@ export default function RegisterPage() {
           {emailError && <span className="text-[11px] text-red-500 font-medium">{emailError}</span>}
         </div>
 
-        {/* Company Name */}
+        {/* Company / Organization Name */}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="companyName">
-            Company Name <span className="text-[#ff5e3a]">*</span>
+            Company / Organization Name <span className="text-[#ff5e3a]">*</span>
           </label>
           <div className="relative">
             <Building2 size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -174,23 +204,10 @@ export default function RegisterPage() {
           {companyError && <span className="text-[11px] text-red-500 font-medium">{companyError}</span>}
         </div>
 
-        {/* Platform Role Selector */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="roleSelect">
-            Platform Role <span className="text-[#ff5e3a]">*</span>
-          </label>
-          <select
-            id="roleSelect"
-            value={role}
-            onChange={(e) => setRole(e.target.value as UserRole)}
-            className="w-full bg-[#f8fafc] border border-slate-200 focus:border-[#ff5e3a] focus:ring-2 focus:ring-[#ff5e3a]/20 rounded-xl px-3.5 py-2.5 text-sm text-[#0f172a] outline-none transition-all cursor-pointer"
-          >
-            {ALL_ROLES.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.label} ({r.title})
-              </option>
-            ))}
-          </select>
+        {/* Admin Account Notice */}
+        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-600">
+          <ShieldCheck size={16} className="text-[#ff5e3a] shrink-0" />
+          <span>This account will be configured as the <strong>Workspace Administrator</strong> with full organization governance.</span>
         </div>
 
         {/* Create Password */}
@@ -235,7 +252,7 @@ export default function RegisterPage() {
             disabled={loading || !isFormValid}
             className="w-full inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white font-semibold text-sm transition-all shadow-md shadow-[#ff5e3a]/25 active:translate-y-0.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <span>{loading ? "Creating account..." : "Create Account"}</span>
+            <span>{loading ? "Creating organization & account..." : "Create Organization & Account"}</span>
             <ArrowRight size={16} />
           </button>
         </div>

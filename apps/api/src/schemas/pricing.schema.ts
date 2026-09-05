@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const CreatePriceListSchema = z.object({
   name: z.string().min(1, "Price list name is required"),
-  currency: z.string().default("USD"),
+  currency: z.string().default("INR"),
   customerTierId: z.string().optional(),
   isDefault: z.boolean().default(false),
 })

@@ -216,7 +216,7 @@ export function QuotationBuilderSidebar({
                       {product.name}
                     </span>
                     <span className="font-mono font-bold text-xs text-slate-900 shrink-0">
-                      ${product.unitPrice.toLocaleString()}
+                      ₹{product.unitPrice.toLocaleString()}
                     </span>
                   </div>
 

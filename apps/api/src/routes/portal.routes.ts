@@ -12,14 +12,14 @@ export const portalRouter = Router();
 
 // 1. Read-only quotation view for the customer
 portalRouter.get(
-  "/quotations/:token",
+  ["/quotations/:token", "/:token"],
   portalAuth,
   portalController.getQuotation
 );
 
 // 2. Line-level or quote-level question/comment
 portalRouter.post(
-  "/quotations/:token/comments",
+  ["/quotations/:token/comments", "/:token/comments"],
   portalAuth,
   validateBody(CreateQuotationCommentSchema),
   portalController.postComment
@@ -27,7 +27,7 @@ portalRouter.post(
 
 // 3. Customer's counter-offer
 portalRouter.post(
-  "/quotations/:token/counter-proposals",
+  ["/quotations/:token/counter-proposals", "/:token/counter-proposals", "/:token/counter-proposal"],
   portalAuth,
   validateBody(CreateCounterProposalSchema),
   portalController.postCounterProposal
@@ -35,7 +35,7 @@ portalRouter.post(
 
 // 4. Customer electronic signature -> confirmation
 portalRouter.post(
-  "/quotations/:token/sign",
+  ["/quotations/:token/sign", "/:token/sign"],
   portalAuth,
   validateBody(SignQuotationSchema),
   portalController.signQuotation

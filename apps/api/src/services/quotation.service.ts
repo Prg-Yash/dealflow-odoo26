@@ -3,7 +3,6 @@ import {
   UserRole,
   QuoteStage,
   ApprovalStatus,
-  CategoryType,
   type Prisma,
 } from "@repo/db";
 import { AppError } from "../middleware/error.js";

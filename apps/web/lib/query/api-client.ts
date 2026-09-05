@@ -63,7 +63,7 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestOption
   const response = await fetch(url, config);
 
   // Parse JSON response
-  let data: any = null;
+  let data: any;
   const contentType = response.headers.get("content-type");
   if (contentType && contentType.includes("application/json")) {
     data = await response.json().catch(() => null);
@@ -71,9 +71,33 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestOption
     data = await response.text().catch(() => null);
   }
 
-  if (!response.ok) {
+  if (!response.ok || (data && typeof data === "object" && data.success === false)) {
     const errorMessage = data?.message || data?.error || `Request failed with status ${response.status}`;
     throw new ApiError(errorMessage, response.status, data);
+  }
+
+  // Automatically unwrap standard backend envelope { success: true, data: T }
+  if (data && typeof data === "object" && "success" in data && "data" in data) {
+    return data.data as T;
+  }
+
+  // Automatically unwrap common named collection envelopes
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    if ("invitations" in data && Array.isArray((data as any).invitations)) {
+      return (data as any).invitations as T;
+    }
+    if ("members" in data && Array.isArray((data as any).members)) {
+      return (data as any).members as T;
+    }
+    if ("quotations" in data && Array.isArray((data as any).quotations)) {
+      return (data as any).quotations as T;
+    }
+    if ("products" in data && Array.isArray((data as any).products)) {
+      return (data as any).products as T;
+    }
+    if ("organizations" in data && Array.isArray((data as any).organizations)) {
+      return (data as any).organizations as T;
+    }
   }
 
   return data as T;

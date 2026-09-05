@@ -97,7 +97,7 @@ export const registerAdmin = asyncHandler(async (req: Request, res: Response) =>
   if (organizationName?.trim()) {
     organization = await createOrganization({
       name: organizationName.trim(),
-      currency: currency?.trim() || "USD",
+      currency: currency?.trim() || "INR",
       createdById: userId,
     });
 

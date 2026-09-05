@@ -7,13 +7,58 @@ function generateSlug(name: string): string {
 }
 
 export async function listCategories(organizationId: string) {
-  return prisma.category.findMany({
+  let categories = await prisma.category.findMany({
     where: { organizationId },
     include: {
       _count: { select: { products: true } },
     },
     orderBy: { name: "asc" },
   });
+
+  if (categories.length === 0) {
+    await prisma.category.createMany({
+      data: [
+        {
+          name: "Physical Hardware",
+          slug: `physical-hardware-${Date.now().toString(36)}`,
+          type: "HARDWARE",
+          discountCeiling: 15.0,
+          targetMargin: 35.0,
+          description: "Physical devices, servers, appliances, and warehouse equipment",
+          organizationId,
+        },
+        {
+          name: "SaaS Subscriptions",
+          slug: `saas-subscriptions-${Date.now().toString(36)}`,
+          type: "SUBSCRIPTION",
+          discountCeiling: 12.0,
+          targetMargin: 85.0,
+          description: "Cloud software licenses, recurring seats, and digital platforms",
+          organizationId,
+        },
+        {
+          name: "Professional Services",
+          slug: `professional-services-${Date.now().toString(36)}`,
+          type: "SERVICE",
+          discountCeiling: 10.0,
+          targetMargin: 60.0,
+          description: "Consulting, engineering hours, and deployment packages",
+          organizationId,
+        },
+      ],
+      skipDuplicates: true,
+    });
+
+    categories = await prisma.category.findMany({
+      where: { organizationId },
+      include: {
+        _count: { select: { products: true } },
+      },
+      orderBy: { name: "asc" },
+    });
+  }
+
+  return categories;
 }
 
 export async function getCategoryById(organizationId: string, id: string) {

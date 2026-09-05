@@ -153,7 +153,7 @@ export const MOCK_ADMIN_ORG: AdminOrg = {
   id: "org-apex-01",
   name: "Apex Enterprise Technologies Inc",
   slug: "apex-tech",
-  currency: "USD",
+  currency: "INR",
   createdById: "usr-admin-01",
   creatorName: "System Administrator",
   activeTierCount: 4,
@@ -554,7 +554,7 @@ export const MOCK_ADMIN_PRICE_LISTS: AdminPriceList[] = [
   {
     id: "pl-gold",
     name: "Gold Tier Preferred Price List",
-    currency: "USD",
+    currency: "INR",
     tierCode: "GOLD",
     tierName: "Gold Tier",
     itemCount: 9,
@@ -564,7 +564,7 @@ export const MOCK_ADMIN_PRICE_LISTS: AdminPriceList[] = [
   {
     id: "pl-standard",
     name: "Global Master List Price Schedule",
-    currency: "USD",
+    currency: "INR",
     tierCode: "BRONZE",
     tierName: "Standard List",
     itemCount: 9,
@@ -574,7 +574,7 @@ export const MOCK_ADMIN_PRICE_LISTS: AdminPriceList[] = [
   {
     id: "pl-plat",
     name: "Platinum Global Master Agreement 2026",
-    currency: "USD",
+    currency: "INR",
     tierCode: "PLATINUM",
     tierName: "Platinum Tier",
     itemCount: 9,

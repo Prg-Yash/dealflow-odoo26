@@ -98,3 +98,5 @@ export function optimisticRemoveItem<TItem extends { id: string | number }>(
   if (!list) return [];
   return list.filter((item) => item.id !== itemId);
 }
+
+export { optimisticRemoveItem as optimisticRemoveItemFromList };

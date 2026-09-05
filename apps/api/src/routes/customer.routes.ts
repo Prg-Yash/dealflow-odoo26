@@ -12,18 +12,25 @@ import * as controller from "../controllers/customer.controller.js";
 
 export const customersRouter = Router();
 
+const STAFF_ROLES = [
+  UserRole.ADMIN,
+  UserRole.SALES_MANAGER,
+  UserRole.SALES_REP,
+  UserRole.FINANCE_OPS,
+];
+
 // Base middleware: authenticated and scoped to active organization
 customersRouter.use(requireAuth, tenantMiddleware);
 
-// CRUD /customers - accessible to ADMIN and SALES_MANAGER
-customersRouter.get("/", requireRole(UserRole.ADMIN, UserRole.SALES_MANAGER), controller.listCustomers);
+// CRUD /customers - read accessible to all staff; writes restricted to ADMIN and SALES_MANAGER
+customersRouter.get("/", requireRole(...STAFF_ROLES), controller.listCustomers);
 customersRouter.post(
   "/",
   requireRole(UserRole.ADMIN, UserRole.SALES_MANAGER),
   validateBody(CreateCustomerSchema),
   controller.createCustomer
 );
-customersRouter.get("/:id", requireRole(UserRole.ADMIN, UserRole.SALES_MANAGER), controller.getCustomer);
+customersRouter.get("/:id", requireRole(...STAFF_ROLES), controller.getCustomer);
 customersRouter.patch(
   "/:id",
   requireRole(UserRole.ADMIN, UserRole.SALES_MANAGER),

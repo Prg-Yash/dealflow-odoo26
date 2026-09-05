@@ -366,3 +366,23 @@ export async function manualAdjustStock(
     notes: input.notes,
   });
 }
+
+export async function listStockMovements(
+  organizationId: string,
+  query?: { productId?: string; warehouseId?: string; limit?: number }
+) {
+  return prisma.stockMovement.findMany({
+    where: {
+      warehouse: { organizationId },
+      ...(query?.productId ? { productId: query.productId } : {}),
+      ...(query?.warehouseId ? { warehouseId: query.warehouseId } : {}),
+    },
+    include: {
+      warehouse: { select: { id: true, name: true, code: true } },
+      product: { select: { id: true, name: true, sku: true, basePrice: true, costPrice: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: query?.limit ? Number(query.limit) : 50,
+  });
+}
+

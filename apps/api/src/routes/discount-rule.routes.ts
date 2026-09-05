@@ -11,9 +11,9 @@ import * as controller from "../controllers/pricing.controller.js";
 
 export const discountRuleRouter = Router();
 
-discountRuleRouter.use(requireAuth, tenantMiddleware, requireRole(UserRole.ADMIN));
+discountRuleRouter.use(requireAuth, tenantMiddleware);
 
-discountRuleRouter.get("/", controller.listDiscountRules);
-discountRuleRouter.post("/", validateBody(CreateDiscountApprovalRuleSchema), controller.createDiscountRule);
-discountRuleRouter.patch("/:id", validateBody(UpdateDiscountApprovalRuleSchema), controller.updateDiscountRule);
-discountRuleRouter.delete("/:id", controller.deleteDiscountRule);
+discountRuleRouter.get("/", requireRole(UserRole.ADMIN, UserRole.SALES_MANAGER, UserRole.FINANCE_OPS), controller.listDiscountRules);
+discountRuleRouter.post("/", requireRole(UserRole.ADMIN), validateBody(CreateDiscountApprovalRuleSchema), controller.createDiscountRule);
+discountRuleRouter.patch("/:id", requireRole(UserRole.ADMIN), validateBody(UpdateDiscountApprovalRuleSchema), controller.updateDiscountRule);
+discountRuleRouter.delete("/:id", requireRole(UserRole.ADMIN), controller.deleteDiscountRule);

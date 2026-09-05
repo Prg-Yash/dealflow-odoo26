@@ -7,33 +7,132 @@ import {
   Sliders,
   Users,
   Warehouse,
+  Boxes,
   ArrowRight,
   CheckCircle2,
   Plus,
   Building2,
   TrendingUp,
+  Inbox,
+  Clock,
 } from "lucide-react";
 import {
-  MOCK_ADMIN_ORG,
-  MOCK_ADMIN_MEMBERS,
-  MOCK_ADMIN_INVITATIONS,
-  MOCK_ADMIN_CATEGORIES,
-  MOCK_ADMIN_PRODUCTS,
-  MOCK_ADMIN_RULES,
-  MOCK_ADMIN_AUDIT_LOGS,
-  MOCK_ADMIN_WAREHOUSES,
-  type AdminInvitation,
-  type AdminAuditLog,
-  type AdminCategory,
-} from "../../../../lib/admin-data";
+  useCurrentOrg,
+  useMembers,
+  useInvitations,
+  useProducts,
+  useCategories,
+  useWarehouses,
+  useStockLevels,
+  useCustomerTiers,
+  useDiscountRules,
+  useQuotations,
+} from "../../../../lib/query";
 
 export default function AdminOverviewPage() {
   const [filterLevel, setFilterLevel] = useState<"ALL" | "INFO" | "WARN" | "CRITICAL">("ALL");
 
-  const pendingInvitesCount = MOCK_ADMIN_INVITATIONS.filter((i: AdminInvitation) => i.status === "PENDING").length;
-  const filteredAuditLogs = filterLevel === "ALL"
-    ? MOCK_ADMIN_AUDIT_LOGS
-    : MOCK_ADMIN_AUDIT_LOGS.filter((l: AdminAuditLog) => l.level === filterLevel);
+  const { data: currentOrg, isLoading: isOrgLoading } = useCurrentOrg();
+  const { data: apiMembers } = useMembers();
+  const { data: apiInvitations } = useInvitations();
+  const { data: apiProducts } = useProducts();
+  const { data: apiCategories } = useCategories();
+  const { data: apiWarehouses } = useWarehouses();
+  const { data: apiStockLevels } = useStockLevels();
+  const { data: apiTiers } = useCustomerTiers();
+  const { data: apiRules } = useDiscountRules();
+  const { data: apiQuotations } = useQuotations();
+
+  // Normalized Array Safe Guards
+  const membersList = Array.isArray(apiMembers) ? apiMembers : [];
+  const invitationsList = Array.isArray(apiInvitations)
+    ? apiInvitations
+    : Array.isArray((apiInvitations as any)?.invitations)
+      ? (apiInvitations as any).invitations
+      : [];
+  const productsList = Array.isArray(apiProducts) ? apiProducts : [];
+  const categoriesList = Array.isArray(apiCategories) ? apiCategories : [];
+  const warehousesList = Array.isArray(apiWarehouses) ? apiWarehouses : [];
+  const stockLevelsList = Array.isArray(apiStockLevels) ? apiStockLevels : [];
+  const tiersList = Array.isArray(apiTiers) ? apiTiers : [];
+  const rulesList = Array.isArray(apiRules) ? apiRules : [];
+  const quotationsList = Array.isArray(apiQuotations) ? apiQuotations : [];
+
+  // Dynamic counts
+  const membersCount = membersList.length || 1;
+  const pendingInvitesCount = invitationsList.filter((i: any) => i?.status === "PENDING").length;
+  const productsCount = productsList.length;
+  const activeProductsCount = productsList.filter((p) => p.isActive).length;
+  const activeProductsPercent = productsCount > 0 ? Math.round((activeProductsCount / productsCount) * 100) : 100;
+  const categoriesCount = categoriesList.length;
+  const warehousesCount = warehousesList.length;
+  const activeTiersCount = tiersList.length;
+  const rulesCount = rulesList.length;
+  const totalDeals = quotationsList.length;
+
+  // Inventory on-hand & valuation
+  const unitsOnHand =
+    stockLevelsList.reduce((acc: number, s: any) => acc + (s.onHand || 0), 0) ||
+    warehousesList.reduce((acc: number, w: any) => acc + (w.stockLevels?.reduce((a: any, s: any) => a + (s.onHand || 0), 0) ?? 0), 0);
+
+  const inventoryValuation =
+    stockLevelsList.reduce((acc: number, s: any) => {
+      const prod = productsList.find((p) => p.id === s.productId);
+      return acc + (s.onHand || 0) * (prod?.costPrice || 0);
+    }, 0) || 0;
+
+  // Unique system roles
+  const distinctRolesCount = new Set(membersList.map((m) => m.role)).size || 1;
+
+  // Governance Matrix Calculations
+  const repDeals = quotationsList.filter((q) => (q.discountPercent ?? 0) <= 5.0).length;
+  const repPercent = totalDeals > 0 ? Math.round((repDeals / totalDeals) * 100) : 0;
+
+  const mgrDeals = quotationsList.filter(
+    (q) => (q.discountPercent ?? 0) > 5.0 && (q.discountPercent ?? 0) <= 15.0
+  ).length;
+  const mgrPercent = totalDeals > 0 ? Math.round((mgrDeals / totalDeals) * 100) : 0;
+
+  const finDeals = quotationsList.filter(
+    (q) => (q.discountPercent ?? 0) > 15.0 || (q.blendedRiskScore ?? 0) > 20
+  ).length;
+  const finPercent = totalDeals > 0 ? Math.round((finDeals / totalDeals) * 100) : 0;
+
+  // Derive dynamic audit stream from real quotation changes & invitations
+  const dynamicAuditLogs = [
+    ...quotationsList.map((q) => ({
+      id: `audit-q-${q.id}`,
+      level: q.stage === "APPROVED" ? "INFO" : q.requiresFinanceApproval ? "WARN" : "INFO",
+      action: q.stage === "APPROVED" ? "QUOTE_APPROVED" : "QUOTE_CREATED",
+      entity: "Quotation",
+      details: `${q.quoteNumber} (${q.title || "Proposal"}) - Grand Total ₹${q.grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
+      performedBy: q.salesRep?.user?.name || "Sales Rep",
+      timestamp: new Date(q.updatedAt || q.createdAt).toLocaleDateString(),
+    })),
+    ...invitationsList.map((inv: any) => ({
+      id: `audit-inv-${inv.id}`,
+      level: "INFO" as const,
+      action: "INVITATION_SENT",
+      entity: "Invitation",
+      details: `Issued onboarding invite to ${inv.email} with role ${inv.role}.`,
+      performedBy: inv.invitedBy?.name || "Administrator",
+      timestamp: new Date(inv.createdAt).toLocaleDateString(),
+    })),
+    ...productsList.slice(0, 3).map((prod) => ({
+      id: `audit-prod-${prod.id}`,
+      level: "INFO" as const,
+      action: "PRODUCT_CATALOG_SYNC",
+      entity: "Product",
+      details: `Configured SKU ${prod.sku} - Base Price ₹${prod.basePrice.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
+      performedBy: "Administrator",
+      timestamp: new Date(prod.createdAt).toLocaleDateString(),
+    })),
+  ];
+
+  const filteredAuditLogs =
+    filterLevel === "ALL"
+      ? dynamicAuditLogs
+      : dynamicAuditLogs.filter((l) => l.level === filterLevel);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
@@ -90,17 +189,21 @@ export default function AdminOverviewPage() {
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-lg font-bold text-slate-900">{MOCK_ADMIN_ORG.name}</h2>
-                <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[11px] font-mono text-slate-600">
-                  slug: {MOCK_ADMIN_ORG.slug}
-                </span>
+                <h2 className="text-lg font-bold text-slate-900">
+                  {isOrgLoading ? "Loading organization..." : currentOrg?.name || "Your Organization"}
+                </h2>
+                {currentOrg?.slug && (
+                  <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[11px] font-mono text-slate-600">
+                    slug: {currentOrg.slug}
+                  </span>
+                )}
                 <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-semibold text-emerald-700">
-                  Primary Tenant
+                  Active Tenant
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                Multi-tenant boundary established on {new Date(MOCK_ADMIN_ORG.createdAt).toLocaleDateString()} &bull; Primary Currency:{" "}
-                <span className="font-semibold text-slate-800">{MOCK_ADMIN_ORG.currency}</span>
+                Organization Workspace &bull; Primary Currency:{" "}
+                <span className="font-semibold text-slate-800">{currentOrg?.currency || "INR"}</span>
               </p>
             </div>
           </div>
@@ -108,11 +211,11 @@ export default function AdminOverviewPage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 lg:gap-4 text-left border-t lg:border-t-0 lg:border-l border-slate-100 pt-4 lg:pt-0 lg:pl-6">
             <div>
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Customer Tiers</span>
-              <span className="text-sm font-extrabold text-slate-800">{MOCK_ADMIN_ORG.activeTierCount} Active</span>
+              <span className="text-sm font-extrabold text-slate-800">{activeTiersCount} Active</span>
             </div>
             <div>
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Staff Accounts</span>
-              <span className="text-sm font-extrabold text-slate-800">{MOCK_ADMIN_MEMBERS.length} Users</span>
+              <span className="text-sm font-extrabold text-slate-800">{membersCount} Users</span>
             </div>
             <div>
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Pending Invites</span>
@@ -120,33 +223,33 @@ export default function AdminOverviewPage() {
             </div>
             <div>
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Warehouses</span>
-              <span className="text-sm font-extrabold text-slate-800">{MOCK_ADMIN_WAREHOUSES.length} Locations</span>
+              <span className="text-sm font-extrabold text-slate-800">{warehousesCount} Locations</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 4 Core Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 5 Core Stat Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Card 1: Catalog */}
         <Link
           href="/dashboard/admin/catalog"
           className="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-md hover:border-[#ff5e3a]/40 transition group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Catalog Products</span>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Catalog</span>
             <div className="w-8 h-8 rounded-lg bg-orange-50 text-[#ff5e3a] flex items-center justify-center">
               <Layers size={16} />
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-slate-900">{MOCK_ADMIN_PRODUCTS.length}</span>
+            <span className="text-2xl font-extrabold text-slate-900">{productsCount}</span>
             <span className="text-xs font-semibold text-emerald-600 flex items-center">
-              <TrendingUp size={12} className="mr-0.5" /> 100% Active
+              <TrendingUp size={12} className="mr-0.5" /> {activeProductsPercent}% Active
             </span>
           </div>
           <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-            <span>{MOCK_ADMIN_CATEGORIES.length} Categories</span>
+            <span>{categoriesCount} Categories</span>
             <span className="font-semibold text-[#ff5e3a] group-hover:translate-x-0.5 transition-transform flex items-center gap-0.5">
               Manage &rarr;
             </span>
@@ -159,21 +262,23 @@ export default function AdminOverviewPage() {
           className="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-md hover:border-[#ff5e3a]/40 transition group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Team & Hierarchy</span>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Team</span>
             <div className="w-8 h-8 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center">
               <Users size={16} />
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-slate-900">{MOCK_ADMIN_MEMBERS.length}</span>
-            <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
-              +{pendingInvitesCount} invited
-            </span>
+            <span className="text-2xl font-extrabold text-slate-900">{membersCount}</span>
+            {pendingInvitesCount > 0 && (
+              <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
+                +{pendingInvitesCount} invited
+              </span>
+            )}
           </div>
           <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-            <span>4 System Roles</span>
+            <span>{distinctRolesCount} Roles</span>
             <span className="font-semibold text-[#ff5e3a] group-hover:translate-x-0.5 transition-transform flex items-center gap-0.5">
-              Directory &rarr;
+              Access &rarr;
             </span>
           </div>
         </Link>
@@ -184,42 +289,65 @@ export default function AdminOverviewPage() {
           className="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-md hover:border-[#ff5e3a]/40 transition group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Discount Rules</span>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Rules</span>
             <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
               <Sliders size={16} />
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-slate-900">{MOCK_ADMIN_RULES.length}</span>
-            <span className="text-xs font-semibold text-slate-500">Active Tiers</span>
+            <span className="text-2xl font-extrabold text-slate-900">{rulesCount}</span>
+            <span className="text-xs font-semibold text-slate-500">{activeTiersCount} Tiers</span>
           </div>
           <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-            <span>127 Total Deals Governed</span>
+            <span>{totalDeals} Deals Governed</span>
             <span className="font-semibold text-[#ff5e3a] group-hover:translate-x-0.5 transition-transform flex items-center gap-0.5">
-              Configure &rarr;
+              Rules &rarr;
             </span>
           </div>
         </Link>
 
-        {/* Card 4: Inventory */}
+        {/* Card 4: Warehouses Network */}
         <Link
-          href="/dashboard/admin/inventory"
+          href="/dashboard/admin/warehouses"
           className="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-md hover:border-[#ff5e3a]/40 transition group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Warehouse Inventory</span>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Warehouses</span>
             <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
               <Warehouse size={16} />
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-slate-900">275</span>
-            <span className="text-xs font-semibold text-slate-500">Units On-Hand</span>
+            <span className="text-2xl font-extrabold text-slate-900">{warehousesCount}</span>
+            <span className="text-xs font-semibold text-emerald-600">Depots Online</span>
           </div>
           <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-            <span>$489,100 Valuation</span>
+            <span>Split Routing Active</span>
             <span className="font-semibold text-[#ff5e3a] group-hover:translate-x-0.5 transition-transform flex items-center gap-0.5">
-              Inspect &rarr;
+              Depots &rarr;
+            </span>
+          </div>
+        </Link>
+
+        {/* Card 5: Inventory Stock */}
+        <Link
+          href="/dashboard/admin/inventory"
+          className="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-md hover:border-[#ff5e3a]/40 transition group"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Inventory</span>
+            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <Boxes size={16} />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl font-extrabold text-slate-900">{unitsOnHand.toLocaleString()}</span>
+            <span className="text-xs font-semibold text-slate-500">On-Hand</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+            <span>₹{inventoryValuation.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Value</span>
+            <span className="font-semibold text-[#ff5e3a] group-hover:translate-x-0.5 transition-transform flex items-center gap-0.5">
+              Ledger &rarr;
             </span>
           </div>
         </Link>
@@ -233,7 +361,7 @@ export default function AdminOverviewPage() {
             <div>
               <h2 className="text-base font-bold text-slate-900">Deal Governance Execution Matrix</h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Current month discount approval escalation routing across 127 total quotations
+                Current month discount approval escalation routing across {totalDeals} total quotations
               </p>
             </div>
             <Link
@@ -255,12 +383,12 @@ export default function AdminOverviewPage() {
                   <span className="text-slate-400 text-[11px]">&bull; Auto-Approved</span>
                 </div>
                 <div className="text-right">
-                  <span className="font-extrabold text-slate-900">84 deals</span>
-                  <span className="text-slate-400 ml-1.5">(66%)</span>
+                  <span className="font-extrabold text-slate-900">{repDeals} deals</span>
+                  <span className="text-slate-400 ml-1.5">({repPercent}%)</span>
                 </div>
               </div>
               <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-emerald-500 rounded-full" style={{ width: "66%" }} />
+                <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${repPercent}%` }} />
               </div>
             </div>
 
@@ -270,15 +398,15 @@ export default function AdminOverviewPage() {
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-[#ff5e3a]" />
                   <span className="font-bold text-slate-800">Sales Manager Escalation (5.1% &ndash; 15.0%)</span>
-                  <span className="text-slate-400 text-[11px]">&bull; Elena Rostova</span>
+                  <span className="text-slate-400 text-[11px]">&bull; Manager Review</span>
                 </div>
                 <div className="text-right">
-                  <span className="font-extrabold text-slate-900">32 deals</span>
-                  <span className="text-slate-400 ml-1.5">(25%)</span>
+                  <span className="font-extrabold text-slate-900">{mgrDeals} deals</span>
+                  <span className="text-slate-400 ml-1.5">({mgrPercent}%)</span>
                 </div>
               </div>
               <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-[#ff5e3a] rounded-full" style={{ width: "25%" }} />
+                <div className="h-full bg-[#ff5e3a] rounded-full transition-all" style={{ width: `${mgrPercent}%` }} />
               </div>
             </div>
 
@@ -288,15 +416,15 @@ export default function AdminOverviewPage() {
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-purple-600" />
                   <span className="font-bold text-slate-800">Finance Dual Approval (&gt; 15.0% or Risk &gt; 20)</span>
-                  <span className="text-slate-400 text-[11px]">&bull; Marcus Vance</span>
+                  <span className="text-slate-400 text-[11px]">&bull; Executive Review</span>
                 </div>
                 <div className="text-right">
-                  <span className="font-extrabold text-slate-900">11 deals</span>
-                  <span className="text-slate-400 ml-1.5">(9%)</span>
+                  <span className="font-extrabold text-slate-900">{finDeals} deals</span>
+                  <span className="text-slate-400 ml-1.5">({finPercent}%)</span>
                 </div>
               </div>
               <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-purple-600 rounded-full" style={{ width: "9%" }} />
+                <div className="h-full bg-purple-600 rounded-full transition-all" style={{ width: `${finPercent}%` }} />
               </div>
             </div>
           </div>
@@ -304,7 +432,11 @@ export default function AdminOverviewPage() {
           <div className="mt-5 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
             <div className="flex items-center gap-1.5">
               <CheckCircle2 size={14} className="text-emerald-600" />
-              <span>Zero unmonitored discount concessions this billing cycle</span>
+              <span>
+                {totalDeals > 0
+                  ? "Real-time governance enforcement active across active deals"
+                  : "Ready for quotations - governance active on all submissions"}
+              </span>
             </div>
             <span className="font-mono text-[11px] text-slate-400">Escalation Policy: Strict</span>
           </div>
@@ -320,29 +452,38 @@ export default function AdminOverviewPage() {
               </Link>
             </div>
             <p className="text-xs text-slate-500 mb-4">
-              Baseline targets &amp; discount ceilings configured per Prisma Category model.
+              Baseline targets &amp; discount ceilings configured per product category.
             </p>
 
             <div className="space-y-3">
-              {MOCK_ADMIN_CATEGORIES.map((cat: AdminCategory) => (
-                <div key={cat.id} className="p-3 rounded-xl bg-slate-50 border border-slate-200/70">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold text-slate-800">{cat.name}</span>
-                    <span className="text-[11px] font-mono font-semibold text-[#ff5e3a]">
-                      Ceiling: {cat.discountCeiling}%
-                    </span>
+              {apiCategories && apiCategories.length > 0 ? (
+                apiCategories.map((cat: any) => (
+                  <div key={cat.id} className="p-3 rounded-xl bg-slate-50 border border-slate-200/70">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-slate-800">{cat.name}</span>
+                      <span className="text-[11px] font-mono font-semibold text-[#ff5e3a]">
+                        Ceiling: {cat.discountCeiling ?? 15}%
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500">
+                      <span>Target Gross Margin:</span>
+                      <span className="font-bold text-slate-700">{cat.targetMargin ?? 40}%</span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-slate-500">
-                    <span>Target Gross Margin:</span>
-                    <span className="font-bold text-slate-700">{cat.targetMargin}%</span>
-                  </div>
+                ))
+              ) : (
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 text-center text-xs text-slate-500">
+                  <span>No product categories created yet.</span>
+                  <Link href="/dashboard/admin/catalog" className="block text-[#ff5e3a] font-semibold mt-1 hover:underline">
+                    Create Categories in Catalog &rarr;
+                  </Link>
                 </div>
-              ))}
+              )}
             </div>
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 text-[11px] text-slate-400 flex items-center justify-between">
-            <span>Customer Tier Matrix: 4 Tiers</span>
+            <span>Customer Tier Matrix: {activeTiersCount} Tiers</span>
             <Link href="/dashboard/admin/rules" className="text-[#ff5e3a] font-semibold hover:underline">
               Inspect &rarr;
             </Link>
@@ -354,9 +495,9 @@ export default function AdminOverviewPage() {
       <div className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <div>
-            <h2 className="text-base font-bold text-slate-900">System Audit Trail</h2>
+            <h2 className="text-base font-bold text-slate-900">System Activity & Audit Trail</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Live chronological record of governance changes, threshold updates, and staff actions
+              Live chronological record of quotations, catalog items, and team governance actions
             </p>
           </div>
 
@@ -367,11 +508,10 @@ export default function AdminOverviewPage() {
                 key={lvl}
                 type="button"
                 onClick={() => setFilterLevel(lvl)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                  filterLevel === lvl
-                    ? "bg-white text-slate-900 shadow-2xs"
-                    : "text-slate-500 hover:text-slate-900"
-                }`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${filterLevel === lvl
+                  ? "bg-white text-slate-900 shadow-2xs"
+                  : "text-slate-500 hover:text-slate-900"
+                  }`}
               >
                 {lvl}
               </button>
@@ -380,45 +520,52 @@ export default function AdminOverviewPage() {
         </div>
 
         {/* Audit Log Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-slate-200/80 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                <th className="pb-3 pl-1">Level</th>
-                <th className="pb-3">Action</th>
-                <th className="pb-3">Target Model</th>
-                <th className="pb-3">Details</th>
-                <th className="pb-3">Performed By</th>
-                <th className="pb-3 pr-1 text-right">Timestamp</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
-              {filteredAuditLogs.map((log: AdminAuditLog) => {
-                const levelColor =
-                  log.level === "CRITICAL"
-                    ? "bg-red-50 text-red-700 border-red-200"
-                    : log.level === "WARN"
-                    ? "bg-amber-50 text-amber-700 border-amber-200"
-                    : "bg-slate-100 text-slate-700 border-slate-200";
+        {filteredAuditLogs.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-200/80 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                  <th className="pb-3 pl-1">Level</th>
+                  <th className="pb-3">Action</th>
+                  <th className="pb-3">Target Entity</th>
+                  <th className="pb-3">Details</th>
+                  <th className="pb-3">Performed By</th>
+                  <th className="pb-3 pr-1 text-right">Timestamp</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {filteredAuditLogs.map((log) => {
+                  const levelColor =
+                    log.level === "CRITICAL"
+                      ? "bg-red-50 text-red-700 border-red-200"
+                      : log.level === "WARN"
+                        ? "bg-amber-50 text-amber-700 border-amber-200"
+                        : "bg-slate-100 text-slate-700 border-slate-200";
 
-                return (
-                  <tr key={log.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3 pl-1">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${levelColor}`}>
-                        {log.level}
-                      </span>
-                    </td>
-                    <td className="py-3 font-mono font-semibold text-slate-900">{log.action}</td>
-                    <td className="py-3 font-mono text-slate-500">{log.entity}</td>
-                    <td className="py-3 max-w-xs sm:max-w-md text-slate-600 truncate">{log.details}</td>
-                    <td className="py-3 font-medium text-slate-800">{log.performedBy}</td>
-                    <td className="py-3 pr-1 text-right text-slate-400 font-mono">{log.timestamp}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                  return (
+                    <tr key={log.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-3 pl-1">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${levelColor}`}>
+                          {log.level}
+                        </span>
+                      </td>
+                      <td className="py-3 font-mono font-semibold text-slate-900">{log.action}</td>
+                      <td className="py-3 font-mono text-slate-500">{log.entity}</td>
+                      <td className="py-3 max-w-xs sm:max-w-md text-slate-600 truncate">{log.details}</td>
+                      <td className="py-3 font-medium text-slate-800">{log.performedBy}</td>
+                      <td className="py-3 pr-1 text-right text-slate-400 font-mono">{log.timestamp}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="py-8 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
+            <Inbox size={24} className="text-slate-300" />
+            <span>No activity recorded yet for this organization.</span>
+          </div>
+        )}
       </div>
     </div>
   );

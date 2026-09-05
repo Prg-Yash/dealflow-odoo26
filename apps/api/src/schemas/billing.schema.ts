@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   InvoiceStatus,
-  SubscriptionStatus,
   BillingInterval,
   PaymentMethod,
   CreditNoteStatus,
