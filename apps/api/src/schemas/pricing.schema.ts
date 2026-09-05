@@ -5,9 +5,9 @@ export const CreatePriceListSchema = z.object({
   currency: z.string().default("USD"),
   customerTierId: z.string().optional(),
   isDefault: z.boolean().default(false),
-});
+})
 
-export const UpdatePriceListSchema = CreatePriceListSchema.partial();
+export const UpdatePriceListSchema = CreatePriceListSchema;
 
 export const CreatePriceListItemBaseSchema = z.object({
   productId: z.string().min(1, "Product ID is required"),
@@ -40,7 +40,7 @@ export const CreateDiscountApprovalRuleSchema = z.object({
   description: z.string().optional(),
 });
 
-export const UpdateDiscountApprovalRuleSchema = CreateDiscountApprovalRuleSchema.partial();
+export const UpdateDiscountApprovalRuleSchema = CreateDiscountApprovalRuleSchema;
 
 export const CreateProductRecommendationBaseSchema = z.object({
   sourceProductId: z.string().min(1, "Source product ID is required"),
@@ -56,7 +56,7 @@ export const CreateProductRecommendationSchema = CreateProductRecommendationBase
   { message: "Source and recommended products cannot be the same" }
 );
 
-export const UpdateProductRecommendationSchema = CreateProductRecommendationBaseSchema.partial();
+export const UpdateProductRecommendationSchema = CreateProductRecommendationSchema;
 
 export type CreatePriceListInput = z.infer<typeof CreatePriceListSchema>;
 export type UpdatePriceListInput = z.infer<typeof UpdatePriceListSchema>;

@@ -31,6 +31,7 @@ export async function requireAuth(
     });
 
     if (!sessionResult?.user) {
+      console.log("UNAUTHORIZED")
       return res.status(401).json({
         error: "Unauthorized",
         message: "You must be logged in to perform this action.",
