@@ -11,7 +11,7 @@ import { isValidEmail, isValidPassword } from "../../lib/validation";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("rep@dealflow360.com");
+  const [email, setEmail] = useState("rep.alex@dealflow360.com");
   const [password, setPassword] = useState("Password123!");
   const [emailTouched, setEmailTouched] = useState(false);
   const [passwordTouched, setPasswordTouched] = useState(false);
@@ -114,10 +114,13 @@ export default function LoginPage() {
     >
       {/* 5-User Role Quick Selector */}
       <div className="flex flex-col gap-2 p-3.5 rounded-xl bg-slate-50 border border-slate-200/70">
-        <div className="flex items-center text-xs font-semibold text-slate-500">
+        <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
           <span className="inline-flex items-center gap-1.5">
             <Users size={14} className="text-[#ff5e3a]" />
-            Demo 5 User Roles (Click to fill):
+            Demo User Credentials (Click to prefill):
+          </span>
+          <span className="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-medium">
+            Password: Password123!
           </span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
@@ -139,6 +142,14 @@ export default function LoginPage() {
               </button>
             );
           })}
+        </div>
+        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1.5 border-t border-slate-200/60 mt-0.5">
+          <span className="truncate">
+            User: <strong className="text-slate-800">{ROLES[selectedRole]?.defaultName}</strong> &bull; <span className="font-mono text-slate-600">{ROLES[selectedRole]?.defaultEmail}</span>
+          </span>
+          <span className="text-[#ff5e3a] font-medium shrink-0 ml-2">
+            Role: {ROLES[selectedRole]?.label}
+          </span>
         </div>
       </div>
 
@@ -222,7 +233,7 @@ export default function LoginPage() {
 
           <div className="text-center">
             <Link
-              href="/forgot-password"
+              href={`/forgot-password${email ? `?email=${encodeURIComponent(email)}` : ""}`}
               className="text-xs text-slate-500 hover:text-[#ff5e3a] transition-colors font-medium"
             >
               Forgot Password?
