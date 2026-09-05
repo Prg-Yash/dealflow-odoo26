@@ -362,6 +362,29 @@ async function main() {
     console.log(`  ✓ Customer: ${customers[c.id].name}`);
   }
 
+  // 5b. Team Invitations (Phase 1)
+  console.log("\n[5b/9] Creating Sample Team Invitation...");
+  await (prisma as any).invitations.upsert({
+    where: { token: "invite-token-rep-david" },
+    update: {
+      status: "PENDING",
+      role: UserRole.SALES_REP,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+    create: {
+      id: "inv-rep-david-01",
+      email: "david.miller@dealflow360.com",
+      role: UserRole.SALES_REP,
+      token: "invite-token-rep-david",
+      status: "PENDING",
+      organizationId: org.id,
+      invitedById: "usr-admin-01",
+      metadata: { department: "Enterprise Sales", assignedTerritory: "West Coast" },
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+  });
+  console.log("  ✓ Created sample pending invitation for 'david.miller@dealflow360.com' (SALES_REP)");
+
   // 7. Warehouses & Live Stock Inventory
   console.log("\n[6/8] Seeding Warehouses & Stock Inventory...");
   const warehouseConfigs = [
@@ -390,7 +413,7 @@ async function main() {
 
   const warehouses: Record<string, any> = {};
   for (const wh of warehouseConfigs) {
-    warehouses[wh.id] = await prisma.warehouse.upsert({
+    const savedWh = await prisma.warehouse.upsert({
       where: { id: wh.id },
       update: {
         name: wh.name,
@@ -410,6 +433,8 @@ async function main() {
         isActive: true,
       },
     });
+    warehouses[wh.id] = savedWh;
+    warehouses[wh.code] = savedWh;
     console.log(`  ✓ Warehouse: ${wh.name} [${wh.code}] (Cost Weight: ${wh.shippingCostWeight})`);
   }
 
@@ -648,6 +673,21 @@ async function main() {
 
   // 8. Quotations Across All 5 Pipeline Stages
   console.log("\n[7/8] Seeding Quotations & Deal Pipeline across all stages...");
+
+  // Clean downstream dependent records to ensure complete idempotency
+  await (prisma as any).payment.deleteMany({});
+  await (prisma as any).invoiceLine.deleteMany({});
+  await (prisma as any).creditNote.deleteMany({});
+  await (prisma as any).invoice.deleteMany({});
+  await (prisma as any).subscriptionLine.deleteMany({});
+  await (prisma as any).subscription.deleteMany({});
+  await (prisma as any).shipmentLine.deleteMany({});
+  await (prisma as any).shipment.deleteMany({});
+  await (prisma as any).backorder.deleteMany({});
+  await (prisma as any).fulfillmentOrder.deleteMany({});
+  await prisma.approvalAuditLog.deleteMany({});
+  await prisma.approvalStep.deleteMany({});
+  await prisma.approvalRequest.deleteMany({});
 
   // QUOTE 1: DRAFT (Acme Corp / Alex Rivera - Healthy margins, rep discretion)
   const q1 = await prisma.quotation.upsert({
@@ -1174,6 +1214,308 @@ async function main() {
     ],
   });
   console.log("  ✓ Quotation [QT-2026-0005] (CONFIRMED - Ready for Fulfillment & Billing)");
+
+  // 9. Phase 6: Multi-Warehouse Split Fulfillment, Shipments & Backorders
+  console.log("\n[9/9] Creating Phase 6 Multi-Warehouse Split Fulfillment for [QT-2026-0005]...");
+  const q5Lines = await prisma.quotationLine.findMany({
+    where: { quotationId: q5.id },
+  });
+  const srvLine = q5Lines.find((l) => l.productId === products["HW-SRV-01"].id);
+  const netLine = q5Lines.find((l) => l.productId === products["HW-NET-01"].id);
+
+  const fulfillmentOrder = await (prisma as any).fulfillmentOrder.upsert({
+    where: { quotationId: q5.id },
+    update: {
+      status: "PARTIALLY_FULFILLED",
+      shippingAddress: "Acme Industrial Park, 100 Enterprise Way, Suite 400, Austin, TX 78701",
+      notes: "Split shipment optimization executed across Denver (WH-MAIN) and Newark (WH-EAST).",
+    },
+    create: {
+      fulfillmentNumber: "FUL-2026-0001",
+      quotationId: q5.id,
+      organizationId: org.id,
+      status: "PARTIALLY_FULFILLED",
+      shippingAddress: "Acme Industrial Park, 100 Enterprise Way, Suite 400, Austin, TX 78701",
+      notes: "Split shipment optimization executed across Denver (WH-MAIN) and Newark (WH-EAST).",
+    },
+  });
+
+  // Clean old shipment lines and shipments for idempotency
+  await (prisma as any).shipmentLine.deleteMany({
+    where: { shipment: { fulfillmentOrderId: fulfillmentOrder.id } },
+  });
+  await (prisma as any).shipment.deleteMany({
+    where: { fulfillmentOrderId: fulfillmentOrder.id },
+  });
+  await (prisma as any).backorder.deleteMany({
+    where: { fulfillmentOrderId: fulfillmentOrder.id },
+  });
+
+  // Shipment 1: Denver Main Central Warehouse (WH-MAIN, weight 1.0)
+  await (prisma as any).shipment.create({
+    data: {
+      shipmentNumber: "SHP-2026-0001-A",
+      fulfillmentOrderId: fulfillmentOrder.id,
+      warehouseId: warehouses["WH-MAIN"].id,
+      carrier: "FedEx Freight Priority",
+      trackingNumber: "FX-98234102-DEN",
+      shippingCost: 145.50,
+      status: "SHIPPED",
+      estimatedDelivery: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+      shippedAt: new Date(),
+      lines: {
+        create: [
+          ...(srvLine ? [{
+            quotationLineId: srvLine.id,
+            productId: products["HW-SRV-01"].id,
+            quantity: 2, // 2 out of 3 servers from Denver
+          }] : []),
+          ...(netLine ? [{
+            quotationLineId: netLine.id,
+            productId: products["HW-NET-01"].id,
+            quantity: 2, // All 2 switches from Denver
+          }] : []),
+        ],
+      },
+    },
+  });
+
+  // Shipment 2: Newark East Depot (WH-EAST, weight 1.3)
+  await (prisma as any).shipment.create({
+    data: {
+      shipmentNumber: "SHP-2026-0001-B",
+      fulfillmentOrderId: fulfillmentOrder.id,
+      warehouseId: warehouses["WH-EAST"].id,
+      carrier: "UPS Supply Chain Solutions",
+      trackingNumber: "UPS-1Z999AA10123456784",
+      shippingCost: 89.20,
+      status: "PACKED",
+      estimatedDelivery: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000),
+      lines: {
+        create: [
+          ...(srvLine ? [{
+            quotationLineId: srvLine.id,
+            productId: products["HW-SRV-01"].id,
+            quantity: 1, // 3rd server from Newark
+          }] : []),
+        ],
+      },
+    },
+  });
+
+  // Backorder: 1x shortage module awaiting supplier replenishment
+  if (srvLine) {
+    await (prisma as any).backorder.create({
+      data: {
+        fulfillmentOrderId: fulfillmentOrder.id,
+        quotationLineId: srvLine.id,
+        productId: products["HW-SRV-01"].id,
+        quantityBackordered: 1,
+        status: "PENDING_REPLENISHMENT",
+        expectedDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+        notes: "Enterprise Edge Server expansion RAM module backordered awaiting supplier arrival.",
+      },
+    });
+  }
+
+  console.log("  ✓ Fulfillment Order [FUL-2026-0001] (PARTIALLY_FULFILLED)");
+  console.log("    📦 Shipment 1 [SHP-2026-0001-A] (WH-MAIN Denver: 2x Edge Server, 2x Switch - SHIPPED)");
+  console.log("    📦 Shipment 2 [SHP-2026-0001-B] (WH-EAST Newark: 1x Edge Server - PACKED)");
+  console.log("    ⏳ Backorder (1x Server RAM Module - Expected in 10 days)");
+
+  // 10. Phase 7: Hybrid Invoicing, Subscriptions, Payments & Proration Credit Notes
+  console.log("\n[10/10] Seeding Phase 7 Invoices, Recurring Subscriptions & Payments...");
+
+  // A. One-Time Hardware & Services Invoice for QT-2026-0005 (Acme Corp)
+  const inv1 = await (prisma as any).invoice.upsert({
+    where: { invoiceNumber: "INV-2026-0001" },
+    update: {
+      totalAmount: 18472.0,
+      amountPaid: 10000.0,
+      amountRemaining: 8472.0,
+      status: "ISSUED",
+    },
+    create: {
+      invoiceNumber: "INV-2026-0001",
+      quotationId: q5.id,
+      customerId: customers["cust-acme-01"].id,
+      organizationId: org.id,
+      status: "ISSUED",
+      issueDate: new Date(),
+      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Net 30
+      paymentTerms: "Net 30",
+      subtotal: 19400.0,
+      discountTotal: 928.0,
+      taxTotal: 0.0,
+      totalAmount: 18472.0,
+      amountPaid: 10000.0,
+      amountRemaining: 8472.0,
+      notes: "Commercial invoice for confirmed order QT-2026-0005. Split fulfillment underway.",
+    },
+  });
+
+  await (prisma as any).invoiceLine.deleteMany({ where: { invoiceId: inv1.id } });
+  await (prisma as any).invoiceLine.createMany({
+    data: [
+      {
+        invoiceId: inv1.id,
+        productId: products["HW-SRV-01"].id,
+        description: "Enterprise Edge Server 2U (3 units)",
+        quantity: 3,
+        unitPrice: 4500.0,
+        discountPercent: 5.0,
+        totalAmount: 12825.0,
+        isRecurring: false,
+      },
+      {
+        invoiceId: inv1.id,
+        productId: products["HW-NET-01"].id,
+        description: "Gigabit Managed Switch 48-Port (2 units)",
+        quantity: 2,
+        unitPrice: 1200.0,
+        discountPercent: 10.0,
+        totalAmount: 2160.0,
+        isRecurring: false,
+      },
+      {
+        invoiceId: inv1.id,
+        productId: products["SRV-INST-01"].id,
+        description: "On-Site Hardware Deployment (1 project)",
+        quantity: 1,
+        unitPrice: 2500.0,
+        discountPercent: 10.0,
+        totalAmount: 2250.0,
+        isRecurring: false,
+      },
+    ],
+  });
+
+  // Partial Payment on Invoice 1
+  await (prisma as any).payment.deleteMany({ where: { invoiceId: inv1.id } });
+  await (prisma as any).payment.create({
+    data: {
+      invoiceId: inv1.id,
+      amount: 10000.0,
+      paymentMethod: "WIRE_TRANSFER",
+      transactionReference: "TXN-WIRE-992384-CHASE",
+      status: "COMPLETED",
+      paidAt: new Date(),
+      notes: "50% upfront milestone wire transfer received from Acme Corp.",
+    },
+  });
+  console.log("  ✓ Invoice [INV-2026-0001] ($18,472.00, $10,000 Paid via Wire - Status: ISSUED)");
+
+  // B. Recurring SaaS Subscription for QT-2026-0004 (QuantumLeap Labs)
+  const periodStart = new Date();
+  const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const nextBilling = new Date(periodEnd);
+
+  const sub1 = await (prisma as any).subscription.upsert({
+    where: { subscriptionNumber: "SUB-2026-0001" },
+    update: {
+      status: "ACTIVE",
+      currentMrr: 4250.0,
+      currentArr: 51000.0,
+    },
+    create: {
+      subscriptionNumber: "SUB-2026-0001",
+      quotationId: q4.id,
+      customerId: customers["cust-quantum-04"].id,
+      organizationId: org.id,
+      status: "ACTIVE",
+      billingInterval: "MONTHLY",
+      currentPeriodStart: periodStart,
+      currentPeriodEnd: periodEnd,
+      nextBillingDate: nextBilling,
+      currentMrr: 4250.0,
+      currentArr: 51000.0,
+      autoRenew: true,
+      notes: "QuantumLeap Labs AI Deal Governance Platform enterprise agreement.",
+    },
+  });
+
+  await (prisma as any).subscriptionLine.deleteMany({ where: { subscriptionId: sub1.id } });
+  await (prisma as any).subscriptionLine.createMany({
+    data: [
+      {
+        subscriptionId: sub1.id,
+        productId: products["SUB-CORE-01"].id,
+        quantity: 25,
+        unitPrice: 120.0,
+        discountPercent: 15.0,
+        recurringAmount: 2550.0, // 25 * $102
+      },
+      {
+        subscriptionId: sub1.id,
+        productId: products["SUB-AI-01"].id,
+        quantity: 25,
+        unitPrice: 80.0,
+        discountPercent: 15.0,
+        recurringAmount: 1700.0, // 25 * $68
+      },
+    ],
+  });
+
+  // Monthly Recurring Invoice for Subscription 1
+  const inv2 = await (prisma as any).invoice.upsert({
+    where: { invoiceNumber: "INV-2026-0002" },
+    update: {
+      status: "PAID",
+      amountPaid: 4250.0,
+      amountRemaining: 0.0,
+    },
+    create: {
+      invoiceNumber: "INV-2026-0002",
+      subscriptionId: sub1.id,
+      customerId: customers["cust-quantum-04"].id,
+      organizationId: org.id,
+      status: "PAID",
+      issueDate: periodStart,
+      dueDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
+      paymentTerms: "Net 15",
+      subtotal: 5000.0,
+      discountTotal: 750.0,
+      taxTotal: 0.0,
+      totalAmount: 4250.0,
+      amountPaid: 4250.0,
+      amountRemaining: 0.0,
+      notes: "Monthly recurring SaaS license invoice (Period: Month 1).",
+    },
+  });
+
+  await (prisma as any).payment.deleteMany({ where: { invoiceId: inv2.id } });
+  await (prisma as any).payment.create({
+    data: {
+      invoiceId: inv2.id,
+      amount: 4250.0,
+      paymentMethod: "ACH",
+      transactionReference: "TXN-ACH-892134-SVB",
+      status: "COMPLETED",
+      paidAt: new Date(),
+      notes: "Automated ACH auto-debit for monthly SaaS subscription.",
+    },
+  });
+  console.log("  ✓ Subscription [SUB-2026-0001] (QuantumLeap Labs - MRR: $4,250.00, Status: ACTIVE)");
+  console.log("  ✓ Monthly Invoice [INV-2026-0002] ($4,250.00 PAID via ACH)");
+
+  // C. Proration Credit Note for Mid-Cycle Seat Adjustment
+  await (prisma as any).creditNote.upsert({
+    where: { creditNoteNumber: "CN-2026-0001" },
+    update: {
+      amount: 340.0,
+      status: "ISSUED",
+    },
+    create: {
+      creditNoteNumber: "CN-2026-0001",
+      subscriptionId: sub1.id,
+      customerId: customers["cust-quantum-04"].id,
+      organizationId: org.id,
+      amount: 340.0,
+      reason: "Mid-cycle reduction of 5 AI Add-on licenses (15 days unused proration)",
+      status: "ISSUED",
+    },
+  });
+  console.log("  ✓ Credit Note [CN-2026-0001] ($340.00 - Mid-Cycle License Proration)");
 
   console.log("\n==================================================");
   console.log("  🎉 Seeding Completed Successfully!");

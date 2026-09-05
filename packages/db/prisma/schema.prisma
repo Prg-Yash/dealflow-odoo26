@@ -8,6 +8,151 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// =============================================================================
+// Core System Enums
+// =============================================================================
+
+enum UserRole {
+  ADMIN
+  SALES_REP
+  SALES_MANAGER
+  FINANCE_OPS
+  CUSTOMER
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+enum CategoryType {
+  HARDWARE
+  SERVICE
+  SUBSCRIPTION
+}
+
+enum UnitType {
+  UNIT
+  HOUR
+  PROJECT
+  MONTH
+  USER_MONTH
+  YEAR
+  PACK
+}
+
+enum QuoteStage {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  NEGOTIATION
+  CONFIRMED
+  CANCELLED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVISION_REQUESTED
+}
+
+enum ApprovalLevel {
+  SALES_MANAGER
+  FINANCE
+}
+
+enum StockMovementType {
+  PURCHASE_RECEIPT
+  ORDER_RESERVED
+  ORDER_FULFILLED
+  ADJUSTMENT
+  TRANSFER
+}
+
+enum FulfillmentStatus {
+  PENDING
+  PARTIALLY_FULFILLED
+  FULFILLED
+  CANCELLED
+}
+
+enum ShipmentStatus {
+  PENDING
+  PICKED
+  PACKED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum BackorderStatus {
+  PENDING_REPLENISHMENT
+  ALLOCATED
+  CANCELLED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  EXPIRED
+}
+
+enum BillingInterval {
+  MONTHLY
+  QUARTERLY
+  ANNUALLY
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  VOID
+  OVERDUE
+}
+
+enum PaymentMethod {
+  CREDIT_CARD
+  ACH
+  WIRE_TRANSFER
+  CHECK
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum CreditNoteStatus {
+  ISSUED
+  APPLIED
+  REFUNDED
+  VOID
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum LogLevel {
+  INFO
+  WARN
+  ERROR
+}
+
+// =============================================================================
+// Phase 1: Authentication, Multi-Tenant Boundary, Roles & Customer Accounts
+// =============================================================================
+
 /// Model: User
 /// Use Case: Core user identity, authentication credentials, role-based access control 
 /// (Admin, Sales Rep, Sales Manager, Finance, Customer), and tenant membership.
@@ -21,19 +166,29 @@ model User {
   updatedAt             DateTime             @updatedAt
   organizationId        String?
   role                  UserRole             @default(SALES_REP)
+
+  // Auth Relations
   accounts              Account[]
-  approvalAuditLogs     ApprovalAuditLog[]
-  reviewedApprovalSteps ApprovalStep[]
-  customerProfile       Customer?            @relation("customer_portal_user")
-  financeOpsUser        FinanceOpsUser?
-  invitations           invitations[]
-  jobs                  Job[]
+  sessions              Session[]
+
+  // Organization Context
+  organization          Organization?        @relation("user_organization", fields: [organizationId], references: [id])
   createdOrgs           Organization[]       @relation("org_creator")
+
+  // Role Profile Extensions
   salesManager          SalesManager?
   salesRep              SalesRepresentative?
-  sessions              Session[]
-  organization          Organization?        @relation("user_organization", fields: [organizationId], references: [id])
+  financeOpsUser        FinanceOpsUser?
+  customerProfile       Customer?            @relation("customer_portal_user")
+
+  // Team & Workspace Onboarding
+  invitations           invitations[]
+
+  // Infrastructure Audit & Workflows
   createdWarehouses     Warehouse[]          @relation("warehouse_creator")
+  jobs                  Job[]
+  reviewedApprovalSteps ApprovalStep[]
+  approvalAuditLogs     ApprovalAuditLog[]
 
   @@index([organizationId])
   @@map("user")
@@ -103,22 +258,29 @@ model Organization {
   createdById           String?
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
-  approvalAuditLogs     ApprovalAuditLog[]
-  categories            Category[]
-  customerTiers         CustomerTier[]
-  customers             Customer[]
-  discountApprovalRules DiscountApprovalRule[]
-  financeOpsUsers       FinanceOpsUser[]
-  invitations           invitations[]
+
   creator               User?                   @relation("org_creator", fields: [createdById], references: [id])
-  priceLists            PriceList[]
-  recommendations       ProductRecommendation[]
-  products              Product[]
-  quotations            Quotation[]
+  users                 User[]                  @relation("user_organization")
   salesManagers         SalesManager[]
   salesReps             SalesRepresentative[]
-  users                 User[]                  @relation("user_organization")
+  financeOpsUsers       FinanceOpsUser[]
+  invitations           invitations[]
   warehouses            Warehouse[]
+
+  // Business Domain Relations
+  customerTiers         CustomerTier[]
+  customers             Customer[]
+  categories            Category[]
+  products              Product[]
+  priceLists            PriceList[]
+  discountApprovalRules DiscountApprovalRule[]
+  recommendations       ProductRecommendation[]
+  quotations            Quotation[]
+  approvalAuditLogs     ApprovalAuditLog[]
+  fulfillmentOrders     FulfillmentOrder[]
+  subscriptions         Subscription[]
+  invoices              Invoice[]
+  creditNotes           CreditNote[]
 
   @@index([createdById])
   @@map("organizations")
@@ -134,6 +296,7 @@ model SalesManager {
   approvalThreshold Float?
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
+
   organization      Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   reps              SalesRepresentative[]
@@ -151,14 +314,15 @@ model SalesRepresentative {
   managerId             String?
   commissionRate        Float?        @default(0)
   targetQuota           Float?
-  historicalAvgDiscount Float         @default(0)
+  historicalAvgDiscount Float         @default(0) // Baseline for deal health discount anomaly detection
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
-  customers             Customer[]
-  quotations            Quotation[]
+
   manager               SalesManager? @relation(fields: [managerId], references: [id])
   organization          Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customers             Customer[]
+  quotations            Quotation[]
 
   @@index([managerId])
   @@index([organizationId])
@@ -177,6 +341,7 @@ model FinanceOpsUser {
   canManageBilling     Boolean      @default(true)
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
+
   organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user                 User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -188,13 +353,14 @@ model FinanceOpsUser {
 /// Use Case: Discount tier governance defining maximum allowed discount ceilings (e.g., Bronze, Silver, Gold, Platinum) per customer classification.
 model CustomerTier {
   id              String       @id @default(cuid())
-  name            String
-  code            String
-  discountCeiling Float
+  name            String       // e.g. "Bronze", "Silver", "Gold", "Platinum"
+  code            String       // e.g. "BRONZE", "SILVER", "GOLD", "PLATINUM"
+  discountCeiling Float        // e.g. 5.0%, 10.0%, 15.0%, 20.0%
   description     String?
   organizationId  String
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
+
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   customers       Customer[]
   priceLists      PriceList[]
@@ -208,7 +374,7 @@ model CustomerTier {
 /// Use Case: B2B client company profile with assigned sales representative, pricing tier, payment terms, and linked customer portal user.
 model Customer {
   id              String               @id @default(cuid())
-  name            String
+  name            String               // Company name e.g. "Acme Corporation"
   email           String
   phone           String?
   company         String?
@@ -222,11 +388,15 @@ model Customer {
   portalUserId    String?              @unique
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
+
+  tier            CustomerTier         @relation(fields: [tierId], references: [id])
+  salesRep        SalesRepresentative? @relation(fields: [salesRepId], references: [id])
   organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   portalUser      User?                @relation("customer_portal_user", fields: [portalUserId], references: [id])
-  salesRep        SalesRepresentative? @relation(fields: [salesRepId], references: [id])
-  tier            CustomerTier         @relation(fields: [tierId], references: [id])
   quotations      Quotation[]
+  subscriptions   Subscription[]
+  invoices        Invoice[]
+  creditNotes     CreditNote[]
 
   @@index([tierId])
   @@index([salesRepId])
@@ -234,19 +404,48 @@ model Customer {
   @@map("customers")
 }
 
+/// Model: invitations
+/// Use Case: Team member and portal user invitations with cryptographic tokens and lifecycle statuses.
+model invitations {
+  id             String           @id @default(cuid())
+  email          String
+  role           UserRole
+  token          String           @unique
+  status         InvitationStatus @default(PENDING)
+  organizationId String
+  invitedById    String
+  metadata       Json?            @default("{}")
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  user           User             @relation(fields: [invitedById], references: [id], onDelete: Cascade)
+  organizations  Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([organizationId])
+  @@index([token])
+}
+
+// =============================================================================
+// Phase 2: Product Catalog, Pricing Governance & Upsell Engine
+// =============================================================================
+
 /// Model: Category
 /// Use Case: Product categorization (Hardware, Services, Subscriptions) enforcing category-specific discount ceilings and target margin benchmarks.
 model Category {
   id              String       @id @default(cuid())
-  name            String
+  name            String       // e.g. "Hardware", "Services", "Subscriptions"
   slug            String
   type            CategoryType @default(HARDWARE)
-  discountCeiling Float
-  targetMargin    Float?
+  discountCeiling Float        // e.g. Hardware: 15%, Services: 10%, Subscriptions: 12%
+  targetMargin    Float?       // e.g. Hardware: 35%, Services: 60%, Subscriptions: 85%
   description     String?
   organizationId  String
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
+
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   products        Product[]
 
@@ -263,24 +462,29 @@ model Product {
   sku                   String                  @unique
   description           String?
   categoryId            String
-  basePrice             Float
-  costPrice             Float
+  basePrice             Float                   // Standard list selling price
+  costPrice             Float                   // Base cost-of-goods-sold for live margin computation
   unit                  UnitType                @default(UNIT)
   taxRate               Float                   @default(0.0)
-  isPromoted            Boolean                 @default(false)
+  isPromoted            Boolean                 @default(false) // Priority rank in live upsell engine
   isActive              Boolean                 @default(true)
   organizationId        String
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
-  priceListItems        PriceListItem[]
-  targetRecommendations ProductRecommendation[] @relation("recommended_product_recommendations")
-  sourceRecommendations ProductRecommendation[] @relation("source_product_recommendations")
-  variants              ProductVariant[]
+
   category              Category                @relation(fields: [categoryId], references: [id])
   organization          Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  quotationLines        QuotationLine[]
+  variants              ProductVariant[]
+  priceListItems        PriceListItem[]
+  sourceRecommendations ProductRecommendation[] @relation("source_product_recommendations")
+  targetRecommendations ProductRecommendation[] @relation("recommended_product_recommendations")
   stockLevels           StockLevel[]
   stockMovements        StockMovement[]
+  quotationLines        QuotationLine[]
+  shipmentLines         ShipmentLine[]
+  backorders            Backorder[]
+  subscriptionLines     SubscriptionLine[]
+  invoiceLines          InvoiceLine[]
 
   @@index([categoryId])
   @@index([organizationId])
@@ -290,19 +494,24 @@ model Product {
 /// Model: ProductVariant
 /// Use Case: Product dimensional/attribute configurations (e.g., port counts, memory capacity, service commitments) with price and cost adjustments.
 model ProductVariant {
-  id             String          @id @default(cuid())
-  productId      String
-  attributeName  String
-  attributeValue String
-  sku            String?
-  extraPrice     Float           @default(0.0)
-  costPriceDelta Float           @default(0.0)
-  isActive       Boolean         @default(true)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  priceListItems PriceListItem[]
-  product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  quotationLines QuotationLine[]
+  id                String             @id @default(cuid())
+  productId         String
+  attributeName     String             // e.g. "Ports", "Commitment", "RAM"
+  attributeValue    String             // e.g. "24-Port", "48-Port", "Annual Commitment"
+  sku               String?
+  extraPrice        Float              @default(0.0)
+  costPriceDelta    Float              @default(0.0)
+  isActive          Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  product           Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  priceListItems    PriceListItem[]
+  quotationLines    QuotationLine[]
+  shipmentLines     ShipmentLine[]
+  backorders        Backorder[]
+  subscriptionLines SubscriptionLine[]
+  invoiceLines      InvoiceLine[]
 
   @@index([productId])
   @@map("product_variants")
@@ -312,16 +521,17 @@ model ProductVariant {
 /// Use Case: Customer tier-specific or currency-specific pricing schedules with contract pricing rules.
 model PriceList {
   id             String          @id @default(cuid())
-  name           String
+  name           String          // e.g. "Gold Tier Preferred Price List"
   currency       String          @default("USD")
   customerTierId String?
   organizationId String
   isDefault      Boolean         @default(false)
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
-  items          PriceListItem[]
+
   customerTier   CustomerTier?   @relation(fields: [customerTierId], references: [id])
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  items          PriceListItem[]
 
   @@index([customerTierId])
   @@index([organizationId])
@@ -340,6 +550,7 @@ model PriceListItem {
   minQuantity     Int             @default(1)
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
+
   priceList       PriceList       @relation(fields: [priceListId], references: [id], onDelete: Cascade)
   product         Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
   variant         ProductVariant? @relation(fields: [variantId], references: [id])
@@ -354,18 +565,19 @@ model PriceListItem {
 /// Use Case: Governance matrix defining discount ranges and blended risk score thresholds requiring Sales Manager or Finance approval escalation.
 model DiscountApprovalRule {
   id                      String       @id @default(cuid())
-  name                    String
+  name                    String       // e.g. "Standard Rep Discretion", "Manager Approval Range"
   minDiscountPercent      Float        @default(0.0)
-  maxDiscountPercent      Float
+  maxDiscountPercent      Float        // e.g. 5.0, 15.0, 100.0
   minBlendedRiskScore     Float        @default(0.0)
-  maxBlendedRiskScore     Float
+  maxBlendedRiskScore     Float        // e.g. 10.0, 25.0, 100.0
   requiresManagerApproval Boolean      @default(false)
   requiresFinanceApproval Boolean      @default(false)
-  escalationLevel         String       @default("SALES_MANAGER")
+  escalationLevel         String       @default("SALES_MANAGER") // "NONE", "SALES_MANAGER", "SALES_MANAGER_AND_FINANCE"
   description             String?
   organizationId          String
   createdAt               DateTime     @default(now())
   updatedAt               DateTime     @updatedAt
+
   organization            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
@@ -379,15 +591,16 @@ model ProductRecommendation {
   sourceProductId      String
   recommendedProductId String
   coPurchaseScore      Float        @default(1.0)
-  promotionalTag       String?
-  minMarginThreshold   Float        @default(20.0)
+  promotionalTag       String?      // e.g. "Frequently Bought Together", "Promoted Add-on"
+  minMarginThreshold   Float        @default(20.0) // Surfaces only if recommendation margin >= threshold
   isActive             Boolean      @default(true)
   organizationId       String
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
-  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  recommendedProduct   Product      @relation("recommended_product_recommendations", fields: [recommendedProductId], references: [id], onDelete: Cascade)
+
   sourceProduct        Product      @relation("source_product_recommendations", fields: [sourceProductId], references: [id], onDelete: Cascade)
+  recommendedProduct   Product      @relation("recommended_product_recommendations", fields: [recommendedProductId], references: [id], onDelete: Cascade)
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([sourceProductId, recommendedProductId])
   @@index([sourceProductId])
@@ -395,6 +608,10 @@ model ProductRecommendation {
   @@index([organizationId])
   @@map("product_recommendations")
 }
+
+// =============================================================================
+// Phase 3: Multi-Warehouse Inventory & Real-Time Stock
+// =============================================================================
 
 /// Model: Warehouse
 /// Use Case: Physical inventory warehouse location with shipping cost weight factor used to optimize split fulfillment decisions.
@@ -409,10 +626,12 @@ model Warehouse {
   createdById        String?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
-  stockLevels        StockLevel[]
-  stockMovements     StockMovement[]
+
   creator            User?           @relation("warehouse_creator", fields: [createdById], references: [id])
   organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  stockLevels        StockLevel[]
+  stockMovements     StockMovement[]
+  shipments          Shipment[]
 
   @@index([createdById])
   @@index([organizationId])
@@ -425,13 +644,14 @@ model StockLevel {
   id               String    @id @default(cuid())
   warehouseId      String
   productId        String
-  quantityOnHand   Int       @default(0)
-  quantityReserved Int       @default(0)
-  reorderPoint     Int       @default(10)
+  quantityOnHand   Int       @default(0) // Physical count in warehouse
+  quantityReserved Int       @default(0) // Committed to orders awaiting fulfillment
+  reorderPoint     Int       @default(10) // Replenishment warning threshold
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
-  product          Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
   warehouse        Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  product          Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([warehouseId, productId])
   @@index([warehouseId])
@@ -445,29 +665,36 @@ model StockMovement {
   id           String            @id @default(cuid())
   warehouseId  String
   productId    String
-  quantity     Int
+  quantity     Int               // Positive for receipts, negative for allocations/shipments
   movementType StockMovementType
-  referenceId  String?
+  referenceId  String?           // Order ID, PO ID, or audit note
   notes        String?
   createdAt    DateTime          @default(now())
-  product      Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+
   warehouse    Warehouse         @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  product      Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([warehouseId])
   @@index([productId])
   @@map("stock_movements")
 }
 
+// =============================================================================
+// Phase 4: Quotation & Deal Pipeline Engine with Live Margins
+// =============================================================================
+
 /// Model: Quotation
 /// Use Case: Central sales order and deal entity tracking commercial terms, totals, live margins, risk scores, and portal access tokens.
 model Quotation {
   id                      String              @id @default(cuid())
-  quoteNumber             String              @unique
-  title                   String
+  quoteNumber             String              @unique // Human-friendly deal identifier e.g. "QT-2026-0001"
+  title                   String              // e.g. "Acme Corp - Cloud & Hardware Modernization"
   customerId              String
   salesRepId              String
   organizationId          String
   stage                   QuoteStage          @default(DRAFT)
+
+  // Commercial Totals
   subtotal                Float               @default(0.0)
   discountTotal           Float               @default(0.0)
   taxTotal                Float               @default(0.0)
@@ -475,23 +702,33 @@ model Quotation {
   totalCost               Float               @default(0.0)
   grossMargin             Float               @default(0.0)
   grossMarginPercent      Float               @default(0.0)
+
+  // Governance & Risk Scoring
   blendedRiskScore        Float               @default(0.0)
   requiresManagerApproval Boolean             @default(false)
   requiresFinanceApproval Boolean             @default(false)
   approvalStatus          ApprovalStatus      @default(PENDING)
+
+  // Customer Portal Access
   portalToken             String              @unique @default(cuid())
   portalAccessExpiresAt   DateTime?
+
+  // Lifecycle & Notes
   expiresAt               DateTime
   notes                   String?
   termsAndConditions      String?
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt
-  auditLogs               ApprovalAuditLog[]
-  approvalRequest         ApprovalRequest?
-  lines                   QuotationLine[]
+
   customer                Customer            @relation(fields: [customerId], references: [id])
-  organization            Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   salesRep                SalesRepresentative @relation(fields: [salesRepId], references: [id])
+  organization            Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lines                   QuotationLine[]
+  approvalRequest         ApprovalRequest?
+  auditLogs               ApprovalAuditLog[]
+  fulfillmentOrder        FulfillmentOrder?
+  subscriptions           Subscription[]
+  invoices                Invoice[]
 
   @@index([customerId])
   @@index([salesRepId])
@@ -503,31 +740,41 @@ model Quotation {
 /// Model: QuotationLine
 /// Use Case: Line item in a quotation specifying product, variant, quantity, line discount, cost, live gross margin, and ceiling breach risk points.
 model QuotationLine {
-  id                String          @id @default(cuid())
+  id                String             @id @default(cuid())
   quotationId       String
   productId         String
   variantId         String?
-  itemType          CategoryType    @default(HARDWARE)
+  itemType          CategoryType       @default(HARDWARE)
   description       String?
-  quantity          Int             @default(1)
-  unitPrice         Float
-  costPrice         Float
-  discountPercent   Float           @default(0.0)
-  discountAmount    Float           @default(0.0)
-  netPrice          Float           @default(0.0)
-  totalCost         Float           @default(0.0)
-  lineMargin        Float           @default(0.0)
-  lineMarginPercent Float           @default(0.0)
-  categoryCeiling   Float           @default(0.0)
-  customerCeiling   Float           @default(0.0)
-  isCeilingBreached Boolean         @default(false)
-  riskPoints        Float           @default(0.0)
-  sortOrder         Int             @default(0)
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-  product           Product         @relation(fields: [productId], references: [id])
-  quotation         Quotation       @relation(fields: [quotationId], references: [id], onDelete: Cascade)
-  variant           ProductVariant? @relation(fields: [variantId], references: [id])
+
+  // Pricing, Quantities & Live Margins
+  quantity          Int                @default(1)
+  unitPrice         Float              // List or variant price
+  costPrice         Float              // Unit cost of goods
+  discountPercent   Float              @default(0.0)
+  discountAmount    Float              @default(0.0)
+  netPrice          Float              @default(0.0) // (unitPrice * quantity) - discountAmount
+  totalCost         Float              @default(0.0) // costPrice * quantity
+  lineMargin        Float              @default(0.0) // netPrice - totalCost
+  lineMarginPercent Float              @default(0.0) // (lineMargin / netPrice) * 100
+
+  // Governance Ceilings & Risk Breakdown
+  categoryCeiling   Float              @default(0.0)
+  customerCeiling   Float              @default(0.0)
+  isCeilingBreached Boolean            @default(false)
+  riskPoints        Float              @default(0.0)
+  sortOrder         Int                @default(0)
+
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  quotation         Quotation          @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  product           Product            @relation(fields: [productId], references: [id])
+  variant           ProductVariant?    @relation(fields: [variantId], references: [id])
+  shipmentLines     ShipmentLine[]
+  backorders        Backorder[]
+  subscriptionLines SubscriptionLine[]
+  invoiceLines      InvoiceLine[]
 
   @@index([quotationId])
   @@index([productId])
@@ -535,17 +782,22 @@ model QuotationLine {
   @@map("quotation_lines")
 }
 
+// =============================================================================
+// Phase 5: Multi-Tier Discount Approval Workflow & Compliance Audit
+// =============================================================================
+
 /// Model: ApprovalRequest
 /// Use Case: Active approval process container governing sequential review steps for discounted quotations.
 model ApprovalRequest {
   id               String         @id @default(cuid())
   quotationId      String         @unique
   status           ApprovalStatus @default(PENDING)
-  escalationLevel  String         @default("SALES_MANAGER")
+  escalationLevel  String         @default("SALES_MANAGER") // "SALES_MANAGER" or "SALES_MANAGER_AND_FINANCE"
   currentStep      Int            @default(1)
   blendedRiskScore Float          @default(0.0)
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
+
   quotation        Quotation      @relation(fields: [quotationId], references: [id], onDelete: Cascade)
   steps            ApprovalStep[]
 
@@ -557,13 +809,14 @@ model ApprovalRequest {
 model ApprovalStep {
   id                String          @id @default(cuid())
   approvalRequestId String
-  stepNumber        Int
+  stepNumber        Int             // 1 for Sales Manager, 2 for Finance
   level             ApprovalLevel
   status            ApprovalStatus  @default(PENDING)
   reviewerId        String?
   comments          String?
   actionedAt        DateTime?
   createdAt         DateTime        @default(now())
+
   approvalRequest   ApprovalRequest @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
   reviewer          User?           @relation(fields: [reviewerId], references: [id])
 
@@ -580,19 +833,303 @@ model ApprovalAuditLog {
   organizationId String
   actorId        String
   actorRole      UserRole
-  action         String
+  action         String       // "SUBMITTED", "APPROVED_MANAGER", "APPROVED_FINANCE", "REJECTED", "REVISION_REQUESTED"
   reason         String?
-  metadata       Json?
+  metadata       Json?        // JSON snapshot of calculation or changes
   createdAt      DateTime     @default(now())
-  actor          User         @relation(fields: [actorId], references: [id])
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   quotation      Quotation    @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor          User         @relation(fields: [actorId], references: [id])
 
   @@index([quotationId])
   @@index([organizationId])
   @@index([actorId])
   @@map("approval_audit_logs")
 }
+
+// =============================================================================
+// Phase 6: Multi-Warehouse Split Fulfillment & Shipment Tracking
+// =============================================================================
+
+/// Model: FulfillmentOrder
+/// Use Case: Central fulfillment lifecycle entity tracking multi-warehouse order execution for confirmed sales quotations.
+model FulfillmentOrder {
+  id                String            @id @default(cuid())
+  fulfillmentNumber String            @unique // e.g. "FUL-2026-0001"
+  quotationId       String            @unique
+  organizationId    String
+  status            FulfillmentStatus @default(PENDING)
+  shippingAddress   String?
+  notes             String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  quotation         Quotation         @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shipments         Shipment[]
+  backorders        Backorder[]
+
+  @@index([organizationId])
+  @@map("fulfillment_orders")
+}
+
+/// Model: Shipment
+/// Use Case: Physical shipment package originating from a designated warehouse with carrier tracking and transit statuses.
+model Shipment {
+  id                 String         @id @default(cuid())
+  shipmentNumber     String         @unique // e.g. "SHP-2026-0001-A"
+  fulfillmentOrderId String
+  warehouseId        String
+  carrier            String?        // e.g. "FedEx Freight", "UPS Supply Chain", "DHL Express"
+  trackingNumber     String?
+  shippingCost       Float          @default(0.0)
+  status             ShipmentStatus @default(PENDING)
+  estimatedDelivery  DateTime?
+  shippedAt          DateTime?
+  deliveredAt        DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  fulfillmentOrder   FulfillmentOrder @relation(fields: [fulfillmentOrderId], references: [id], onDelete: Cascade)
+  warehouse          Warehouse        @relation(fields: [warehouseId], references: [id])
+  lines              ShipmentLine[]
+
+  @@index([fulfillmentOrderId])
+  @@index([warehouseId])
+  @@index([status])
+  @@map("shipments")
+}
+
+/// Model: ShipmentLine
+/// Use Case: Specific product items and quantities allocated to an individual warehouse shipment package.
+model ShipmentLine {
+  id              String          @id @default(cuid())
+  shipmentId      String
+  quotationLineId String
+  productId       String
+  variantId       String?
+  quantity        Int             @default(1)
+  createdAt       DateTime        @default(now())
+
+  shipment        Shipment        @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  quotationLine   QuotationLine   @relation(fields: [quotationLineId], references: [id], onDelete: Cascade)
+  product         Product         @relation(fields: [productId], references: [id])
+  variant         ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([shipmentId])
+  @@index([quotationLineId])
+  @@index([productId])
+  @@index([variantId])
+  @@map("shipment_lines")
+}
+
+/// Model: Backorder
+/// Use Case: Shortage tracking for deal line items awaiting inventory replenishment across warehouse locations.
+model Backorder {
+  id                  String          @id @default(cuid())
+  fulfillmentOrderId  String
+  quotationLineId     String
+  productId           String
+  variantId           String?
+  quantityBackordered Int             @default(1)
+  status              BackorderStatus @default(PENDING_REPLENISHMENT)
+  expectedDate        DateTime?
+  notes               String?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  fulfillmentOrder    FulfillmentOrder @relation(fields: [fulfillmentOrderId], references: [id], onDelete: Cascade)
+  quotationLine       QuotationLine    @relation(fields: [quotationLineId], references: [id], onDelete: Cascade)
+  product             Product          @relation(fields: [productId], references: [id])
+  variant             ProductVariant?  @relation(fields: [variantId], references: [id])
+
+  @@index([fulfillmentOrderId])
+  @@index([quotationLineId])
+  @@index([productId])
+  @@index([variantId])
+  @@map("backorders")
+}
+
+// =============================================================================
+// Phase 7: Hybrid Invoicing, Subscriptions, Billing Schedules & Proration
+// =============================================================================
+
+/// Model: Subscription
+/// Use Case: Recurring SaaS license and recurring support contract management with automated renewal and MRR/ARR tracking.
+model Subscription {
+  id                 String             @id @default(cuid())
+  subscriptionNumber String             @unique // e.g. "SUB-2026-0001"
+  quotationId        String?
+  customerId         String
+  organizationId     String
+  status             SubscriptionStatus @default(ACTIVE)
+  billingInterval    BillingInterval    @default(MONTHLY)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  nextBillingDate    DateTime
+  currentMrr         Float              @default(0.0) // Monthly Recurring Revenue
+  currentArr         Float              @default(0.0) // Annual Recurring Revenue
+  autoRenew          Boolean            @default(true)
+  notes              String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  quotation          Quotation?         @relation(fields: [quotationId], references: [id])
+  customer           Customer           @relation(fields: [customerId], references: [id])
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lines              SubscriptionLine[]
+  invoices           Invoice[]
+  creditNotes        CreditNote[]
+
+  @@index([customerId])
+  @@index([organizationId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+/// Model: SubscriptionLine
+/// Use Case: Specific recurring product items, license counts, and recurring pricing inside an active subscription.
+model SubscriptionLine {
+  id              String          @id @default(cuid())
+  subscriptionId  String
+  quotationLineId String?
+  productId       String
+  variantId       String?
+  quantity        Int             @default(1)
+  unitPrice       Float
+  discountPercent Float           @default(0.0)
+  recurringAmount Float           // (unitPrice * quantity) - discountAmount
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  subscription    Subscription    @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  quotationLine   QuotationLine?  @relation(fields: [quotationLineId], references: [id], onDelete: SetNull)
+  product         Product         @relation(fields: [productId], references: [id])
+  variant         ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([subscriptionId])
+  @@index([quotationLineId])
+  @@index([productId])
+  @@index([variantId])
+  @@map("subscription_lines")
+}
+
+/// Model: Invoice
+/// Use Case: Accounts receivable billing invoice representing one-time orders or recurring subscription billing cycles.
+model Invoice {
+  id              String        @id @default(cuid())
+  invoiceNumber   String        @unique // e.g. "INV-2026-0001"
+  quotationId     String?
+  subscriptionId  String?
+  customerId      String
+  organizationId  String
+  status          InvoiceStatus @default(DRAFT)
+  issueDate       DateTime      @default(now())
+  dueDate         DateTime
+  paymentTerms    String?       @default("Net 30")
+  subtotal        Float         @default(0.0)
+  discountTotal   Float         @default(0.0)
+  taxTotal        Float         @default(0.0)
+  totalAmount     Float         @default(0.0)
+  amountPaid      Float         @default(0.0)
+  amountRemaining Float         @default(0.0)
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  quotation       Quotation?    @relation(fields: [quotationId], references: [id])
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id])
+  customer        Customer      @relation(fields: [customerId], references: [id])
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lines           InvoiceLine[]
+  payments        Payment[]
+  creditNotes     CreditNote[]
+
+  @@index([customerId])
+  @@index([organizationId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("invoices")
+}
+
+/// Model: InvoiceLine
+/// Use Case: Line item breakdown on an invoice detailing product units, rates, discounts, and recurring flags.
+model InvoiceLine {
+  id              String          @id @default(cuid())
+  invoiceId       String
+  quotationLineId String?
+  productId       String
+  variantId       String?
+  description     String
+  quantity        Int             @default(1)
+  unitPrice       Float
+  discountPercent Float           @default(0.0)
+  totalAmount     Float
+  isRecurring     Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+
+  invoice         Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  quotationLine   QuotationLine?  @relation(fields: [quotationLineId], references: [id], onDelete: SetNull)
+  product         Product         @relation(fields: [productId], references: [id])
+  variant         ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([invoiceId])
+  @@index([quotationLineId])
+  @@index([productId])
+  @@index([variantId])
+  @@map("invoice_lines")
+}
+
+/// Model: Payment
+/// Use Case: Financial transaction settlement against an invoice with payment method and reference tracking.
+model Payment {
+  id                   String        @id @default(cuid())
+  invoiceId            String
+  amount               Float
+  paymentMethod        PaymentMethod @default(ACH)
+  transactionReference String?       // e.g. "TXN-ACH-892134", "STRIPE-CHG-9921"
+  status               PaymentStatus @default(COMPLETED)
+  paidAt               DateTime      @default(now())
+  notes                String?
+  createdAt            DateTime      @default(now())
+
+  invoice              Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@index([status])
+  @@map("payments")
+}
+
+/// Model: CreditNote
+/// Use Case: Credit adjustment issued for subscription mid-cycle cancellations, downgrades, or billing concessions.
+model CreditNote {
+  id               String           @id @default(cuid())
+  creditNoteNumber String           @unique // e.g. "CN-2026-0001"
+  invoiceId        String?
+  subscriptionId   String?
+  customerId       String
+  organizationId   String
+  amount           Float
+  reason           String           // e.g. "Mid-cycle seat reduction proration"
+  status           CreditNoteStatus @default(ISSUED)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  invoice          Invoice?         @relation(fields: [invoiceId], references: [id])
+  subscription     Subscription?    @relation(fields: [subscriptionId], references: [id])
+  customer         Customer         @relation(fields: [customerId], references: [id])
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([organizationId])
+  @@index([status])
+  @@map("credit_notes")
+}
+
+// =============================================================================
+// Background Compute Telemetry & Tasks
+// =============================================================================
 
 /// Model: Job
 /// Use Case: Background asynchronous compute tasks processed by the BullMQ worker.
@@ -650,98 +1187,4 @@ model TaskLog {
 
   @@index([jobId])
   @@map("task_logs")
-}
-
-model invitations {
-  id             String           @id
-  email          String
-  role           UserRole
-  token          String           @unique
-  status         InvitationStatus @default(PENDING)
-  organizationId String
-  invitedById    String
-  metadata       Json?            @default("{}")
-  expiresAt      DateTime
-  acceptedAt     DateTime?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime
-  user           User             @relation(fields: [invitedById], references: [id], onDelete: Cascade)
-  organizations  Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([email])
-  @@index([organizationId])
-  @@index([token])
-}
-
-enum UserRole {
-  ADMIN
-  SALES_REP
-  SALES_MANAGER
-  FINANCE_OPS
-  CUSTOMER
-}
-
-enum CategoryType {
-  HARDWARE
-  SERVICE
-  SUBSCRIPTION
-}
-
-enum UnitType {
-  UNIT
-  HOUR
-  PROJECT
-  MONTH
-  USER_MONTH
-  YEAR
-  PACK
-}
-
-enum QuoteStage {
-  DRAFT
-  PENDING_APPROVAL
-  APPROVED
-  NEGOTIATION
-  CONFIRMED
-  CANCELLED
-}
-
-enum ApprovalStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  REVISION_REQUESTED
-}
-
-enum ApprovalLevel {
-  SALES_MANAGER
-  FINANCE
-}
-
-enum StockMovementType {
-  PURCHASE_RECEIPT
-  ORDER_RESERVED
-  ORDER_FULFILLED
-  ADJUSTMENT
-  TRANSFER
-}
-
-enum JobStatus {
-  PENDING
-  PROCESSING
-  COMPLETED
-  FAILED
-}
-
-enum LogLevel {
-  INFO
-  WARN
-  ERROR
-}
-
-enum InvitationStatus {
-  PENDING
-  ACCEPTED
-  EXPIRED
-  REVOKED
 }
