@@ -1,82 +1,73 @@
 import type { Response } from "express";
-import { asyncHandler, AppError } from "../middleware/error.js";
-import type { AuthRequest } from "../middleware/auth.middleware.js";
-import {
-  createWarehouse,
-  listWarehouses,
-  getWarehouseById,
-  updateWarehouse,
-  deleteWarehouse,
-} from "../services/warehouse.service.js";
+import { asyncHandler } from "../middleware/error.js";
+import type { TenantRequest } from "../middleware/tenant.js";
+import * as warehouseService from "../services/warehouse.service.js";
 
-export const createWarehouseHandler = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { name, code, location, shippingCostWeight } = req.body;
+// =============================================================================
+// Warehouses
+// =============================================================================
 
-  if (!name || typeof name !== "string" || !name.trim()) {
-    throw new AppError(
-      400,
-      "BAD_REQUEST",
-      "Warehouse name is required (e.g. 'Main Warehouse', 'East Depot')."
-    );
-  }
-
-  const warehouse = await createWarehouse({
-    name,
-    code,
-    location,
-    shippingCostWeight: shippingCostWeight ? Number(shippingCostWeight) : 1.0,
-    organizationId: req.user!.organizationId!,
+export const createWarehouseHandler = asyncHandler(async (req: TenantRequest, res: Response) => {
+  const warehouse = await warehouseService.createWarehouse(req.orgId, {
+    ...req.body,
     createdById: req.user!.id,
   });
 
   return res.status(201).json({
-    message: "Warehouse created successfully.",
-    warehouse,
+    success: true,
+    data: warehouse,
   });
 });
 
-export const listWarehousesHandler = asyncHandler(async (req: AuthRequest, res: Response) => {
+export const listWarehousesHandler = asyncHandler(async (req: TenantRequest, res: Response) => {
   const includeInactive = req.query.includeInactive === "true";
-  const warehouses = await listWarehouses(req.user!.organizationId!, includeInactive);
-  return res.json({ warehouses });
+  const warehouses = await warehouseService.listWarehouses(req.orgId, includeInactive);
+  return res.json({ success: true, data: warehouses });
 });
 
-export const getWarehouseHandler = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const warehouseId = req.params.id as string;
-  const warehouse = await getWarehouseById(warehouseId, req.user!.organizationId!);
-
-  if (!warehouse) {
-    throw new AppError(404, "NOT_FOUND", "Warehouse not found.");
-  }
-
-  return res.json({ warehouse });
+export const getWarehouseHandler = asyncHandler(async (req: TenantRequest, res: Response) => {
+  const warehouse = await warehouseService.getWarehouseById(req.orgId, req.params.id as string);
+  return res.json({ success: true, data: warehouse });
 });
 
-export const updateWarehouseHandler = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const warehouseId = req.params.id as string;
-  const { name, code, location, shippingCostWeight, isActive } = req.body;
-
-  await updateWarehouse(warehouseId, req.user!.organizationId!, {
-    name,
-    code,
-    location,
-    shippingCostWeight: shippingCostWeight !== undefined ? Number(shippingCostWeight) : undefined,
-    isActive,
-  });
-
-  const updated = await getWarehouseById(warehouseId, req.user!.organizationId!);
-
-  return res.json({
-    message: "Warehouse updated successfully.",
-    warehouse: updated,
-  });
+export const updateWarehouseHandler = asyncHandler(async (req: TenantRequest, res: Response) => {
+  const warehouse = await warehouseService.updateWarehouse(
+    req.orgId,
+    req.params.id as string,
+    req.body
+  );
+  return res.json({ success: true, data: warehouse });
 });
 
-export const deleteWarehouseHandler = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const warehouseId = req.params.id as string;
-  await deleteWarehouse(warehouseId, req.user!.organizationId!);
+export const deleteWarehouseHandler = asyncHandler(async (req: TenantRequest, res: Response) => {
+  await warehouseService.deleteWarehouse(req.orgId, req.params.id as string);
+  return res.json({ success: true, data: { message: "Warehouse deactivated successfully." } });
+});
 
-  return res.json({
-    message: "Warehouse deactivated successfully.",
-  });
+// =============================================================================
+// Stock Levels & Ledger Operations
+// =============================================================================
+
+export const listStockLevels = asyncHandler(async (req: TenantRequest, res: Response) => {
+  const stockLevels = await warehouseService.listStockLevels(req.orgId, req.query as any);
+  return res.json({ success: true, data: stockLevels });
+});
+
+export const getStockLevel = asyncHandler(async (req: TenantRequest, res: Response) => {
+  const stockLevel = await warehouseService.getStockLevelById(req.orgId, req.params.id as string);
+  return res.json({ success: true, data: stockLevel });
+});
+
+export const getStockAvailable = asyncHandler(async (req: TenantRequest, res: Response) => {
+  const available = await warehouseService.getStockAvailable(req.orgId, req.params.id as string);
+  return res.json({ success: true, data: available });
+});
+
+export const manualAdjustStock = asyncHandler(async (req: TenantRequest, res: Response) => {
+  const result = await warehouseService.manualAdjustStock(
+    req.orgId,
+    req.params.id as string,
+    req.body
+  );
+  return res.json({ success: true, data: result });
 });
