@@ -336,7 +336,7 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
 
       setNotification({
         type: "success",
-        message: `Counter-proposal for ${counterDiscount}% discount ($${estimatedNet.toLocaleString("en-US", { minimumFractionDigits: 2 })}) submitted to sales representative.`,
+        message: `Counter-proposal for ${counterDiscount}% discount (₹${estimatedNet.toLocaleString("en-IN", { minimumFractionDigits: 2 })}) submitted to sales representative.`,
       });
 
       setProposalMessage("");
@@ -741,7 +741,7 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
                         </div>
                         <span className="text-[11px] text-slate-500 truncate">{item.title}</span>
                         <span className="text-[11px] font-bold text-[#ff5e3a]">
-                          ${Number(item.grandTotal || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          ₹{Number(item.grandTotal || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                         </span>
                       </button>
                     ))}
@@ -904,7 +904,7 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
                       <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs space-y-1">
                         <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Pipeline Value</span>
                         <div className="text-2xl font-extrabold text-[#ff5e3a]">
-                          ${metrics.totalValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          ₹{metrics.totalValue.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
                       </div>
                       <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-xs space-y-1">
@@ -980,7 +980,7 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
                               <div>
                                 <span className="text-[10px] text-slate-400 uppercase font-semibold block">Total Investment</span>
                                 <span className="text-base font-extrabold text-[#ff5e3a]">
-                                  ${Number(q.grandTotal || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                  ₹{Number(q.grandTotal || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                                 </span>
                               </div>
                               <span className="text-xs font-semibold text-slate-600 flex items-center gap-1 hover:text-[#ff5e3a]">
@@ -1019,7 +1019,7 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
                                   {new Date(q.createdAt).toLocaleDateString()}
                                 </td>
                                 <td className="py-3 px-4 text-right font-bold text-[#ff5e3a]">
-                                  ${Number(q.grandTotal || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                  ₹{Number(q.grandTotal || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                                 </td>
                                 <td className="py-3 px-4 text-center">
                                   <button className="px-3 py-1 rounded-lg bg-orange-50 text-[#ff5e3a] font-semibold text-xs hover:bg-orange-100">
@@ -1089,7 +1089,7 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
                           Gross Subtotal
                         </span>
                         <div className="text-xl font-extrabold text-slate-900 mt-1">
-                          ${(quotation.subtotal || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          ₹{(quotation.subtotal || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                         </div>
                       </div>
 
@@ -1098,7 +1098,7 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
                           Standard Discount
                         </span>
                         <div className="text-xl font-extrabold text-emerald-600 mt-1">
-                          -${(quotation.discountTotal || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          -₹{(quotation.discountTotal || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                         </div>
                       </div>
 
@@ -1107,7 +1107,7 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
                           Estimated Tax
                         </span>
                         <div className="text-xl font-extrabold text-slate-700 mt-1">
-                          +${(quotation.taxTotal || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          +₹{(quotation.taxTotal || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                         </div>
                       </div>
 
@@ -1116,7 +1116,7 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
                           Net Total Investment
                         </span>
                         <div className="text-2xl font-black text-[#ff5e3a] mt-1">
-                          ${(quotation.grandTotal || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          ₹{(quotation.grandTotal || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                         </div>
                       </div>
                     </div>
@@ -1161,13 +1161,13 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
                                   </td>
                                   <td className="py-3.5 px-4 text-center font-semibold text-slate-800">{line.quantity}</td>
                                   <td className="py-3.5 px-4 text-right text-slate-600">
-                                    ${Number(line.unitPrice || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                    ₹{Number(line.unitPrice || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                                   </td>
                                   <td className="py-3.5 px-4 text-right text-emerald-600 font-semibold">
                                     {line.discountPercent || 0}%
                                   </td>
                                   <td className="py-3.5 px-4 text-right font-bold text-slate-900">
-                                    ${Number(line.netPrice || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                    ₹{Number(line.netPrice || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                                   </td>
                                   <td className="py-3.5 px-4 text-center">
                                     <button
@@ -1227,15 +1227,15 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
                             <div className="bg-[#f8fafc] border border-slate-200 p-4 rounded-xl space-y-2 text-xs">
                               <div className="flex justify-between text-slate-600">
                                 <span>Original List Price:</span>
-                                <span className="font-semibold text-slate-800">${originalSubtotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
+                                <span className="font-semibold text-slate-800">₹{originalSubtotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                               </div>
                               <div className="flex justify-between text-emerald-600 font-semibold">
                                 <span>Proposed Total Savings:</span>
-                                <span>-${estimatedSavings.toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
+                                <span>-₹{estimatedSavings.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                               </div>
                               <div className="flex justify-between text-sm font-extrabold text-slate-900 pt-2 border-t border-slate-200">
                                 <span>Proposed Deal Total:</span>
-                                <span className="text-[#ff5e3a]">${estimatedCounterTotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
+                                <span className="text-[#ff5e3a]">₹{estimatedCounterTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                               </div>
                             </div>
                           </div>
@@ -1246,7 +1246,7 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
                               rows={2}
                               value={proposalMessage}
                               onChange={(e) => setProposalMessage(e.target.value)}
-                              placeholder="e.g. Approved budget cap for this quarter is $42,000. If granted, we can execute immediately."
+                              placeholder="e.g. Approved budget cap for this quarter is ₹42,000. If granted, we can execute immediately."
                               className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl p-3 text-xs text-slate-900 outline-none focus:border-[#ff5e3a]"
                             />
                           </div>
@@ -1284,7 +1284,7 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-2 flex-wrap">
                                         <span className="font-bold text-slate-900">
-                                          {cp.proposedDiscountPercent}% discount · ${Number(cp.proposedGrandTotal || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                          {cp.proposedDiscountPercent}% discount · ₹{Number(cp.proposedGrandTotal || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                                         </span>
                                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${sc.cls}`}>
                                           {sc.label}
@@ -1619,7 +1619,7 @@ export function CustomerNegotiationPortal({ initialToken = "DF-Q1042", customerE
             <div className="bg-orange-50/70 border border-orange-200/80 p-3.5 rounded-xl text-xs space-y-1">
               <div className="flex justify-between font-bold text-slate-900">
                 <span>Quotation: {quotation?.quoteNumber}</span>
-                <span className="text-[#ff5e3a]">${(quotation?.grandTotal || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
+                <span className="text-[#ff5e3a]">₹{(quotation?.grandTotal || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
               </div>
               <p className="text-slate-600 text-[11px]">
                 Upon signature, commercial invoices, subscriptions, and fulfillment orders are automatically generated.
