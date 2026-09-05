@@ -21,7 +21,7 @@ import {
   Modal,
   Button,
 } from "@repo/ui";
-import { CATALOG_PRODUCTS } from "../../../lib/sales-data";
+import { CATALOG_PRODUCTS } from "../../../../../../lib/sales-data";
 
 const DEFAULT_ACCOUNTS = [
   { name: "Acme Corporation", contact: "David Harrison", email: "d.harrison@acme.com", tier: "Enterprise" },
@@ -242,7 +242,7 @@ export default function NewQuotationPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-4 border-b border-slate-200 print:hidden">
           <div>
             <div className="flex items-center gap-2 mb-1 text-xs text-slate-500 font-medium">
-              <Link href="/quotations" className="hover:text-[#ff5e3a] transition-colors flex items-center gap-1">
+              <Link href="/dashboard/sale-ref/quotations" className="hover:text-[#ff5e3a] transition-colors flex items-center gap-1">
                 <ArrowLeft size={13} />
                 <span>Quotations</span>
               </Link>
@@ -460,7 +460,7 @@ export default function NewQuotationPage() {
               size="sm"
               onClick={() => {
                 setSuccessModalOpen(false);
-                router.push("/quotations");
+                router.push("/dashboard/sale-ref/quotations");
               }}
               className="text-xs px-4 h-9 cursor-pointer"
             >
