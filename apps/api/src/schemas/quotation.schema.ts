@@ -2,13 +2,31 @@ import { z } from "zod";
 import { CategoryType, QuoteStage } from "@repo/db";
 
 export const CreateQuotationSchema = z.object({
-  customerId: z.string().min(1, "Customer ID is required"),
+  customerId: z.string().optional(),
+  customerEmail: z.string().email("Valid customer email is required").optional(),
+  customerName: z.string().optional(),
+  companyName: z.string().optional(),
+  customerPhone: z.string().optional(),
+  tierId: z.string().optional(),
   title: z.string().min(1, "Title is required"),
   salesRepId: z.string().optional(),
   quoteNumber: z.string().optional(),
   notes: z.string().optional(),
   termsAndConditions: z.string().optional(),
   expiresAt: z.coerce.date().optional(),
+  lines: z
+    .array(
+      z.object({
+        productId: z.string().min(1, "Product ID is required"),
+        variantId: z.string().optional(),
+        quantity: z.number().int().min(1, "Quantity must be at least 1").default(1),
+        unitPrice: z.number().min(0, "Unit price must be non-negative").optional(),
+        discountPercent: z.number().min(0).max(100, "Discount cannot exceed 100%").default(0.0),
+        description: z.string().optional(),
+        itemType: z.nativeEnum(CategoryType).optional(),
+      })
+    )
+    .optional(),
 });
 
 export const CreateQuotationLineSchema = z.object({

@@ -48,6 +48,6 @@ export function rankUpsellSuggestions(candidates: UpsellCandidate[]): RankedUpse
       };
     })
     .filter((item) => item.marginPercent >= item.minMarginThreshold)
-    .sort((a, b) => b.score - a.score)
-    .map(({ minMarginThreshold, ...rest }) => rest);
+    .map(({ minMarginThreshold: _, ...rest }) => rest)
+    .sort((a, b) => b.score - a.score);
 }

@@ -15,6 +15,7 @@ export interface CustomerTierData {
   name: string;
   discountCeiling: number;
   description?: string | null;
+  _count?: { customers: number };
 }
 
 export interface CustomerData {
@@ -125,5 +126,49 @@ export function useUpdateCustomer() {
       queryKey: queryKeys.customers.lists(),
       updateFn: (oldList, { id, body }) => optimisticUpdateItemInList(oldList, id, body),
     }),
+  });
+}
+
+/**
+ * Mutation: Create customer tier
+ */
+export function useCreateCustomerTier() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body: { name: string; code?: string; discountCeiling: number; description?: string }) =>
+      api.post<CustomerTierData>("/api/customer-tiers", body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.customers.tiers() });
+    },
+  });
+}
+
+/**
+ * Mutation: Update customer tier
+ */
+export function useUpdateCustomerTier() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Partial<{ name: string; code: string; discountCeiling: number; description: string }> }) =>
+      api.patch<CustomerTierData>(`/api/customer-tiers/${id}`, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.customers.tiers() });
+    },
+  });
+}
+
+/**
+ * Mutation: Delete customer tier
+ */
+export function useDeleteCustomerTier() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/api/customer-tiers/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.customers.tiers() });
+    },
   });
 }

@@ -8,7 +8,7 @@ import { useQuotation, useProducts } from "../../../../../../lib/query";
 import { useDashboardAuth } from "../../../../layout";
 import { QuotationDetailView } from "../../../../components/QuotationDetailView";
 
-export default function ManagerApprovalDetailPage() {
+export default function FinanceApprovalDetailPage() {
   const routeParams = useParams();
   const quoteId = (routeParams?.id as string) || "";
 
@@ -35,7 +35,7 @@ export default function ManagerApprovalDetailPage() {
         </div>
         <h2 className="text-base font-bold text-slate-900">Quotation Not Found</h2>
         <p className="text-xs text-slate-500 mt-1 max-w-sm">
-          The requested quotation could not be located in this organization or is not pending sales manager approval.
+          The requested quotation could not be located in this organization or is not pending finance approval.
         </p>
         <div className="mt-5 flex items-center gap-3">
           <button
@@ -47,11 +47,11 @@ export default function ManagerApprovalDetailPage() {
             <span>Try Again</span>
           </button>
           <Link
-            href="/dashboard/manager"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0f172a] text-white text-xs font-bold shadow-xs hover:bg-slate-800 transition"
+            href="/dashboard/finance"
+            className="mt-5 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0f172a] text-white text-xs font-bold shadow-xs hover:bg-slate-800 transition"
           >
             <ArrowLeft size={13} />
-            <span>Back to Approvals</span>
+            <span>Back to Finance Hub</span>
           </Link>
         </div>
       </div>
@@ -64,28 +64,28 @@ export default function ManagerApprovalDetailPage() {
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-xl border-b border-black/[0.06] shadow-xs">
         <div className="h-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
           <div className="flex items-center gap-6">
-            <BrandLogo href="/dashboard/manager" subtitle="Sales Director Hub" />
+            <BrandLogo href="/dashboard/finance" subtitle="Finance & Ops Hub" />
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
             <Link
-              href="/dashboard/manager"
-              className="text-xs font-semibold text-slate-600 hover:text-slate-900 px-3.5 h-8 rounded-full border border-slate-200 bg-white hover:bg-slate-50 transition flex items-center gap-1.5 shrink-0 cursor-pointer"
+              href="/dashboard/finance"
+              className="text-xs font-semibold text-slate-600 hover:text-slate-900 px-3.5 h-8 rounded-full border border-slate-200 bg-white hover:bg-slate-50 transition flex items-center gap-1.5 shrink-0"
             >
               <ArrowLeft size={13} />
-              <span>Back to Approvals</span>
+              <span>Back to Finance Hub</span>
             </Link>
 
             <Link href="/profile" className="flex items-center gap-2.5 pl-2.5 sm:border-l sm:border-slate-200">
-              <div className="w-8 h-8 rounded-full bg-[#ff5e3a] text-white text-xs font-extrabold flex items-center justify-center shadow-sm">
-                EV
+              <div className="w-8 h-8 rounded-full bg-slate-900 text-white text-xs font-extrabold flex items-center justify-center shadow-sm">
+                FO
               </div>
               <div className="hidden md:flex flex-col text-left">
                 <span className="text-xs font-bold text-slate-900 leading-tight truncate max-w-[120px]">
-                  {user?.name || "Elena Vance"}
+                  {user?.name || "Finance Ops"}
                 </span>
                 <span className="text-[10px] text-slate-500 font-medium truncate max-w-[120px]">
-                  Sales Director
+                  Finance & Operations
                 </span>
               </div>
             </Link>
@@ -97,10 +97,10 @@ export default function ManagerApprovalDetailPage() {
         <QuotationDetailView
           quotation={quotation}
           currentUser={user}
-          userRole="SALES_MANAGER"
+          userRole="FINANCE_OPS"
           catalogProducts={products || []}
           onRefresh={refetch}
-          backHref="/dashboard/manager"
+          backHref="/dashboard/finance"
         />
       </main>
     </div>

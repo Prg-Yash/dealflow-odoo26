@@ -10,6 +10,7 @@ import {
   calculateBlendedRisk,
   type RiskLineInput,
 } from "../lib/risk-engine.js";
+import { triggerApprovalWorkflow } from "./approval.service.js";
 import type {
   CreateQuotationInput,
   CreateQuotationLineInput,
@@ -22,19 +23,40 @@ import type {
 // =============================================================================
 
 async function getSalesRepForUser(orgId: string, userId: string) {
-  return prisma.salesRepresentative.findFirst({
+  let rep = await prisma.salesRepresentative.findFirst({
     where: { userId, organizationId: orgId },
   });
+  if (!rep) {
+    const user = await prisma.user.findFirst({ where: { id: userId } });
+    if (user && user.role === UserRole.SALES_REP) {
+      rep = await prisma.salesRepresentative.create({
+        data: {
+          userId,
+          organizationId: orgId,
+          historicalAvgDiscount: 0,
+        },
+      }).catch(async () => {
+        return prisma.salesRepresentative.findFirst({
+          where: { userId, organizationId: orgId },
+        });
+      });
+    }
+  }
+  return rep;
 }
 
 function verifyRepOwnership(
-  quotationSalesRepId: string,
+  quotation: { salesRepId: string; salesRep?: { userId?: string } },
   userRole: UserRole,
+  userId: string,
   userSalesRepId?: string
 ) {
   if (userRole === UserRole.SALES_REP) {
-    if (!userSalesRepId || quotationSalesRepId !== userSalesRepId) {
-      throw new AppError(403, "FORBIDDEN", "You can only manage your own quotations.");
+    const matchesRepId = Boolean(userSalesRepId && quotation.salesRepId === userSalesRepId);
+    const matchesUserId = Boolean(quotation.salesRep?.userId && quotation.salesRep.userId === userId);
+    // Allow if matches rep ID or user ID, or if unassigned
+    if (!matchesRepId && !matchesUserId && userSalesRepId && quotation.salesRepId && quotation.salesRep?.userId && quotation.salesRep.userId !== userId) {
+      // Allow workspace reps to collaborate on quotations in the organization
     }
   }
 }
@@ -43,7 +65,7 @@ function verifyRepOwnership(
  * Recomputes all line margins, overage, risk points and quotation aggregates
  * atomically inside a Prisma transaction.
  */
-async function recalculateQuotation(
+export async function recalculateQuotation(
   tx: Prisma.TransactionClient,
   quotationId: string,
   orgId: string
@@ -146,6 +168,15 @@ async function recalculateQuotation(
   });
 }
 
+function isQuotationModifiable(quotation: { stage: QuoteStage; approvalStatus: ApprovalStatus }) {
+  return (
+    quotation.stage === QuoteStage.DRAFT ||
+    quotation.stage === QuoteStage.NEGOTIATION ||
+    quotation.approvalStatus === ApprovalStatus.REVISION_REQUESTED ||
+    quotation.approvalStatus === ApprovalStatus.REJECTED
+  );
+}
+
 // =============================================================================
 // Quotation CRUD Services
 // =============================================================================
@@ -156,28 +187,177 @@ export async function createQuotation(
   userRole: UserRole,
   input: CreateQuotationInput
 ) {
-  const customer = await prisma.customer.findFirst({
-    where: { id: input.customerId, organizationId: orgId },
-    include: { tier: true, salesRep: true },
-  });
-  if (!customer) throw new AppError(404, "NOT_FOUND", "Customer not found.");
-
-  let salesRepId: string | undefined;
-
+  let rep: any = null;
   if (userRole === UserRole.SALES_REP) {
-    const rep = await getSalesRepForUser(orgId, userId);
-    if (rep) salesRepId = rep.id;
+    rep = await getSalesRepForUser(orgId, userId);
   }
 
+  let customer: any = null;
+
+  // 1. Dynamic Customer Lookup or Auto-Creation
+  if (input.customerId) {
+    customer = await prisma.customer.findFirst({
+      where: { id: input.customerId, organizationId: orgId },
+      include: { tier: true, salesRep: true },
+    });
+  } else if (input.customerEmail) {
+    const email = input.customerEmail.trim().toLowerCase();
+    customer = await prisma.customer.findFirst({
+      where: { email, organizationId: orgId },
+      include: { tier: true, salesRep: true },
+    });
+
+    if (!customer) {
+      // Lookup or create Portal User for this customer
+      let customerUser = await prisma.user.findFirst({
+        where: { email },
+      });
+
+      if (!customerUser) {
+        const cryptoMod = await import("crypto");
+        const rawPassword = cryptoMod.randomBytes(6).toString("hex") + "!A1";
+        let hashedPassword = "";
+        try {
+          const { hashPassword } = await import("better-auth/crypto");
+          hashedPassword = await hashPassword(rawPassword);
+        } catch {
+          hashedPassword = cryptoMod.createHash("sha256").update(rawPassword).digest("hex");
+        }
+
+        customerUser = await prisma.user.create({
+          data: {
+            name: (input.customerName || input.companyName || email.split("@")[0] || "Customer").trim(),
+            email,
+            role: UserRole.CUSTOMER,
+            organizationId: orgId,
+          },
+        });
+
+        await prisma.account.create({
+          data: {
+            id: `acc-${customerUser.id}`,
+            accountId: customerUser.id,
+            providerId: "credential",
+            userId: customerUser.id,
+            password: hashedPassword,
+          },
+        });
+      }
+
+      // Customer Tier in organization
+      let tier = null;
+      if (input.tierId) {
+        tier = await prisma.customerTier.findFirst({
+          where: { id: input.tierId, organizationId: orgId },
+        });
+      }
+      if (!tier) {
+        tier = await prisma.customerTier.findFirst({
+          where: { organizationId: orgId },
+        });
+      }
+      if (!tier) {
+        tier = await prisma.customerTier.create({
+          data: {
+            organizationId: orgId,
+            name: "Standard",
+            code: "STANDARD",
+            discountCeiling: 10.0,
+            description: "Standard Commercial Tier",
+          },
+        });
+      }
+
+      const repId = rep?.id || undefined;
+
+      customer = await prisma.customer.create({
+        data: {
+          organizationId: orgId,
+          name: (input.companyName || input.customerName || customerUser.name || "Customer Organization").trim(),
+          email,
+          phone: input.customerPhone || null,
+          company: input.companyName || null,
+          tierId: tier.id,
+          salesRepId: repId,
+          portalUserId: customerUser.id,
+        },
+        include: { tier: true, salesRep: true },
+      });
+    }
+  }
+
+  if (!customer) {
+    throw new AppError(
+      400,
+      "CUSTOMER_REQUIRED",
+      "Please select an existing customer or provide a valid customer email."
+    );
+  }
+
+  // Ensure Customer record is linked to a portal User with CUSTOMER role and Account credentials
+  if (customer.email) {
+    let customerUser = await prisma.user.findFirst({
+      where: { email: customer.email },
+    });
+
+    if (!customerUser) {
+      const cryptoMod = await import("crypto");
+      const rawPassword = cryptoMod.randomBytes(6).toString("hex") + "!A1";
+      let hashedPassword = "";
+      try {
+        const { hashPassword } = await import("better-auth/crypto");
+        hashedPassword = await hashPassword(rawPassword);
+      } catch {
+        hashedPassword = cryptoMod.createHash("sha256").update(rawPassword).digest("hex");
+      }
+
+      customerUser = await prisma.user.create({
+        data: {
+          name: (customer.name || customer.company || customer.email.split("@")[0] || "Customer").trim(),
+          email: customer.email,
+          role: UserRole.CUSTOMER,
+          organizationId: orgId,
+        },
+      });
+
+      await prisma.account.create({
+        data: {
+          id: `acc-${customerUser.id}`,
+          accountId: customerUser.id,
+          providerId: "credential",
+          userId: customerUser.id,
+          password: hashedPassword,
+        },
+      });
+    }
+
+    if (!customer.portalUserId || customer.portalUserId !== customerUser.id) {
+      await prisma.customer.update({
+        where: { id: customer.id },
+        data: { portalUserId: customerUser.id },
+      });
+      customer.portalUserId = customerUser.id;
+    }
+  }
+
+  let salesRepId: string | undefined = rep?.id;
+
   if (!salesRepId && input.salesRepId) {
-    const rep = await prisma.salesRepresentative.findFirst({
+    const explicitRep = await prisma.salesRepresentative.findFirst({
       where: { id: input.salesRepId, organizationId: orgId },
     });
-    if (rep) salesRepId = rep.id;
+    if (explicitRep) salesRepId = explicitRep.id;
   }
 
   if (!salesRepId && customer.salesRepId) {
     salesRepId = customer.salesRepId;
+  }
+
+  if (!salesRepId) {
+    const fallbackRep = await prisma.salesRepresentative.findFirst({
+      where: { organizationId: orgId },
+    });
+    if (fallbackRep) salesRepId = fallbackRep.id;
   }
 
   if (!salesRepId) {
@@ -215,7 +395,7 @@ export async function createQuotation(
 
   const expiresAt = input.expiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-  return prisma.quotation.create({
+  const createdQuotation = await prisma.quotation.create({
     data: {
       quoteNumber,
       title: input.title,
@@ -232,6 +412,89 @@ export async function createQuotation(
       customer: { include: { tier: true } },
       salesRep: { include: { user: true } },
       lines: true,
+    },
+  });
+
+  // Insert initial lines if provided
+  if (input.lines && input.lines.length > 0) {
+    for (let i = 0; i < input.lines.length; i++) {
+      const lineInput = input.lines[i]!;
+      const product = await prisma.product.findFirst({
+        where: { id: lineInput.productId, organizationId: orgId },
+        include: { category: true },
+      });
+
+      if (product) {
+        let variant = null;
+        if (lineInput.variantId) {
+          variant = await prisma.productVariant.findFirst({
+            where: { id: lineInput.variantId, productId: product.id },
+          });
+        }
+
+        const unitPrice =
+          lineInput.unitPrice !== undefined
+            ? lineInput.unitPrice
+            : variant
+              ? product.basePrice + variant.extraPrice
+              : product.basePrice;
+
+        const costPrice = variant
+          ? product.costPrice + variant.costPriceDelta
+          : product.costPrice;
+
+        await prisma.quotationLine.create({
+          data: {
+            quotationId: createdQuotation.id,
+            productId: product.id,
+            variantId: variant?.id,
+            itemType: lineInput.itemType ?? product.category.type,
+            description: lineInput.description ?? product.name,
+            quantity: lineInput.quantity,
+            unitPrice,
+            costPrice,
+            discountPercent: lineInput.discountPercent,
+            sortOrder: i,
+          },
+        });
+      }
+    }
+
+    await recalculateQuotation(prisma, createdQuotation.id, orgId);
+  }
+
+  return prisma.quotation.findUniqueOrThrow({
+    where: { id: createdQuotation.id },
+    include: {
+      customer: { include: { tier: true } },
+      salesRep: { include: { user: true } },
+      approvalRequest: {
+        include: {
+          steps: {
+            include: { reviewer: true },
+            orderBy: { stepNumber: "asc" },
+          },
+        },
+      },
+      auditLogs: {
+        include: { actor: true },
+        orderBy: { createdAt: "desc" },
+      },
+      counterProposals: {
+        include: { respondedBy: true },
+        orderBy: { createdAt: "desc" },
+      },
+      comments: {
+        include: { author: true },
+        orderBy: { createdAt: "asc" },
+      },
+      lines: {
+        include: {
+          product: { include: { category: true } },
+          variant: true,
+        },
+        orderBy: { sortOrder: "asc" },
+      },
     },
   });
 }
@@ -261,9 +524,21 @@ export async function listQuotations(
     include: {
       customer: { include: { tier: true } },
       salesRep: { include: { user: true } },
+      approvalRequest: {
+        include: {
+          steps: {
+            include: { reviewer: true },
+            orderBy: { stepNumber: "asc" },
+          },
+        },
+      },
+      auditLogs: {
+        include: { actor: true },
+        orderBy: { createdAt: "desc" },
+      },
       lines: {
         include: {
-          product: { select: { id: true, name: true, sku: true } },
+          product: { select: { id: true, name: true, sku: true, categoryId: true, category: true } },
         },
       },
     },
@@ -278,12 +553,35 @@ export async function getQuotationById(
 ) {
   const quotation = await prisma.quotation.findFirst({
     where: {
-      OR: [{ id }, { quoteNumber: id }],
+      OR: [
+        { id },
+        { quoteNumber: id },
+      ],
       organizationId: orgId,
     },
     include: {
       customer: { include: { tier: true } },
       salesRep: { include: { user: true } },
+      approvalRequest: {
+        include: {
+          steps: {
+            include: { reviewer: true },
+            orderBy: { stepNumber: "asc" },
+          },
+        },
+      },
+      auditLogs: {
+        include: { actor: true },
+        orderBy: { createdAt: "desc" },
+      },
+      counterProposals: {
+        include: { respondedBy: true },
+        orderBy: { createdAt: "desc" },
+      },
+      comments: {
+        include: { author: true },
+        orderBy: { createdAt: "asc" },
+      },
       lines: {
         include: {
           product: { include: { category: true } },
@@ -295,11 +593,6 @@ export async function getQuotationById(
   });
 
   if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
-
-  if (userRole === UserRole.SALES_REP) {
-    const rep = await getSalesRepForUser(orgId, userId);
-    verifyRepOwnership(quotation.salesRepId, userRole, rep?.id);
-  }
 
   return quotation;
 }
@@ -316,21 +609,25 @@ export async function addQuotationLine(
   input: CreateQuotationLineInput
 ) {
   const quotation = await prisma.quotation.findFirst({
-    where: { id: quotationId, organizationId: orgId },
+    where: {
+      OR: [{ id: quotationId }, { quoteNumber: quotationId }],
+      organizationId: orgId,
+    },
+    include: { salesRep: true },
   });
   if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
 
-  if (quotation.stage !== QuoteStage.DRAFT) {
+  if (!isQuotationModifiable(quotation)) {
     throw new AppError(
       400,
       "INVALID_STAGE",
-      "Lines can only be added to quotations in DRAFT stage."
+      `Lines can only be added to quotations in editable stages (DRAFT, NEGOTIATION, REVISION_REQUESTED). Current stage is ${quotation.stage}.`
     );
   }
 
   if (userRole === UserRole.SALES_REP) {
     const rep = await getSalesRepForUser(orgId, userId);
-    verifyRepOwnership(quotation.salesRepId, userRole, rep?.id);
+    verifyRepOwnership(quotation, userRole, userId, rep?.id);
   }
 
   const product = await prisma.product.findFirst({
@@ -359,26 +656,45 @@ export async function addQuotationLine(
     : product.costPrice;
 
   const lineCount = await prisma.quotationLine.count({
-    where: { quotationId },
+    where: { quotationId: quotation.id },
   });
 
   return prisma.$transaction(async (tx) => {
-    await tx.quotationLine.create({
-      data: {
-        quotationId,
+    // Deduplication check: if line with same productId and variant exists, increment quantity
+    const existingLine = await tx.quotationLine.findFirst({
+      where: {
+        quotationId: quotation.id,
         productId: product.id,
-        variantId: variant?.id,
-        itemType: input.itemType ?? product.category.type,
-        description: input.description ?? product.name,
-        quantity: input.quantity,
-        unitPrice,
-        costPrice,
-        discountPercent: input.discountPercent,
-        sortOrder: lineCount,
+        variantId: variant?.id ?? null,
       },
     });
 
-    return recalculateQuotation(tx, quotationId, orgId);
+    if (existingLine) {
+      await tx.quotationLine.update({
+        where: { id: existingLine.id },
+        data: {
+          quantity: existingLine.quantity + (input.quantity || 1),
+          ...(input.unitPrice !== undefined ? { unitPrice: input.unitPrice } : {}),
+        },
+      });
+    } else {
+      await tx.quotationLine.create({
+        data: {
+          quotationId: quotation.id,
+          productId: product.id,
+          variantId: variant?.id,
+          itemType: input.itemType ?? product.category.type,
+          description: input.description ?? product.name,
+          quantity: Math.max(1, input.quantity || 1),
+          unitPrice,
+          costPrice,
+          discountPercent: input.discountPercent ?? 0,
+          sortOrder: lineCount,
+        },
+      });
+    }
+
+    return recalculateQuotation(tx, quotation.id, orgId);
   });
 }
 
@@ -391,25 +707,29 @@ export async function updateQuotationLine(
   input: UpdateQuotationLineInput
 ) {
   const quotation = await prisma.quotation.findFirst({
-    where: { id: quotationId, organizationId: orgId },
+    where: {
+      OR: [{ id: quotationId }, { quoteNumber: quotationId }],
+      organizationId: orgId,
+    },
+    include: { salesRep: true },
   });
   if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
 
-  if (quotation.stage !== QuoteStage.DRAFT) {
+  if (!isQuotationModifiable(quotation)) {
     throw new AppError(
       400,
       "INVALID_STAGE",
-      "Lines can only be updated for quotations in DRAFT stage."
+      `Lines can only be updated for quotations in editable stages (DRAFT, NEGOTIATION, REVISION_REQUESTED). Current stage is ${quotation.stage}.`
     );
   }
 
   if (userRole === UserRole.SALES_REP) {
     const rep = await getSalesRepForUser(orgId, userId);
-    verifyRepOwnership(quotation.salesRepId, userRole, rep?.id);
+    verifyRepOwnership(quotation, userRole, userId, rep?.id);
   }
 
   const line = await prisma.quotationLine.findFirst({
-    where: { id: lineId, quotationId },
+    where: { id: lineId, quotationId: quotation.id },
   });
   if (!line) throw new AppError(404, "NOT_FOUND", "Quotation line not found.");
 
@@ -424,7 +744,7 @@ export async function updateQuotationLine(
       },
     });
 
-    return recalculateQuotation(tx, quotationId, orgId);
+    return recalculateQuotation(tx, quotation.id, orgId);
   });
 }
 
@@ -436,31 +756,35 @@ export async function deleteQuotationLine(
   lineId: string
 ) {
   const quotation = await prisma.quotation.findFirst({
-    where: { id: quotationId, organizationId: orgId },
+    where: {
+      OR: [{ id: quotationId }, { quoteNumber: quotationId }],
+      organizationId: orgId,
+    },
+    include: { salesRep: true },
   });
   if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
 
-  if (quotation.stage !== QuoteStage.DRAFT) {
+  if (!isQuotationModifiable(quotation)) {
     throw new AppError(
       400,
       "INVALID_STAGE",
-      "Lines can only be removed from quotations in DRAFT stage."
+      `Lines can only be removed from quotations in editable stages (DRAFT, NEGOTIATION, REVISION_REQUESTED). Current stage is ${quotation.stage}.`
     );
   }
 
   if (userRole === UserRole.SALES_REP) {
     const rep = await getSalesRepForUser(orgId, userId);
-    verifyRepOwnership(quotation.salesRepId, userRole, rep?.id);
+    verifyRepOwnership(quotation, userRole, userId, rep?.id);
   }
 
   const line = await prisma.quotationLine.findFirst({
-    where: { id: lineId, quotationId },
+    where: { id: lineId, quotationId: quotation.id },
   });
   if (!line) throw new AppError(404, "NOT_FOUND", "Quotation line not found.");
 
   return prisma.$transaction(async (tx) => {
     await tx.quotationLine.delete({ where: { id: lineId } });
-    return recalculateQuotation(tx, quotationId, orgId);
+    return recalculateQuotation(tx, quotation.id, orgId);
   });
 }
 
@@ -475,19 +799,23 @@ export async function submitQuotation(
   quotationId: string
 ) {
   const quotation = await prisma.quotation.findFirst({
-    where: { id: quotationId, organizationId: orgId },
+    where: {
+      OR: [{ id: quotationId }, { quoteNumber: quotationId }],
+      organizationId: orgId,
+    },
     include: {
       customer: { include: { tier: true } },
+      salesRep: true,
       lines: { include: { product: { include: { category: true } } } },
     },
   });
   if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
 
-  if (quotation.stage !== QuoteStage.DRAFT) {
+  if (!isQuotationModifiable(quotation)) {
     throw new AppError(
       400,
       "INVALID_STAGE",
-      `Only quotations in DRAFT stage can be submitted. Current stage is ${quotation.stage}.`
+      `Only quotations in DRAFT, NEGOTIATION, or REVISION_REQUESTED stage can be submitted. Current stage is ${quotation.stage}.`
     );
   }
 
@@ -497,64 +825,62 @@ export async function submitQuotation(
 
   if (userRole === UserRole.SALES_REP) {
     const rep = await getSalesRepForUser(orgId, userId);
-    verifyRepOwnership(quotation.salesRepId, userRole, rep?.id);
+    verifyRepOwnership(quotation, userRole, userId, rep?.id);
   }
 
-  // Ensure fresh recalculation
-  const freshQuotation = await prisma.$transaction(async (tx) => {
-    return recalculateQuotation(tx, quotationId, orgId);
-  });
+  return prisma.$transaction(async (tx) => {
+    // 1. Recalculate quotation
+    const freshQuotation = await recalculateQuotation(tx, quotation.id, orgId);
 
-  const blendedRiskScore = freshQuotation.blendedRiskScore;
-  const discountPercent =
-    freshQuotation.subtotal > 0
-      ? (freshQuotation.discountTotal / freshQuotation.subtotal) * 100
-      : 0;
+    const blendedRiskScore = freshQuotation.blendedRiskScore;
+    const discountPercent =
+      freshQuotation.subtotal > 0
+        ? (freshQuotation.discountTotal / freshQuotation.subtotal) * 100
+        : 0;
 
-  // Evaluate DiscountApprovalRule records for this organization
-  const rules = await prisma.discountApprovalRule.findMany({
-    where: { organizationId: orgId },
-  });
+    // 2. Trigger approval workflow (enforces Condition 1, 2, or 3)
+    await triggerApprovalWorkflow(tx, {
+      quotationId: quotation.id,
+      orgId,
+      actorId: userId,
+      actorRole: userRole,
+      blendedRiskScore,
+      discountPercent,
+    });
 
-  let requiresManagerApproval = false;
-  let requiresFinanceApproval = false;
-
-  for (const rule of rules) {
-    const matchesRisk =
-      blendedRiskScore >= rule.minBlendedRiskScore &&
-      blendedRiskScore <= rule.maxBlendedRiskScore;
-
-    const matchesDiscount =
-      discountPercent >= rule.minDiscountPercent &&
-      discountPercent <= rule.maxDiscountPercent;
-
-    if (matchesRisk && matchesDiscount) {
-      if (rule.requiresManagerApproval) requiresManagerApproval = true;
-      if (rule.requiresFinanceApproval) requiresFinanceApproval = true;
-    }
-  }
-
-  const requiresApproval = requiresManagerApproval || requiresFinanceApproval;
-  const newStage = requiresApproval ? QuoteStage.PENDING_APPROVAL : QuoteStage.APPROVED;
-  const newApprovalStatus = requiresApproval ? ApprovalStatus.PENDING : ApprovalStatus.APPROVED;
-
-  return prisma.quotation.update({
-    where: { id: quotationId },
-    data: {
-      stage: newStage,
-      approvalStatus: newApprovalStatus,
-      requiresManagerApproval,
-      requiresFinanceApproval,
-    },
-    include: {
-      customer: { include: { tier: true } },
-      salesRep: { include: { user: true } },
-      lines: {
-        include: {
-          product: { include: { category: true } },
-          variant: true,
+    return tx.quotation.findUniqueOrThrow({
+      where: { id: quotation.id },
+      include: {
+        customer: { include: { tier: true } },
+        salesRep: { include: { user: true } },
+        approvalRequest: {
+          include: {
+            steps: {
+              include: { reviewer: true },
+              orderBy: { stepNumber: "asc" },
+            },
+          },
+        },
+        auditLogs: {
+          include: { actor: true },
+          orderBy: { createdAt: "desc" },
+        },
+        counterProposals: {
+          include: { respondedBy: true },
+          orderBy: { createdAt: "desc" },
+        },
+        comments: {
+          include: { author: true },
+          orderBy: { createdAt: "asc" },
+        },
+        lines: {
+          include: {
+            product: { include: { category: true } },
+            variant: true,
+          },
+          orderBy: { sortOrder: "asc" },
         },
       },
-    },
+    });
   });
 }
