@@ -55,7 +55,7 @@ export async function getOrganizationById(id: string) {
       warehouses: {
         where: { isActive: true },
       },
-      createdBy: {
+      creator: {
         select: {
           id: true,
           name: true,

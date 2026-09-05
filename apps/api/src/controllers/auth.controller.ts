@@ -31,9 +31,9 @@ export const getMe = asyncHandler(async (req: AuthRequest, res: Response) => {
       createdAt: user.createdAt,
     },
     profile:
-      user.salesRepProfile ||
-      user.salesManagerProfile ||
-      user.financeOpsProfile ||
+      user.salesRep ||
+      user.salesManager ||
+      user.financeOpsUser ||
       null,
     capabilities: {
       roleTitle: tasksInfo.title,
