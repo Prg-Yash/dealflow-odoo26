@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Lock, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 import { AuthCard } from "@repo/ui";
-import { isValidPassword } from "../../lib/validation";
+import { isValidPassword } from "../../../lib/validation";
 
 export default function ResetPasswordPage() {
   const [token] = useState<string | null>(() => {
@@ -122,7 +122,7 @@ export default function ResetPasswordPage() {
           </Link>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-left">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3.5 text-left">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="newPassword">
               New Password <span className="text-[#ff5e3a]">*</span>

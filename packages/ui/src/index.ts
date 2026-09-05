@@ -27,3 +27,4 @@ export { ApprovalTracker } from "./components/approval-tracker";
 export { QuotationLineItems, type LineItem } from "./components/quotation-line-items";
 export { QuotationMarginCard } from "./components/quotation-margin-card";
 export { CatalogModal, type CatalogProduct } from "./components/catalog-modal";
+export { NotificationModal, type DealNotification } from "./components/notification-modal";

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Mail, CheckCircle2, ArrowLeft } from "lucide-react";
 import { AuthCard } from "@repo/ui";
-import { isValidEmail } from "../../lib/validation";
+import { isValidEmail } from "../../../lib/validation";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -92,7 +92,7 @@ export default function ForgotPasswordPage() {
           </Link>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-left">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3.5 text-left">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-bold uppercase tracking-wider text-slate-600" htmlFor="recoveryEmail">
               Email Address <span className="text-[#ff5e3a]">*</span>

@@ -16,9 +16,8 @@ export function BrandLogo({ href = "/", size = "md", subtitle, className, as: Li
     <div className={`inline-flex items-center gap-2.5 select-none ${className || ""}`}>
       {/* Monogram Box */}
       <div
-        className={`flex items-center justify-center rounded-xl bg-gradient-to-br from-[#ff7a50] to-[#ea4e28] text-white font-extrabold shadow-sm shadow-[#ff5e3a]/25 shrink-0 ${
-          isSm ? "w-7 h-7 text-xs" : isLg ? "w-11 h-11 text-base" : "w-8 h-8 text-sm"
-        }`}
+        className={`flex items-center justify-center rounded-xl bg-gradient-to-br from-[#ff7a50] to-[#ea4e28] text-white font-extrabold shadow-sm shadow-[#ff5e3a]/25 shrink-0 ${isSm ? "w-7 h-7 text-xs" : isLg ? "w-11 h-11 text-base" : "w-8 h-8 text-sm"
+          }`}
       >
         <svg
           viewBox="0 0 24 24"
@@ -36,9 +35,8 @@ export function BrandLogo({ href = "/", size = "md", subtitle, className, as: Li
 
       <div className="flex flex-col">
         <span
-          className={`font-extrabold tracking-tight text-slate-900 ${
-            isSm ? "text-sm" : isLg ? "text-xl" : "text-base"
-          }`}
+          className={`font-extrabold tracking-tight text-slate-900 ${isSm ? "text-sm" : isLg ? "text-xl" : "text-base"
+            }`}
         >
           DealFlow<span className="text-[#ff5e3a]">360</span>
         </span>
