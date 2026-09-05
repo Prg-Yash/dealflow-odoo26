@@ -27,7 +27,7 @@ export async function createWarehouse({
       createdById,
     },
     include: {
-      createdBy: {
+      creator: {
         select: {
           id: true,
           name: true,
