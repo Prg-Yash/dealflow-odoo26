@@ -88,7 +88,6 @@ export function middleware(request: NextRequest) {
         const currentSegment = pathname.split("/")[2]; // e.g. "admin", "manager", "sale-ref", "finance"
         const allowedSegment = targetDashboard.split("/")[2];
 
-        // If visiting base /dashboard or a dashboard belonging to another role
         if (!currentSegment || (allowedSegment && currentSegment !== allowedSegment)) {
           const url = request.nextUrl.clone();
           url.pathname = targetDashboard;

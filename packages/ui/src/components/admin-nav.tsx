@@ -2,18 +2,18 @@
 
 import { useState, type ReactNode, type ComponentType } from "react";
 import { BrandLogo } from "./brand-logo";
-import { Activity, Layers, Sliders, Users, Warehouse, Boxes, BarChart3 } from "lucide-react";
+import { Activity, Layers, Sliders, Warehouse, Boxes, BarChart3, CheckCircle2, FileText } from "lucide-react";
 import { ProfileModal } from "./profile-modal";
 
 export interface AdminNavTabItem {
-  id: "overview" | "catalog" | "rules" | "team" | "warehouses" | "inventory" | "reports";
+  id: "overview" | "catalog" | "rules" | "warehouses" | "inventory" | "reports" | "approvals" | "quotations";
   label: string;
   href: string;
   icon: ComponentType<{ size?: number; className?: string }>;
 }
 
 export interface AdminNavProps {
-  activeTab?: "overview" | "catalog" | "rules" | "team" | "warehouses" | "inventory" | "reports";
+  activeTab?: "overview" | "catalog" | "rules" | "warehouses" | "inventory" | "reports" | "approvals" | "quotations";
   currentPath?: string;
   adminName?: string;
   adminEmail?: string;
@@ -42,7 +42,8 @@ const ADMIN_TABS: AdminNavTabItem[] = [
   { id: "overview", label: "Overview", href: "/dashboard/admin", icon: Activity },
   { id: "catalog", label: "Products", href: "/dashboard/admin/catalog", icon: Layers },
   { id: "rules", label: "Discount Rules", href: "/dashboard/admin/rules", icon: Sliders },
-  { id: "team", label: "Team & Access", href: "/dashboard/admin/team", icon: Users },
+  { id: "approvals", label: "Approvals", href: "/dashboard/admin/approvals", icon: CheckCircle2 },
+  { id: "quotations", label: "Quotations", href: "/dashboard/admin/quotations", icon: FileText },
   { id: "warehouses", label: "Warehouses", href: "/dashboard/admin/warehouses", icon: Warehouse },
   { id: "inventory", label: "Inventory", href: "/dashboard/admin/inventory", icon: Boxes },
   { id: "reports", label: "Reports", href: "/dashboard/admin/reports", icon: BarChart3 },
@@ -84,6 +85,46 @@ export function AdminNav({
             {ADMIN_TABS.map((tab) => {
               const isActive = getIsActive(tab);
               const Icon = tab.icon;
+              if (tab.id === "approvals") {
+                return (
+                  <div key={tab.id} className="relative group">
+                    <NavLink
+                      href="/dashboard/admin/approvals/manager"
+                      linkComponent={LinkComp}
+                      className={`inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 ${
+                        isActive
+                          ? "bg-[#ff5e3a] text-white shadow-sm"
+                          : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
+                      }`}
+                    >
+                      <Icon size={14} className={isActive ? "text-white" : "text-slate-500"} />
+                      <span>{tab.label}</span>
+                    </NavLink>
+                    
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                      <div className="bg-white border border-slate-200 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.08)] p-1.5 flex flex-col min-w-[160px]">
+                        <NavLink
+                          href="/dashboard/admin/approvals/manager"
+                          linkComponent={LinkComp}
+                          className="px-3 py-2.5 text-xs font-bold text-slate-600 hover:text-[#ff5e3a] hover:bg-slate-50 rounded-lg whitespace-nowrap transition-colors flex items-center gap-2"
+                        >
+                          <CheckCircle2 size={13} className="opacity-50" />
+                          Manager Queue
+                        </NavLink>
+                        <NavLink
+                          href="/dashboard/admin/approvals/finance"
+                          linkComponent={LinkComp}
+                          className="px-3 py-2.5 text-xs font-bold text-slate-600 hover:text-[#ff5e3a] hover:bg-slate-50 rounded-lg whitespace-nowrap transition-colors flex items-center gap-2"
+                        >
+                          <CheckCircle2 size={13} className="opacity-50" />
+                          Finance Queue
+                        </NavLink>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
               return (
                 <NavLink
                   key={tab.id}

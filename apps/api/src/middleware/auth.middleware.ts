@@ -68,9 +68,6 @@ export async function requireAuth(
   }
 }
 
-/**
- * Checks whether the authenticated user has one of the allowed roles
- */
 export function requireRole(...allowedRoles: UserRole[]) {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
@@ -80,7 +77,7 @@ export function requireRole(...allowedRoles: UserRole[]) {
       });
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    if (req.user.role !== "ADMIN" && !allowedRoles.includes(req.user.role)) {
       return res.status(403).json({
         error: "Forbidden",
         message: `Role '${req.user.role}' does not have sufficient permissions to access this resource. Required: ${allowedRoles.join(", ")}`,

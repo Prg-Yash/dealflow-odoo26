@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { filterByTimePeriod, type TimePeriod } from "../../../../lib/time-filter";
 import {
   Layers,
   Sliders,
@@ -17,6 +18,7 @@ import {
   Clock,
   AlertTriangle,
   Activity,
+  FileText,
 } from "lucide-react";
 import {
   useCurrentOrg,
@@ -36,6 +38,7 @@ import {
 
 export default function AdminOverviewPage() {
   const [filterLevel, setFilterLevel] = useState<"ALL" | "INFO" | "WARN" | "CRITICAL">("ALL");
+  const [timePeriod, setTimePeriod] = useState<TimePeriod>("all_time");
 
   const { data: currentOrg, isLoading: isOrgLoading } = useCurrentOrg();
   const { data: apiMembers } = useMembers();
@@ -79,7 +82,8 @@ export default function AdminOverviewPage() {
   const stockLevelsList = Array.isArray(apiStockLevels) ? apiStockLevels : [];
   const tiersList = Array.isArray(apiTiers) ? apiTiers : [];
   const rulesList = Array.isArray(apiRules) ? apiRules : [];
-  const quotationsList = Array.isArray(apiQuotations) ? apiQuotations : [];
+  const rawQuotationsList = Array.isArray(apiQuotations) ? apiQuotations : [];
+  const quotationsList = filterByTimePeriod(rawQuotationsList, "createdAt", timePeriod);
 
   // Dynamic counts
   const membersCount = membersList.length || 1;
@@ -210,8 +214,21 @@ export default function AdminOverviewPage() {
           </p>
         </div>
 
-        {/* Quick Action Shortcuts */}
+        {/* Quick Action Shortcuts & Filters */}
         <div className="flex flex-wrap items-center gap-2.5">
+          <select
+            value={timePeriod}
+            onChange={(e) => setTimePeriod(e.target.value as TimePeriod)}
+            className="text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-[#ff5e3a]/20 focus:border-[#ff5e3a] shadow-sm cursor-pointer appearance-none"
+            style={{ backgroundImage: `url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.7rem top 50%', backgroundSize: '0.65rem auto', paddingRight: '2rem' }}
+          >
+            <option value="7_days">Last 7 Days</option>
+            <option value="30_days">Last 30 Days</option>
+            <option value="this_quarter">This Quarter</option>
+            <option value="ytd">Year to Date</option>
+            <option value="all_time">All Time</option>
+          </select>
+          <div className="hidden sm:block w-px h-6 bg-slate-200 mx-1"></div>
           <Link
             href="/dashboard/admin/catalog"
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-semibold shadow-sm shadow-[#ff5e3a]/25 transition"
@@ -692,6 +709,8 @@ export default function AdminOverviewPage() {
           </div>
         )}
       </div>
+
+      {/* Admin Approvals Consolidation (Manager + Finance) */}
     </div>
   );
 }
