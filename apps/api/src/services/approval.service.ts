@@ -147,17 +147,21 @@ export async function evaluateApprovalRules(
     let requiresFinanceApproval = false;
 
     for (const rule of rules) {
-      const matchesRisk =
-        blendedRiskScore >= rule.minBlendedRiskScore &&
-        blendedRiskScore <= rule.maxBlendedRiskScore;
-
-      const matchesDiscount =
-        discountPercent >= rule.minDiscountPercent &&
-        discountPercent <= rule.maxDiscountPercent;
-
-      if (matchesRisk && matchesDiscount) {
-        if (rule.requiresManagerApproval) requiresManagerApproval = true;
-        if (rule.requiresFinanceApproval) requiresFinanceApproval = true;
+      if (rule.requiresFinanceApproval) {
+        const triggered =
+          blendedRiskScore >= rule.minBlendedRiskScore ||
+          discountPercent >= rule.minDiscountPercent;
+        if (triggered) {
+          requiresManagerApproval = true;
+          requiresFinanceApproval = true;
+        }
+      } else if (rule.requiresManagerApproval) {
+        const triggered =
+          blendedRiskScore >= rule.minBlendedRiskScore ||
+          discountPercent >= rule.minDiscountPercent;
+        if (triggered) {
+          requiresManagerApproval = true;
+        }
       }
     }
 

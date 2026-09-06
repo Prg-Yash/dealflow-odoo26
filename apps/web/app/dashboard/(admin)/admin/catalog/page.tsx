@@ -225,13 +225,17 @@ export default function AdminCatalogPage() {
     const currencyCount = currencySet.size;
 
     const totalVariants = productsList.reduce((acc, p) => acc + (p.variants?.length || 0), 0);
+    const productsWithVariants = productsList.filter((p) => (p.variants?.length || 0) > 0).length;
     const totalSkus = totalProducts + totalVariants;
 
     return {
+      totalProducts,
       activeProducts,
       archivedProducts,
       tierCount,
       currencyCount,
+      totalVariants,
+      productsWithVariants,
       totalSkus,
     };
   }, [productsList, tiersList, priceListsList]);
@@ -334,6 +338,25 @@ export default function AdminCatalogPage() {
             isPromoted: formIsPromoted,
           },
         });
+
+        // Persist any uncommitted variants for existing product
+        const uncommitted = formVariants.filter((v) => !v.id || v.id.startsWith("temp-"));
+        for (const v of uncommitted) {
+          try {
+            await createVariantMutation.mutateAsync({
+              productId: selectedProduct.id,
+              body: {
+                attributeName: v.attributeName,
+                attributeValue: v.attributeValue,
+                extraPrice: v.extraPrice,
+                sku: `${selectedProduct.sku}-${v.attributeValue.toUpperCase().replace(/\s+/g, "-")}`,
+              },
+            });
+          } catch (err) {
+            console.error("Variant creation error:", err);
+          }
+        }
+
         showToast(`Product ${formName} updated successfully!`);
       } else {
         const createdProduct = await createProductMutation.mutateAsync({
@@ -1031,15 +1054,15 @@ export default function AdminCatalogPage() {
           {/* Card 3: Variants */}
           <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs flex flex-col justify-between hover:border-slate-300 transition">
             <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase tracking-wider">
-              <span>Variants</span>
+              <span>Variants &amp; Attributes</span>
               <Layers size={16} className="text-amber-500" />
             </div>
             <div className="mt-3">
               <div className="text-2xl font-extrabold text-slate-900">
-                {metrics.totalSkus} Active SKUs
+                {metrics.totalVariants} Variants ({metrics.totalSkus} Total SKUs)
               </div>
               <p className="text-xs text-slate-500 mt-1 font-medium">
-                Dimensional attributes (RAM, Size, Color) across all products
+                {metrics.productsWithVariants} of {metrics.totalProducts} products configured with dimensional attributes
               </p>
             </div>
           </div>
@@ -1155,8 +1178,30 @@ export default function AdminCatalogPage() {
                                 {p.category?.name || "General"}
                               </span>
                             </td>
-                            <td className="py-3.5 px-4 text-slate-600 font-mono">
-                              {variantText}
+                            <td className="py-3.5 px-4">
+                              {p.variants && p.variants.length > 0 ? (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200/80 text-amber-800 text-[10px] font-bold">
+                                    {p.variants.length} {p.variants.length === 1 ? "variant" : "variants"}
+                                  </span>
+                                  {p.variants.slice(0, 2).map((v) => (
+                                    <span
+                                      key={v.id}
+                                      className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-mono"
+                                      title={`${v.attributeName}: ${v.attributeValue} (+₹${v.extraPrice ?? 0})`}
+                                    >
+                                      {v.attributeValue}
+                                    </span>
+                                  ))}
+                                  {p.variants.length > 2 && (
+                                    <span className="text-[10px] text-slate-400 font-bold">
+                                      +{p.variants.length - 2} more
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 text-xs">—</span>
+                              )}
                             </td>
                             <td className="py-3.5 px-4 font-bold text-slate-900">
                               {isSub ? `$${p.basePrice}/mo` : `$${p.basePrice.toLocaleString()}`}
@@ -1730,22 +1775,22 @@ export default function AdminCatalogPage() {
         ══════════════════════════════════════════════════════════════════════ */}
         {activeTab === "recommendations" && (
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-6 animate-in fade-in duration-200">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
-              <div>
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <Sparkles size={18} className="text-amber-500" />
+                  <Sparkles size={18} className="text-amber-500 shrink-0" />
                   <h2 className="text-base font-bold text-slate-900">Upsell &amp; Cross-Sell Suggestions Engine</h2>
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-slate-500 mt-0.5 max-w-2xl">
                   Configure live product pairings, co-purchase affinity weights, and hard minimum margin floors to safeguard deal margins.
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 self-start sm:self-auto">
+              <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
                 <button
                   type="button"
                   onClick={handleGenerateSmartPairings}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-xs transition cursor-pointer shrink-0 whitespace-nowrap active:scale-95"
                 >
                   <Sparkles size={13} />
                   <span>✨ Generate Smart Pairings</span>
@@ -1753,7 +1798,7 @@ export default function AdminCatalogPage() {
                 <button
                   type="button"
                   onClick={handleOpenNewRec}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#3b82f6] hover:bg-[#2563eb] text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#3b82f6] hover:bg-[#2563eb] text-white text-xs font-bold shadow-xs transition cursor-pointer shrink-0 whitespace-nowrap active:scale-95"
                 >
                   <Plus size={14} />
                   <span>+ Add Pairing Rule</span>
@@ -1807,11 +1852,11 @@ export default function AdminCatalogPage() {
                 <p className="text-xs text-slate-500 max-w-md mx-auto">
                   Click below to auto-generate smart pairings between catalog hardware, accessories, and warranty SLAs.
                 </p>
-                <div className="flex items-center justify-center gap-2 pt-2">
+                <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
                   <button
                     type="button"
                     onClick={handleGenerateSmartPairings}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-xs cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-xs cursor-pointer shrink-0 whitespace-nowrap active:scale-95 transition"
                   >
                     <Sparkles size={14} />
                     <span>✨ Auto-Generate Smart Pairings</span>
@@ -1819,7 +1864,7 @@ export default function AdminCatalogPage() {
                   <button
                     type="button"
                     onClick={handleOpenNewRec}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs cursor-pointer shrink-0 whitespace-nowrap active:scale-95 transition"
                   >
                     <Plus size={14} />
                     <span>+ Custom Pairing</span>

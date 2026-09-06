@@ -97,3 +97,36 @@ export const addQuotationComment = asyncHandler(async (req: TenantRequest, res: 
   return res.status(201).json({ success: true, data: comment });
 });
 
+export const updateQuotationStage = asyncHandler(async (req: TenantRequest, res: Response) => {
+  const updatedQuotation = await quotationService.updateQuotationStage(
+    req.orgId,
+    req.user!.id,
+    req.user!.role,
+    req.params.id as string,
+    req.body.stage,
+    req.body.reason
+  );
+  return res.json({ success: true, data: updatedQuotation });
+});
+
+export const approveQuotation = asyncHandler(async (req: TenantRequest, res: Response) => {
+  const updatedQuotation = await quotationService.approveQuotationStep(
+    req.orgId,
+    req.user!.id,
+    req.user!.role,
+    req.params.id as string,
+    req.body?.comments || req.body?.reason
+  );
+  return res.json({ success: true, data: updatedQuotation });
+});
+
+export const rejectQuotation = asyncHandler(async (req: TenantRequest, res: Response) => {
+  const updatedQuotation = await quotationService.rejectQuotationStep(
+    req.orgId,
+    req.user!.id,
+    req.user!.role,
+    req.params.id as string,
+    req.body?.reason || req.body?.comments
+  );
+  return res.json({ success: true, data: updatedQuotation });
+});

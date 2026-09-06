@@ -5,6 +5,7 @@ export const QUEUE_NAMES = {
   HEAVY_COMPUTE: "heavy-compute-queue",
   DATA_SYNC: "data-sync-queue",
   BACKORDER_CONSOLIDATION: "backorder-consolidation-queue",
+  SUBSCRIPTION_REMINDER: "subscription-reminder-queue",
 } as const;
 
 export interface HeavyComputeJobData {
@@ -28,6 +29,22 @@ export interface BackorderConsolidationJobData {
   productId: string;
   warehouseId?: string;
   triggeredAt?: string;
+}
+
+export interface SubscriptionReminderJobData {
+  subscriptionId: string;
+  subscriptionNumber: string;
+  organizationId: string;
+  customerId: string;
+  customerName: string;
+  customerEmail: string;
+  planName: string;
+  billingInterval: "MONTHLY" | "QUARTERLY" | "ANNUALLY";
+  nextBillingDate: string;
+  amount: number;
+  reminderDaysBefore?: number;
+  triggeredAt?: string;
+  manualTrigger?: boolean;
 }
 
 // Queue options with automatic retries and exponential backoff
@@ -65,6 +82,14 @@ export const dataSyncQueue = new Queue<DataSyncJobData>(
 
 export const backorderConsolidationQueue = new Queue<BackorderConsolidationJobData>(
   QUEUE_NAMES.BACKORDER_CONSOLIDATION,
+  {
+    connection: redisConnection,
+    defaultJobOptions,
+  }
+);
+
+export const subscriptionReminderQueue = new Queue<SubscriptionReminderJobData>(
+  QUEUE_NAMES.SUBSCRIPTION_REMINDER,
   {
     connection: redisConnection,
     defaultJobOptions,

@@ -2,17 +2,17 @@
 
 import { type ReactNode, type ComponentType } from "react";
 import { BrandLogo } from "./brand-logo";
-import { Activity, Layers, Sliders, Users, Warehouse, Boxes } from "lucide-react";
+import { Activity, Layers, Users, Warehouse, Boxes } from "lucide-react";
 
 export interface AdminNavTabItem {
-  id: "overview" | "catalog" | "rules" | "team" | "warehouses" | "inventory" | "reports";
+  id: "overview" | "catalog" | "team" | "warehouses" | "inventory" | "reports";
   label: string;
   href: string;
   icon: ComponentType<{ size?: number; className?: string }>;
 }
 
 export interface AdminNavProps {
-  activeTab?: "overview" | "catalog" | "rules" | "team" | "warehouses" | "inventory" | "reports";
+  activeTab?: "overview" | "catalog" | "team" | "warehouses" | "inventory" | "reports";
   currentPath?: string;
   adminName?: string;
   adminEmail?: string;
@@ -40,7 +40,6 @@ const ADMIN_TABS: AdminNavTabItem[] = [
   { id: "overview", label: "Overview", href: "/dashboard/admin", icon: Activity },
   { id: "reports", label: "Reports", href: "/dashboard/admin/reports", icon: Layers },
   { id: "catalog", label: "Products", href: "/dashboard/admin/catalog", icon: Layers },
-  { id: "rules", label: "Discount Rules", href: "/dashboard/admin/rules", icon: Sliders },
   { id: "team", label: "Team & Access", href: "/dashboard/admin/team", icon: Users },
   { id: "warehouses", label: "Warehouses", href: "/dashboard/admin/warehouses", icon: Warehouse },
   { id: "inventory", label: "Inventory", href: "/dashboard/admin/inventory", icon: Boxes },

@@ -54,9 +54,31 @@ export interface QuotationSummary {
   portalToken?: string | null;
   expiresAt?: string | null;
   customerId: string;
-  customer?: { id: string; name: string; email: string; companyName?: string };
+  customer?: {
+    id: string;
+    name: string;
+    email: string;
+    companyName?: string;
+    tier?: { id: string; name: string; code?: string; discountCeiling: number } | null;
+  };
   salesRepId: string;
   salesRep?: { id: string; user?: { name: string; email: string } };
+  approvalRequest?: {
+    id: string;
+    status: string;
+    currentStep: number;
+    escalationLevel?: string;
+    blendedRiskScore?: number;
+    steps?: Array<{
+      id: string;
+      stepNumber: number;
+      level: string;
+      status: string;
+      reviewerId?: string | null;
+      comments?: string | null;
+      actionedAt?: string | null;
+    }>;
+  } | null;
   lines?: QuotationLineItem[];
   createdAt: string;
   updatedAt: string;

@@ -77,6 +77,13 @@ quotationRouter.post(
   controller.submitQuotation
 );
 
+// Pipeline stage updates
+quotationRouter.patch(
+  "/:id/stage",
+  requireRole(...STAFF_ROLES),
+  controller.updateQuotationStage
+);
+
 // Approve or reject quotation steps
 quotationRouter.post(
   "/:id/approve",

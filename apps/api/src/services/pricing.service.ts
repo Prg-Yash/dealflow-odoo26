@@ -292,8 +292,8 @@ export async function listRecommendations(organizationId: string) {
   return prisma.productRecommendation.findMany({
     where: { organizationId },
     include: {
-      sourceProduct: { select: { id: true, name: true, sku: true } },
-      recommendedProduct: { select: { id: true, name: true, sku: true, basePrice: true } },
+      sourceProduct: { select: { id: true, name: true, sku: true, basePrice: true, costPrice: true } },
+      recommendedProduct: { select: { id: true, name: true, sku: true, basePrice: true, costPrice: true } },
     },
     orderBy: { coPurchaseScore: "desc" },
   });
@@ -311,23 +311,41 @@ export async function createRecommendation(
     throw new AppError(400, "INVALID_PRODUCTS", "Source or recommended product not found in this organization.");
   }
 
-  const existing = await prisma.productRecommendation.findUnique({
+  const existing = await prisma.productRecommendation.findFirst({
     where: {
-      sourceProductId_recommendedProductId: {
-        sourceProductId: input.sourceProductId,
-        recommendedProductId: input.recommendedProductId,
-      },
+      sourceProductId: input.sourceProductId,
+      recommendedProductId: input.recommendedProductId,
     },
   });
   if (existing) {
-    throw new AppError(409, "DUPLICATE_RECOMMENDATION", "This product pairing recommendation already exists.");
+    return prisma.productRecommendation.update({
+      where: { id: existing.id },
+      data: {
+        coPurchaseScore: input.coPurchaseScore ?? existing.coPurchaseScore,
+        promotionalTag: input.promotionalTag !== undefined ? input.promotionalTag : existing.promotionalTag,
+        minMarginThreshold: input.minMarginThreshold ?? existing.minMarginThreshold,
+        isActive: input.isActive ?? existing.isActive,
+      },
+      include: {
+        sourceProduct: { select: { id: true, name: true, sku: true, basePrice: true, costPrice: true } },
+        recommendedProduct: { select: { id: true, name: true, sku: true, basePrice: true, costPrice: true } },
+      },
+    });
   }
 
   return prisma.productRecommendation.create({
-    data: { ...input, organizationId },
+    data: {
+      sourceProductId: input.sourceProductId,
+      recommendedProductId: input.recommendedProductId,
+      coPurchaseScore: input.coPurchaseScore ?? 1.0,
+      promotionalTag: input.promotionalTag || undefined,
+      minMarginThreshold: input.minMarginThreshold ?? 20.0,
+      isActive: input.isActive ?? true,
+      organizationId,
+    },
     include: {
-      sourceProduct: { select: { id: true, name: true } },
-      recommendedProduct: { select: { id: true, name: true } },
+      sourceProduct: { select: { id: true, name: true, sku: true, basePrice: true, costPrice: true } },
+      recommendedProduct: { select: { id: true, name: true, sku: true, basePrice: true, costPrice: true } },
     },
   });
 }
@@ -344,7 +362,18 @@ export async function updateRecommendation(
 
   return prisma.productRecommendation.update({
     where: { id },
-    data: input,
+    data: {
+      ...(input.sourceProductId ? { sourceProductId: input.sourceProductId } : {}),
+      ...(input.recommendedProductId ? { recommendedProductId: input.recommendedProductId } : {}),
+      ...(input.coPurchaseScore !== undefined ? { coPurchaseScore: input.coPurchaseScore } : {}),
+      ...(input.promotionalTag !== undefined ? { promotionalTag: input.promotionalTag } : {}),
+      ...(input.minMarginThreshold !== undefined ? { minMarginThreshold: input.minMarginThreshold } : {}),
+      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+    },
+    include: {
+      sourceProduct: { select: { id: true, name: true, sku: true, basePrice: true, costPrice: true } },
+      recommendedProduct: { select: { id: true, name: true, sku: true, basePrice: true, costPrice: true } },
+    },
   });
 }
 
