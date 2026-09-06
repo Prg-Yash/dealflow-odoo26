@@ -12,7 +12,7 @@ export default function QuotationDetailPage() {
   const routeParams = useParams();
   const quoteId = (routeParams?.id as string) || "";
 
-  const { user } = useDashboardAuth();
+  const { user, signOut } = useDashboardAuth();
   const { data: quotation, isLoading, isError, refetch } = useQuotation(quoteId, {
     enabled: Boolean(quoteId),
   });
