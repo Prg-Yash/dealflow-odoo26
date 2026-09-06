@@ -57,3 +57,11 @@ portalRouter.post(
   validateBody(SignQuotationSchema),
   portalController.signQuotation
 );
+
+// 6. Settle invoice directly via portal
+portalRouter.post(
+  ["/:token/invoices/:invoiceId/pay", "/quotations/:token/invoices/:invoiceId/pay"],
+  portalAuth,
+  portalController.payInvoice
+);
+

@@ -206,6 +206,35 @@ export async function getPortalQuotation(portalToken: string) {
         },
       },
       signature: true,
+      invoices: {
+        include: {
+          lines: true,
+          payments: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
+      subscriptions: {
+        include: {
+          lines: { include: { product: true } },
+          creditNotes: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
+      fulfillmentOrder: {
+        include: {
+          shipments: {
+            include: {
+              warehouse: true,
+              lines: { include: { product: true } },
+            },
+          },
+          backorders: {
+            include: {
+              product: true,
+            },
+          },
+        },
+      },
       organization: {
         select: {
           id: true,
@@ -954,4 +983,55 @@ export async function confirmPortalQuotation(
     };
   });
 }
+
+/**
+ * 6. Settle Invoice via Portal Link
+ */
+export async function payPortalInvoice(
+  portalToken: string,
+  invoiceId: string,
+  input?: { paymentMethod?: string; transactionReference?: string; amount?: number }
+) {
+  const quotation = await prisma.quotation.findFirst({
+    where: {
+      OR: [
+        { portalToken },
+        { quoteNumber: portalToken },
+        { id: portalToken },
+      ],
+    },
+    include: {
+      invoices: true,
+    },
+  });
+
+  if (!quotation) {
+    throw new AppError(404, "NOT_FOUND", "Quotation not found.");
+  }
+
+  const invoice = quotation.invoices.find((i) => i.id === invoiceId);
+  if (!invoice) {
+    throw new AppError(404, "NOT_FOUND", "Invoice not found for this quotation.");
+  }
+
+  const { recordPayment } = await import("./billing.service.js");
+  const paymentAmount = input?.amount && input.amount > 0 ? input.amount : invoice.amountRemaining;
+
+  const rawMethod = (input?.paymentMethod || "").toUpperCase();
+  let paymentMethod: any = "ACH";
+  if (rawMethod.includes("CARD")) {
+    paymentMethod = "CREDIT_CARD";
+  } else if (rawMethod.includes("WIRE")) {
+    paymentMethod = "WIRE_TRANSFER";
+  } else if (rawMethod.includes("CHECK")) {
+    paymentMethod = "CHECK";
+  }
+
+  return recordPayment(quotation.organizationId, invoice.id, {
+    amount: paymentAmount,
+    paymentMethod,
+    transactionReference: input?.transactionReference || `TXN-PORTAL-${Math.floor(100000 + Math.random() * 900000)}`,
+  });
+}
+
 
