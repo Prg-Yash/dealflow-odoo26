@@ -37,6 +37,8 @@ import {
   useNudgeAction,
   useMembers,
   useUpdateQuotationStage,
+  useApproveQuotation,
+  useRejectQuotation,
 } from "../../../../lib/query";
 import { toast } from "sonner";
 
@@ -54,33 +56,42 @@ export default function ManagerDashboardPage() {
   const { data: apiMembers } = useMembers();
   const updateStageMutation = useUpdateQuotationStage();
   const nudgeMutation = useNudgeAction();
+  const approveQuotationMutation = useApproveQuotation();
+  const rejectQuotationMutation = useRejectQuotation();
 
   const initialApprovals: ManagerApprovalRequest[] = apiQuotes && apiQuotes.length > 0
-    ? apiQuotes.map((q) => ({
-        id: q.id,
-        quoteId: q.quoteNumber || q.id,
-        account: q.customer?.name || "Enterprise Account",
-        accountTier: (((q.customer as any)?.tier?.name as any) || "Gold") as any,
-        repName: q.salesRep?.user?.name || "Account Executive",
-        repInitials: (q.salesRep?.user?.name || "AE").split(" ").map((s: string) => s[0]).join("").slice(0, 2).toUpperCase(),
-        dealSize: q.grandTotal || 0,
-        discountRequested: q.discountPercent || 15,
-        thresholdMax: 10,
-        marginProjected: q.grossMarginPercent || 40,
-        targetMargin: 45,
-        reason: q.notes || "Volume discount exception requested.",
-        status: (q.stage === "APPROVED" ? "APPROVED" : q.stage === "CANCELLED" ? "REJECTED" : "PENDING") as ApprovalStatus,
-        submittedAt: new Date(q.createdAt).toLocaleDateString(),
-        slaHoursLeft: 24,
-        blendedRiskScore: q.blendedRiskScore || 15,
-        escalationLevel: "SALES_MANAGER",
-        pdfFileName: `${q.quoteNumber || "Quote"}-Exec.pdf`,
-        pdfFileSize: "1.4 MB",
-        pdfHash: "sha256-verified",
-        lineItems: [],
-        workflowSteps: [],
-        auditLogs: [],
-      }))
+    ? apiQuotes.map((q) => {
+        const step1 = q.approvalRequest?.steps?.find((s: any) => s.stepNumber === 1);
+        const isStep1Approved = step1?.status === "APPROVED";
+        const isPending = step1 ? step1.status === "PENDING" : q.stage === "PENDING_APPROVAL";
+        const hasFinanceStep = q.requiresFinanceApproval || q.approvalRequest?.steps?.some((s: any) => s.level === "FINANCE");
+
+        return {
+          id: q.id,
+          quoteId: q.quoteNumber || q.id,
+          account: q.customer?.name || "Enterprise Account",
+          accountTier: (((q.customer as any)?.tier?.name as any) || "Gold") as any,
+          repName: q.salesRep?.user?.name || "Account Executive",
+          repInitials: (q.salesRep?.user?.name || "AE").split(" ").map((s: string) => s[0]).join("").slice(0, 2).toUpperCase(),
+          dealSize: q.grandTotal || 0,
+          discountRequested: q.discountPercent || 15,
+          thresholdMax: 10,
+          marginProjected: q.grossMarginPercent || 40,
+          targetMargin: 45,
+          reason: q.notes || "Volume discount exception requested.",
+          status: (isPending ? "PENDING" : isStep1Approved || q.stage === "APPROVED" ? "APPROVED" : q.stage === "CANCELLED" ? "REJECTED" : "PENDING") as ApprovalStatus,
+          submittedAt: new Date(q.createdAt).toLocaleDateString(),
+          slaHoursLeft: 24,
+          blendedRiskScore: q.blendedRiskScore || 15,
+          escalationLevel: hasFinanceStep ? "SALES_MANAGER_AND_FINANCE" : "SALES_MANAGER",
+          pdfFileName: `${q.quoteNumber || "Quote"}-Exec.pdf`,
+          pdfFileSize: "1.4 MB",
+          pdfHash: "sha256-verified",
+          lineItems: [],
+          workflowSteps: [],
+          auditLogs: [],
+        };
+      })
     : INITIAL_MANAGER_APPROVALS;
 
   const anomaliesList = apiAnomalies?.anomalies || (Array.isArray(apiAnomalies) ? apiAnomalies : []);
@@ -144,31 +155,38 @@ export default function ManagerDashboardPage() {
   useEffect(() => {
     if (apiQuotes && apiQuotes.length > 0) {
       setApprovals(
-        apiQuotes.map((q) => ({
-          id: q.id,
-          quoteId: q.quoteNumber || q.id,
-          account: q.customer?.name || "Enterprise Account",
-          accountTier: (((q.customer as any)?.tier?.name as any) || "Gold") as any,
-          repName: q.salesRep?.user?.name || "Account Executive",
-          repInitials: (q.salesRep?.user?.name || "AE").split(" ").map((s: string) => s[0]).join("").slice(0, 2).toUpperCase(),
-          dealSize: q.grandTotal || 0,
-          discountRequested: q.discountPercent || 15,
-          thresholdMax: 10,
-          marginProjected: q.grossMarginPercent || 40,
-          targetMargin: 45,
-          reason: q.notes || "Volume discount exception requested.",
-          status: (q.stage === "APPROVED" ? "APPROVED" : q.stage === "CANCELLED" ? "REJECTED" : "PENDING") as ApprovalStatus,
-          submittedAt: new Date(q.createdAt).toLocaleDateString(),
-          slaHoursLeft: 24,
-          blendedRiskScore: q.blendedRiskScore || 15,
-          escalationLevel: "SALES_MANAGER",
-          pdfFileName: `${q.quoteNumber || "Quote"}-Exec.pdf`,
-          pdfFileSize: "1.4 MB",
-          pdfHash: "sha256-verified",
-          lineItems: [],
-          workflowSteps: [],
-          auditLogs: [],
-        }))
+        apiQuotes.map((q) => {
+          const step1 = q.approvalRequest?.steps?.find((s: any) => s.stepNumber === 1);
+          const isStep1Approved = step1?.status === "APPROVED";
+          const isPending = step1 ? step1.status === "PENDING" : q.stage === "PENDING_APPROVAL";
+          const hasFinanceStep = q.requiresFinanceApproval || q.approvalRequest?.steps?.some((s: any) => s.level === "FINANCE");
+
+          return {
+            id: q.id,
+            quoteId: q.quoteNumber || q.id,
+            account: q.customer?.name || "Enterprise Account",
+            accountTier: (((q.customer as any)?.tier?.name as any) || "Gold") as any,
+            repName: q.salesRep?.user?.name || "Account Executive",
+            repInitials: (q.salesRep?.user?.name || "AE").split(" ").map((s: string) => s[0]).join("").slice(0, 2).toUpperCase(),
+            dealSize: q.grandTotal || 0,
+            discountRequested: q.discountPercent || 15,
+            thresholdMax: 10,
+            marginProjected: q.grossMarginPercent || 40,
+            targetMargin: 45,
+            reason: q.notes || "Volume discount exception requested.",
+            status: (isPending ? "PENDING" : isStep1Approved || q.stage === "APPROVED" ? "APPROVED" : q.stage === "CANCELLED" ? "REJECTED" : "PENDING") as ApprovalStatus,
+            submittedAt: new Date(q.createdAt).toLocaleDateString(),
+            slaHoursLeft: 24,
+            blendedRiskScore: q.blendedRiskScore || 15,
+            escalationLevel: hasFinanceStep ? "SALES_MANAGER_AND_FINANCE" : "SALES_MANAGER",
+            pdfFileName: `${q.quoteNumber || "Quote"}-Exec.pdf`,
+            pdfFileSize: "1.4 MB",
+            pdfHash: "sha256-verified",
+            lineItems: [],
+            workflowSteps: [],
+            auditLogs: [],
+          };
+        })
       );
     }
   }, [apiQuotes]);
@@ -253,14 +271,26 @@ export default function ManagerDashboardPage() {
         : "REVISION_REQUESTED";
 
     try {
-      if (request.quoteId) {
-        await updateStageMutation.mutateAsync({
-          id: request.quoteId,
-          stage: newStatus === "APPROVED" ? "APPROVED" : "CANCELLED",
-        });
+      if (request.id) {
+        if (type === "approve") {
+          await approveQuotationMutation.mutateAsync({
+            id: request.id,
+            comments: modalReason,
+          });
+        } else if (type === "reject") {
+          await rejectQuotationMutation.mutateAsync({
+            id: request.id,
+            reason: modalReason,
+          });
+        } else {
+          await updateStageMutation.mutateAsync({
+            id: request.id,
+            stage: "DRAFT" as any,
+          });
+        }
       }
     } catch (err) {
-      console.warn("Optimistic approval decision logged:", err);
+      console.warn("Approval decision error:", err);
     }
 
     setApprovals((prev) =>
@@ -285,11 +315,16 @@ export default function ManagerDashboardPage() {
       )
     );
 
-    setModalSuccessMsg(`Decision logged: ${request.quoteId} is now ${newStatus.replace("_", " ")}.`);
+    const isDual = request.escalationLevel === "SALES_MANAGER_AND_FINANCE";
+    setModalSuccessMsg(
+      type === "approve" && isDual
+        ? `Step 1 (Sales Manager) Approved for ${request.quoteId}! Forwarded to Finance Operations.`
+        : `Decision logged: ${request.quoteId} is now ${newStatus.replace("_", " ")}.`
+    );
     setTimeout(() => {
       setActiveModalRequest(null);
       setModalSuccessMsg(null);
-    }, 1200);
+    }, 1500);
   };
 
   const handleAnomalyAction = (id: string, actionType: "escalate" | "nudge") => {

@@ -35,6 +35,9 @@ import {
   useFulfillmentOrders,
   useQuotations,
   useUpdateQuotationStage,
+  useSubscriptions,
+  useApproveQuotation,
+  useRejectQuotation,
 } from "../../../../lib/query";
 
 export default function FinanceDashboardPage() {
@@ -46,33 +49,85 @@ export default function FinanceDashboardPage() {
   const { data: apiInvoices } = useInvoices();
   const { data: apiFulfillment } = useFulfillmentOrders();
   const { data: apiQuotes } = useQuotations({ stage: "PENDING_APPROVAL" });
+  const { data: apiSubscriptions } = useSubscriptions();
   const updateStageMutation = useUpdateQuotationStage();
+  const approveQuotationMutation = useApproveQuotation();
+  const rejectQuotationMutation = useRejectQuotation();
 
   const [approvals, setApprovals] = useState<FinanceApprovalRequest[]>(INITIAL_FINANCE_APPROVALS);
   const [fulfillments, setFulfillments] = useState<FulfillmentRecord[]>(INITIAL_FULFILLMENT_RECORDS);
   const [invoices, setInvoices] = useState<InvoiceRecord[]>(INITIAL_INVOICE_RECORDS);
-  const [subscriptions] = useState<SubscriptionRecord[]>(INITIAL_SUBSCRIPTION_RECORDS);
+  const [subscriptions, setSubscriptions] = useState<SubscriptionRecord[]>(INITIAL_SUBSCRIPTION_RECORDS);
+
+  useEffect(() => {
+    if (apiSubscriptions && apiSubscriptions.length > 0) {
+      setSubscriptions(
+        apiSubscriptions.map((s) => ({
+          id: s.id,
+          account: s.customer?.name || s.customer?.companyName || "Client Account",
+          plan: s.lines?.[0]?.product?.name || s.notes || "Recurring Plan",
+          cycle: (s.billingInterval.charAt(0).toUpperCase() + s.billingInterval.slice(1).toLowerCase()) as any,
+          nextBillDate: s.nextBillingDate
+            ? new Date(s.nextBillingDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+            : "-",
+          status: s.status === "ACTIVE" ? "Active" : s.status === "PAUSED" ? "Paused" : "Cancelled",
+          amount: s.currentMrr || 0,
+        }))
+      );
+    }
+  }, [apiSubscriptions]);
 
   useEffect(() => {
     if (apiQuotes && apiQuotes.length > 0) {
-      setApprovals(
-        apiQuotes.map((q) => ({
-          id: q.id,
-          quoteId: q.quoteNumber || q.id,
-          account: q.customer?.name || "Corporate Client",
-          accountTier: ((q.customer as any)?.tier?.name as any) || "Gold",
-          dealSize: q.grandTotal || 0,
-          discountRequested: q.discountPercent || 15,
-          marginProjected: q.grossMarginPercent || 38,
-          targetMargin: 45.0,
-          reason: q.notes || "Standard finance approval required.",
-          status: (q.stage === "APPROVED" ? "APPROVED" : q.stage === "CANCELLED" ? "REJECTED" : "PENDING") as ApprovalStatus,
-          submittedAt: new Date(q.createdAt).toLocaleDateString(),
-          slaHoursLeft: 24,
-          blendedRiskScore: q.blendedRiskScore || 12,
-          escalationReason: `Quote escalated for ${q.discountPercent || 15}% discount threshold`,
-        }))
-      );
+      // Strict Sequential Filtering:
+      // Quotations that require Finance approval ONLY appear in the Finance Exception Queue
+      // IF Sales Manager has ALREADY approved Step 1 (or currentStep >= 2)!
+      const eligibleFinanceQuotes = apiQuotes.filter((q) => {
+        const reqFinance =
+          q.requiresFinanceApproval ||
+          q.approvalRequest?.steps?.some((s: any) => s.level === "FINANCE") ||
+          (q.blendedRiskScore && q.blendedRiskScore > 10);
+        if (!reqFinance) return false;
+
+        if (q.approvalRequest?.steps && q.approvalRequest.steps.length > 0) {
+          const step1 = q.approvalRequest.steps.find((s: any) => s.stepNumber === 1);
+          if (step1 && step1.level === "SALES_MANAGER") {
+            // If Step 1 (Sales Manager) is still PENDING, DO NOT SHOW to Finance yet!
+            if (step1.status !== "APPROVED" && q.approvalRequest.currentStep < 2) {
+              return false;
+            }
+          }
+        }
+        return true;
+      });
+
+      if (eligibleFinanceQuotes.length > 0) {
+        setApprovals(
+          eligibleFinanceQuotes.map((q) => {
+            const step2 = q.approvalRequest?.steps?.find((s: any) => s.level === "FINANCE");
+            const isPending = step2 ? step2.status === "PENDING" : q.stage === "PENDING_APPROVAL";
+
+            return {
+              id: q.id,
+              quoteId: q.quoteNumber || q.id,
+              account: q.customer?.name || "Corporate Client",
+              accountTier: ((q.customer as any)?.tier?.name as any) || "Gold",
+              dealSize: q.grandTotal || 0,
+              discountRequested: q.discountPercent || 15,
+              marginProjected: q.grossMarginPercent || 38,
+              targetMargin: 45.0,
+              reason: q.notes || "Sequential Step 2: High-risk discount exception requiring Finance Ops authorization.",
+              status: (isPending ? "PENDING" : q.stage === "APPROVED" ? "APPROVED" : q.stage === "CANCELLED" ? "REJECTED" : "PENDING") as ApprovalStatus,
+              submittedAt: new Date(q.createdAt).toLocaleDateString(),
+              slaHoursLeft: 24,
+              blendedRiskScore: q.blendedRiskScore || 12,
+              escalationReason: `Sales Manager Approved (Step 1 ✓) &bull; High Risk ${q.blendedRiskScore || 12}% Blended`,
+            };
+          })
+        );
+      } else {
+        setApprovals(INITIAL_FINANCE_APPROVALS);
+      }
     }
   }, [apiQuotes]);
 
@@ -144,7 +199,7 @@ export default function FinanceDashboardPage() {
     );
   };
 
-  const handleConfirmDecision = () => {
+  const handleConfirmDecision = async () => {
     if (!activeModalRequest) return;
     const { request, type } = activeModalRequest;
     const newStatus: ApprovalStatus =
@@ -153,6 +208,29 @@ export default function FinanceDashboardPage() {
         : type === "reject"
         ? "REJECTED"
         : "REVISION_REQUESTED";
+
+    try {
+      if (request.id) {
+        if (type === "approve") {
+          await approveQuotationMutation.mutateAsync({
+            id: request.id,
+            comments: modalReason,
+          });
+        } else if (type === "reject") {
+          await rejectQuotationMutation.mutateAsync({
+            id: request.id,
+            reason: modalReason,
+          });
+        } else {
+          await updateStageMutation.mutateAsync({
+            id: request.id,
+            stage: "DRAFT" as any,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("Finance approval decision error:", err);
+    }
 
     setApprovals((prev) =>
       prev.map((item) =>
@@ -164,13 +242,6 @@ export default function FinanceDashboardPage() {
           : item
       )
     );
-
-    if (request.id.startsWith("q-") || request.id.length > 15) {
-      updateStageMutation.mutate({
-        id: request.id,
-        stage: type === "approve" ? "APPROVED" : type === "reject" ? "CANCELLED" : "DRAFT",
-      });
-    }
 
     setModalSuccessMsg(`Finance decision logged: ${request.quoteId} is now ${newStatus.replace("_", " ")}.`);
     setTimeout(() => {
@@ -624,6 +695,13 @@ export default function FinanceDashboardPage() {
                   Every recurring plan across every customer, regardless of which order it came from.
                 </p>
               </div>
+
+              <Link
+                href="/dashboard/finance/subscriptions"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ff4e26] text-white text-xs font-bold transition shadow-xs self-start sm:self-auto cursor-pointer"
+              >
+                <span>Full Subscriptions Hub &rarr;</span>
+              </Link>
             </div>
 
             <div className="flex items-center gap-3">

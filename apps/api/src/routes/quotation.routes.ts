@@ -11,6 +11,7 @@ import {
   CreateQuotationSchema,
   CreateQuotationLineSchema,
   UpdateQuotationLineSchema,
+  CreateQuotationStaffCommentSchema,
 } from "../schemas/quotation.schema.js";
 
 export const quotationRouter = Router();
@@ -76,6 +77,13 @@ quotationRouter.post(
   controller.submitQuotation
 );
 
+// Pipeline stage updates
+quotationRouter.patch(
+  "/:id/stage",
+  requireRole(...STAFF_ROLES),
+  controller.updateQuotationStage
+);
+
 // Approve or reject quotation steps
 quotationRouter.post(
   "/:id/approve",
@@ -89,12 +97,21 @@ quotationRouter.post(
   approvalController.rejectQuotationStep
 );
 
+// Quotation comments & discussion thread
+quotationRouter.post(
+  "/:id/comments",
+  requireRole(...STAFF_ROLES),
+  validateBody(CreateQuotationStaffCommentSchema),
+  controller.addQuotationComment
+);
+
 // Live upsell & cross-sell suggestions panel
 quotationRouter.get(
   "/:id/upsell-suggestions",
   requireRole(UserRole.SALES_REP, UserRole.SALES_MANAGER, UserRole.ADMIN),
   controller.getUpsellSuggestions
 );
+
 
 // Create fulfillment order on APPROVED or CONFIRMED quotation
 quotationRouter.post(

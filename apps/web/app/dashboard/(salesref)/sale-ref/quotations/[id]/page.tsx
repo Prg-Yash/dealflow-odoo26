@@ -21,10 +21,10 @@ export default function QuotationDetailPage() {
   const userInitials = user?.name
     ? user.name
         .split(" ")
-        .map((p) => p[0])
+        .map((n) => n[0])
         .join("")
-        .slice(0, 2)
         .toUpperCase()
+        .slice(0, 2)
     : "SR";
 
   if (isLoading) {
@@ -44,7 +44,7 @@ export default function QuotationDetailPage() {
         </div>
         <h2 className="text-base font-bold text-slate-900">Quotation Not Found</h2>
         <p className="text-xs text-slate-500 mt-1 max-w-sm">
-          The requested quotation could not be located in this organization or is not assigned to your account.
+          The requested quotation could not be located in this workspace or you do not have permission to view it.
         </p>
         <div className="mt-5 flex items-center gap-3">
           <button
@@ -60,7 +60,7 @@ export default function QuotationDetailPage() {
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0066cc] text-white text-xs font-bold shadow-xs hover:bg-[#0052a3] transition"
           >
             <ArrowLeft size={13} />
-            <span>Back to Quotations List</span>
+            <span>Back to Quotations</span>
           </Link>
         </div>
       </div>

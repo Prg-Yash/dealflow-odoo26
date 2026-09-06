@@ -6,14 +6,14 @@ import { Activity, Layers, Sliders, Users, Warehouse, Boxes } from "lucide-react
 import { ProfileModal } from "./profile-modal";
 
 export interface AdminNavTabItem {
-  id: "overview" | "catalog" | "rules" | "team" | "warehouses" | "inventory" | "reports";
+  id: "overview" | "catalog" | "team" | "warehouses" | "inventory" | "reports";
   label: string;
   href: string;
   icon: ComponentType<{ size?: number; className?: string }>;
 }
 
 export interface AdminNavProps {
-  activeTab?: "overview" | "catalog" | "rules" | "team" | "warehouses" | "inventory" | "reports";
+  activeTab?: "overview" | "catalog" | "team" | "warehouses" | "inventory" | "reports";
   currentPath?: string;
   adminName?: string;
   adminEmail?: string;

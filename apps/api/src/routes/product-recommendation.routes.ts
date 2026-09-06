@@ -11,9 +11,23 @@ import * as controller from "../controllers/pricing.controller.js";
 
 export const productRecommendationRouter = Router();
 
-productRecommendationRouter.use(requireAuth, tenantMiddleware, requireRole(UserRole.ADMIN));
+productRecommendationRouter.use(requireAuth, tenantMiddleware);
 
 productRecommendationRouter.get("/", controller.listRecommendations);
-productRecommendationRouter.post("/", validateBody(CreateProductRecommendationSchema), controller.createRecommendation);
-productRecommendationRouter.patch("/:id", validateBody(UpdateProductRecommendationSchema), controller.updateRecommendation);
-productRecommendationRouter.delete("/:id", controller.deleteRecommendation);
+productRecommendationRouter.post(
+  "/",
+  requireRole(UserRole.ADMIN, UserRole.SALES_MANAGER),
+  validateBody(CreateProductRecommendationSchema),
+  controller.createRecommendation
+);
+productRecommendationRouter.patch(
+  "/:id",
+  requireRole(UserRole.ADMIN, UserRole.SALES_MANAGER),
+  validateBody(UpdateProductRecommendationSchema),
+  controller.updateRecommendation
+);
+productRecommendationRouter.delete(
+  "/:id",
+  requireRole(UserRole.ADMIN, UserRole.SALES_MANAGER),
+  controller.deleteRecommendation
+);

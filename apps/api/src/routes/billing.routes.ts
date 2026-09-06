@@ -5,8 +5,11 @@ import { tenantMiddleware } from "../middleware/tenant.js";
 import { validateBody, validateQuery } from "../middleware/validate.js";
 import * as controller from "../controllers/billing.controller.js";
 import {
+  CreateSubscriptionSchema,
+  ModifySubscriptionSchema,
   UpdateSubscriptionLineSchema,
   CancelSubscriptionSchema,
+  ScheduleReminderSchema,
   RecordPaymentSchema,
   QueryInvoicesSchema,
   QueryCreditNotesSchema,
@@ -45,6 +48,13 @@ subscriptionRouter.get(
   controller.listSubscriptions
 );
 
+subscriptionRouter.post(
+  "/",
+  requireRole(...FINANCE_ROLES),
+  validateBody(CreateSubscriptionSchema),
+  controller.createSubscription
+);
+
 subscriptionRouter.get(
   "/:id",
   requireRole(...STAFF_ROLES),
@@ -52,10 +62,24 @@ subscriptionRouter.get(
 );
 
 subscriptionRouter.patch(
+  "/:id",
+  requireRole(...FINANCE_ROLES),
+  validateBody(ModifySubscriptionSchema),
+  controller.modifySubscription
+);
+
+subscriptionRouter.patch(
   "/:id/lines/:lineId",
   requireRole(...FINANCE_ROLES),
   validateBody(UpdateSubscriptionLineSchema),
   controller.updateSubscriptionLine
+);
+
+subscriptionRouter.post(
+  "/:id/schedule-reminder",
+  requireRole(...FINANCE_ROLES),
+  validateBody(ScheduleReminderSchema),
+  controller.scheduleSubscriptionReminder
 );
 
 subscriptionRouter.post(
