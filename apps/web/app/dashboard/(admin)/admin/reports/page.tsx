@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Download, FileText, Activity, TrendingUp, AlertCircle } from "lucide-react";
 import { useQuotations, useMembers, useProducts } from "../../../../../lib/query";
 import { filterByTimePeriod, type TimePeriod } from "../../../../../lib/time-filter";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 export default function AdminReportsPage() {
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("this_quarter");
@@ -83,6 +84,43 @@ export default function AdminReportsPage() {
   const avgDiscount = totalValue > 0 ? ((totalDiscount / (totalValue + totalDiscount)) * 100).toFixed(1) : "0.0";
   
   const pendingApprovals = filteredQuotations.filter(q => q.approvalStatus === "PENDING" || q.stage === "PENDING_APPROVAL").length;
+
+  // --- Graph Data Calculations ---
+  
+  // 1. Quotations by Stage
+  const stageCounts = filteredQuotations.reduce((acc, q) => {
+    const stage = q.stage || "UNKNOWN";
+    acc[stage] = (acc[stage] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  
+  const stageData = Object.entries(stageCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, value]) => ({ name, value }));
+
+  const COLORS: Record<string, string> = {
+    APPROVED: '#10b981', // emerald-500
+    DRAFT: '#94a3b8',    // slate-400
+    REJECTED: '#ef4444', // red-500
+    PENDING: '#f59e0b',  // amber-500
+    PENDING_APPROVAL: '#f59e0b',
+  };
+
+  // 2. Revenue by Sales Rep
+  const repRevenue = filteredQuotations.reduce((acc, q) => {
+    if (!q.salesRepId) return acc;
+    acc[q.salesRepId] = (acc[q.salesRepId] || 0) + (q.grandTotal || 0);
+    return acc;
+  }, {} as Record<string, number>);
+  
+  const topRepsData = Object.entries(repRevenue)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([id, val]) => {
+      const member = membersList.find(m => m.id === id);
+      const name = member?.name || member?.user?.name || member?.email || id;
+      return { name: name.split(' ')[0], fullName: name, value: val }; // Shorten name for XAxis
+    });
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
@@ -224,6 +262,87 @@ export default function AdminReportsPage() {
               <div className="text-xs font-semibold text-amber-600 mt-1">Require attention</div>
             </div>
           </div>
+        </div>
+
+        {/* Graphs Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 print:hidden">
+          
+          {/* Graph 1: Deal Pipeline Stages (Pie Chart) */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6 h-[350px] flex flex-col">
+            <h2 className="text-sm font-bold text-slate-900 mb-2">Deal Pipeline Stages</h2>
+            <div className="flex-1 w-full relative">
+              {stageData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={stageData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={100}
+                      paddingAngle={5}
+                      dataKey="value"
+                      label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                      labelLine={false}
+                    >
+                      {stageData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[entry.name] || '#94a3b8'} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      formatter={(value: number) => [`${value} quotes`, 'Count']}
+                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-500">No data for selected period</div>
+              )}
+            </div>
+          </div>
+
+          {/* Graph 2: Top Revenue by Rep (Bar Chart) */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6 h-[350px] flex flex-col">
+            <h2 className="text-sm font-bold text-slate-900 mb-2">Top Performers (Revenue)</h2>
+            <div className="flex-1 w-full relative">
+              {topRepsData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={topRepsData} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis 
+                      dataKey="name" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fontSize: 12, fill: '#64748b' }}
+                      dy={10}
+                    />
+                    <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fontSize: 12, fill: '#64748b' }}
+                      tickFormatter={(value) => `₹${value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value}`}
+                      width={60}
+                    />
+                    <Tooltip
+                      formatter={(value: number) => [`₹${value.toLocaleString()}`, 'Revenue']}
+                      labelFormatter={(label, payload) => payload?.[0]?.payload?.fullName || label}
+                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      cursor={{ fill: '#f8fafc' }}
+                    />
+                    <Bar 
+                      dataKey="value" 
+                      fill="#6366f1" 
+                      radius={[4, 4, 0, 0]} 
+                      barSize={40}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-500">No data for selected period</div>
+              )}
+            </div>
+          </div>
+
         </div>
 
         {/* Analytics Table */}

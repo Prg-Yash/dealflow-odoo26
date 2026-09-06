@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, type ReactNode, type ComponentType } from "react";
 import { Search, Bell, X, ArrowRight } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
+import { OrgDropdown } from "./org-dropdown";
 import { NotificationModal } from "./notification-modal";
 import { ProfileModal } from "./profile-modal";
 
@@ -90,9 +91,15 @@ export function SalesNav({
     <>
       <header className={`fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200 shadow-[0_2px_12px_rgba(0,0,0,0.03)] ${className}`}>
         <div className="h-16 max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between gap-4">
-          {/* Left: Brand Logo & Segmented Pill Navigation */}
-          <div className="flex items-center gap-5 lg:gap-8">
-            <BrandLogo href="/dashboard/sale-ref" as={LinkComp} />
+          {/* Left: Brand Logo, Org Dropdown & Segmented Pill Navigation */}
+          <div className="flex items-center gap-5 lg:gap-8 shrink-0">
+            <div className="flex items-center gap-3">
+              <BrandLogo href="/dashboard/sale-ref" as={LinkComp} />
+              <div className="hidden sm:block h-4 w-px bg-slate-200 mx-1"></div>
+              <div className="hidden sm:block">
+                <OrgDropdown />
+              </div>
+            </div>
 
             <nav className="hidden md:flex items-center gap-1 p-1 h-10 rounded-full bg-slate-100 border border-slate-200">
               {DEFAULT_TABS.map((tab) => {

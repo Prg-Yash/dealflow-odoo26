@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode, type ComponentType } from "react";
 import { BrandLogo } from "./brand-logo";
+import { OrgDropdown } from "./org-dropdown";
 import { Activity, Layers, Sliders, Warehouse, Boxes, BarChart3, CheckCircle2, FileText } from "lucide-react";
 import { ProfileModal } from "./profile-modal";
 
@@ -75,9 +76,13 @@ export function AdminNav({
     <>
       <header className={`fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200 shadow-[0_2px_12px_rgba(0,0,0,0.03)] ${className}`}>
         <div className="h-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
-          {/* Left: Brand Monogram */}
+          {/* Left: Brand Monogram & Org Dropdown */}
           <div className="flex items-center gap-3 shrink-0">
             <BrandLogo href="/dashboard/admin" as={LinkComp} />
+            <div className="hidden sm:block h-4 w-px bg-slate-200 mx-1"></div>
+            <div className="hidden sm:block">
+              <OrgDropdown />
+            </div>
           </div>
 
           {/* Center: Admin Module Pill Navigation with Uniform Height and nowrap */}
