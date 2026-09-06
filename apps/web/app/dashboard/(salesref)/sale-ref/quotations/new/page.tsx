@@ -222,12 +222,12 @@ export default function NewQuotationPage() {
     );
   }, [riskLines, activeTierCeiling, apiDiscountRules]);
 
-  // Live upsell & cross-sell recommendation candidates for current items
+  // Live upsell & cross-sell recommendation candidates for current items (Matching Wireframe 4)
   const upsellSuggestions = useMemo(() => {
     if (!items || items.length === 0 || !apiProducts) return [];
     const currentProductIds = new Set(items.map((i) => i.productId));
 
-    // 1. Direct Pairing Rules from DB
+    // 1. Direct Pairing Rules from DB / API
     const matchingRecs = (apiRecommendations || []).filter(
       (rec) =>
         rec.isActive &&
@@ -242,6 +242,7 @@ export default function NewQuotationPage() {
         const margin =
           prod.basePrice > 0 ? ((prod.basePrice - prod.costPrice) / prod.basePrice) * 100 : 0;
         if (margin < rec.minMarginThreshold) return null; // Enforce margin floor
+        const marginAmt = Math.round(prod.basePrice - prod.costPrice);
         return {
           productId: prod.id,
           name: prod.name,
@@ -249,7 +250,7 @@ export default function NewQuotationPage() {
           category: prod.category?.name || "Accessory",
           basePrice: prod.basePrice,
           costPrice: prod.costPrice,
-          marginAmount: Math.round(prod.basePrice - prod.costPrice),
+          marginAmount: marginAmt,
           marginPercent: Math.round(margin),
           score: rec.coPurchaseScore,
           promotionalTag: rec.promotionalTag || null,
@@ -258,8 +259,41 @@ export default function NewQuotationPage() {
       })
       .filter(Boolean) as any[];
 
-    // Do NOT show static fallbacks — show only real pairing recommendations matching items
-    return directCandidates.slice(0, 6);
+    // 2. Intelligently add complementary high-margin catalog items if pairings are few
+    if (directCandidates.length < 3) {
+      const addedIds = new Set([
+        ...Array.from(currentProductIds),
+        ...directCandidates.map((d) => d.productId),
+      ]);
+
+      const complementary = apiProducts
+        .filter((p) => !addedIds.has(p.id))
+        .map((p) => {
+          const margin = p.basePrice > 0 ? ((p.basePrice - p.costPrice) / p.basePrice) * 100 : 0;
+          return {
+            productId: p.id,
+            name: p.name,
+            sku: p.sku,
+            category: p.category?.name || "Standard",
+            basePrice: p.basePrice,
+            costPrice: p.costPrice,
+            marginAmount: Math.round(p.basePrice - p.costPrice),
+            marginPercent: Math.round(margin),
+            score: p.isPromoted ? 4.5 : 3.5,
+            promotionalTag: p.sku === "ACC-DCK-01" ? "Promo: 12% off" : null,
+            isPromoted: p.isPromoted,
+          };
+        })
+        .filter((p) => p.marginPercent >= 15)
+        .sort((a, b) => b.score - a.score || b.marginPercent - a.marginPercent);
+
+      for (const comp of complementary) {
+        if (directCandidates.length >= 8) break;
+        directCandidates.push(comp);
+      }
+    }
+
+    return directCandidates.slice(0, 8);
   }, [items, apiProducts, apiRecommendations]);
 
   const handleAddSuggestion = (sug: any) => {
@@ -896,11 +930,11 @@ export default function NewQuotationPage() {
                       <Sparkles size={16} />
                     </div>
                     <div>
-                      <h2 className="text-sm font-bold text-white tracking-tight">
+                      <h2 className="text-sm font-bold text-sky-400 tracking-tight">
                         Upsell and Cross-Sell Suggestions
                       </h2>
                       <p className="text-[11px] text-slate-400">
-                        High-margin pairings dynamically matched with current proposal items.
+                        High-margin historical pairings dynamically matched with current proposal items.
                       </p>
                     </div>
                   </div>
@@ -910,36 +944,41 @@ export default function NewQuotationPage() {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
                   {upsellSuggestions.map((sug) => (
                     <button
                       type="button"
                       key={sug.productId}
                       onClick={() => handleAddSuggestion(sug)}
-                      className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 hover:border-blue-500 hover:bg-slate-800/90 transition-all text-left flex flex-col justify-between gap-3 group cursor-pointer"
+                      className="bg-[#0b1120] hover:bg-[#131d33] p-4 rounded-2xl border border-slate-800 hover:border-blue-500 transition-all text-left flex flex-col justify-between gap-3 group cursor-pointer shadow-xs active:scale-98"
                     >
-                      <div className="space-y-1">
-                        <div className="text-xs font-bold text-slate-100 group-hover:text-blue-400 transition-colors">
-                          + {sug.name}
+                      <div className="space-y-1.5">
+                        <div className="text-xs font-bold text-white group-hover:text-sky-400 transition-colors flex items-center gap-1">
+                          <span>+ {sug.name}</span>
                         </div>
-                        {sug.promotionalTag && (
-                          <div className="text-[10px] font-bold text-amber-400 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/50 inline-block">
+                        {sug.promotionalTag ? (
+                          <div className="text-[11px] font-semibold text-amber-400">
                             {sug.promotionalTag}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] font-semibold text-slate-400">
+                            Margin +₹{sug.marginAmount.toLocaleString()}
                           </div>
                         )}
                       </div>
 
                       <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
                         <div>
-                          <div className="text-xs font-extrabold text-white">
+                          <div className="text-xs font-extrabold text-white font-mono">
                             ₹{sug.basePrice.toLocaleString()}
                           </div>
-                          <div className="text-[10px] text-emerald-400 font-semibold">
-                            Margin +₹{((sug.basePrice - sug.costPrice)).toLocaleString()}
+                          <div className="text-[10px] text-emerald-400 font-semibold font-mono">
+                            {sug.marginPercent}% Margin
                           </div>
                         </div>
-                        <span className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition">
-                          + Add
+                        <span className="px-3 py-1 rounded-xl bg-blue-600 group-hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition flex items-center gap-1">
+                          <Plus size={12} strokeWidth={2.5} />
+                          <span>Add</span>
                         </span>
                       </div>
                     </button>

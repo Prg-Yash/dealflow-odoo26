@@ -58,7 +58,7 @@ export interface SubscriptionData {
   billingInterval: "MONTHLY" | "QUARTERLY" | "ANNUALLY";
   currentPeriodStart: string;
   currentPeriodEnd: string;
-  nextBillingDate: string;
+  nextBillingDate?: string | null;
   currentMrr: number;
   currentArr: number;
   autoRenew: boolean;

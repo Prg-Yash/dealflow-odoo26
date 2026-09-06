@@ -634,6 +634,94 @@ async function main() {
       taxRate: 0.0,
       isPromoted: false,
     },
+    {
+      sku: "HW-LP-14",
+      name: "Laptop Pro 14",
+      description: "High-performance enterprise ultrabook with 32GB RAM, 1TB NVMe, and Retina display",
+      categoryId: catHardware.id,
+      basePrice: 1200.0,
+      costPrice: 850.0,
+      unit: UnitType.UNIT,
+      taxRate: 0.08,
+      isPromoted: true,
+    },
+    {
+      sku: "ACC-MSE-01",
+      name: "Wireless Mouse",
+      description: "Ergonomic dual-mode Bluetooth & 2.4GHz wireless precision mouse",
+      categoryId: catHardware.id,
+      basePrice: 45.0,
+      costPrice: 27.0,
+      unit: UnitType.UNIT,
+      taxRate: 0.08,
+      isPromoted: true,
+    },
+    {
+      sku: "ACC-DCK-01",
+      name: "Docking Station",
+      description: "Thunderbolt 4 multi-display hub with 100W Power Delivery and dual 4K HDMI",
+      categoryId: catHardware.id,
+      basePrice: 180.0,
+      costPrice: 110.0,
+      unit: UnitType.UNIT,
+      taxRate: 0.08,
+      isPromoted: true,
+    },
+    {
+      sku: "SUB-CARE-2Y",
+      name: "Care Plan 2yr",
+      description: "24/7 Priority replacement SLA, accidental damage protection, and dedicated support",
+      categoryId: catSubscriptions.id,
+      basePrice: 46.0,
+      costPrice: 15.0,
+      unit: UnitType.MONTH,
+      taxRate: 0.0,
+      isPromoted: true,
+    },
+    {
+      sku: "SRV-ONST-01",
+      name: "Onsite Setup Service",
+      description: "Onsite workstation deployment, imaging, enterprise network domain join",
+      categoryId: catServices.id,
+      basePrice: 450.0,
+      costPrice: 200.0,
+      unit: UnitType.PROJECT,
+      taxRate: 0.0,
+      isPromoted: false,
+    },
+    {
+      sku: "SRV-WRNT-01",
+      name: "Extended Warranty (3yr)",
+      description: "Next-business-day on-site hardware part replacement guarantee",
+      categoryId: catServices.id,
+      basePrice: 180.0,
+      costPrice: 70.0,
+      unit: UnitType.YEAR,
+      taxRate: 0.0,
+      isPromoted: false,
+    },
+    {
+      sku: "ACC-PRIV-01",
+      name: "Privacy Screen Filter 14\"",
+      description: "Magnetic anti-glare micro-louver privacy protector for laptop screens",
+      categoryId: catHardware.id,
+      basePrice: 65.0,
+      costPrice: 35.0,
+      unit: UnitType.UNIT,
+      taxRate: 0.08,
+      isPromoted: false,
+    },
+    {
+      sku: "ACC-HDST-01",
+      name: "Noise-Cancelling Wireless Headset",
+      description: "Enterprise ANC headset with boom mic, dual Bluetooth, and charging stand",
+      categoryId: catHardware.id,
+      basePrice: 150.0,
+      costPrice: 90.0,
+      unit: UnitType.UNIT,
+      taxRate: 0.08,
+      isPromoted: false,
+    },
   ];
 
   const products: Record<string, any> = {};
@@ -665,6 +753,117 @@ async function main() {
         isActive: true,
       },
     });
+  }
+
+  // Seed 8-9 Historical Product Recommendations (Upsell & Cross-sell Rules)
+  console.log("\n[6b/8] Seeding 8-9 Historical Co-Purchase Recommendations...");
+  const recommendationPairConfigs = [
+    {
+      sourceSku: "HW-LP-14",
+      targetSku: "ACC-MSE-01",
+      coPurchaseScore: 4.8,
+      minMarginThreshold: 15.0,
+      promotionalTag: null,
+      desc: "Laptop Pro 14 -> Wireless Mouse (Margin +$18)",
+    },
+    {
+      sourceSku: "HW-LP-14",
+      targetSku: "ACC-DCK-01",
+      coPurchaseScore: 4.9,
+      minMarginThreshold: 15.0,
+      promotionalTag: "Promo: 12% off",
+      desc: "Laptop Pro 14 -> Docking Station (Promo: 12% off)",
+    },
+    {
+      sourceSku: "HW-LP-14",
+      targetSku: "SUB-CARE-2Y",
+      coPurchaseScore: 5.0,
+      minMarginThreshold: 20.0,
+      promotionalTag: null,
+      desc: "Laptop Pro 14 -> Care Plan 2yr (Margin +$46)",
+    },
+    {
+      sourceSku: "HW-LP-14",
+      targetSku: "SRV-ONST-01",
+      coPurchaseScore: 4.5,
+      minMarginThreshold: 20.0,
+      promotionalTag: "Popular Pairing",
+      desc: "Laptop Pro 14 -> Onsite Setup Service",
+    },
+    {
+      sourceSku: "HW-LP-14",
+      targetSku: "SRV-WRNT-01",
+      coPurchaseScore: 4.6,
+      minMarginThreshold: 15.0,
+      promotionalTag: "Extended Care",
+      desc: "Laptop Pro 14 -> Extended Warranty",
+    },
+    {
+      sourceSku: "HW-LP-14",
+      targetSku: "ACC-PRIV-01",
+      coPurchaseScore: 4.3,
+      minMarginThreshold: 15.0,
+      promotionalTag: null,
+      desc: "Laptop Pro 14 -> Privacy Screen Filter",
+    },
+    {
+      sourceSku: "HW-LP-14",
+      targetSku: "ACC-HDST-01",
+      coPurchaseScore: 4.4,
+      minMarginThreshold: 15.0,
+      promotionalTag: "Remote Work Bundle",
+      desc: "Laptop Pro 14 -> Noise-Cancelling Wireless Headset",
+    },
+    {
+      sourceSku: "HW-SRV-01",
+      targetSku: "SRV-SLA-01",
+      coPurchaseScore: 5.0,
+      minMarginThreshold: 25.0,
+      promotionalTag: "Enterprise SLA",
+      desc: "Enterprise Edge Server 2U -> 24/7 Dedicated Support SLA",
+    },
+    {
+      sourceSku: "HW-SRV-01",
+      targetSku: "SRV-INST-01",
+      coPurchaseScore: 4.8,
+      minMarginThreshold: 20.0,
+      promotionalTag: "Fast Delivery",
+      desc: "Enterprise Edge Server 2U -> On-Site Hardware Deployment",
+    },
+  ];
+
+  for (const r of recommendationPairConfigs) {
+    const src = products[r.sourceSku];
+    const tgt = products[r.targetSku];
+    if (src && tgt) {
+      const existing = await prisma.productRecommendation.findFirst({
+        where: { sourceProductId: src.id, recommendedProductId: tgt.id },
+      });
+      if (existing) {
+        await prisma.productRecommendation.update({
+          where: { id: existing.id },
+          data: {
+            coPurchaseScore: r.coPurchaseScore,
+            minMarginThreshold: r.minMarginThreshold,
+            promotionalTag: r.promotionalTag,
+            isActive: true,
+          },
+        });
+      } else {
+        await prisma.productRecommendation.create({
+          data: {
+            organizationId: org.id,
+            sourceProductId: src.id,
+            recommendedProductId: tgt.id,
+            coPurchaseScore: r.coPurchaseScore,
+            minMarginThreshold: r.minMarginThreshold,
+            promotionalTag: r.promotionalTag,
+            isActive: true,
+          },
+        });
+      }
+      console.log(`  ✓ Recommendation rule: ${r.desc}`);
+    }
   }
 
   // Stock Quantities (Enabling split fulfillment demonstration)
