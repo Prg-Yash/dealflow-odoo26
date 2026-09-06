@@ -18,3 +18,9 @@ export const QuerySlippageSchema = z.object({
 export type QueryStalledDealsInput = z.infer<typeof QueryStalledDealsSchema>;
 export type QueryAnomaliesInput = z.infer<typeof QueryAnomaliesSchema>;
 export type QuerySlippageInput = z.infer<typeof QuerySlippageSchema>;
+
+export const NudgeActionSchema = z.object({
+  type: z.enum(["nudge", "escalate"]),
+  note: z.string().max(500).optional(),
+});
+export type NudgeActionInput = z.infer<typeof NudgeActionSchema>;

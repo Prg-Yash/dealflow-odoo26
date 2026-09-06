@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Check,
@@ -31,20 +32,28 @@ import {
 import {
   useQuotations,
   useDealAnomalies,
+  useStalledQuotations,
+  useFulfillmentSlippage,
+  useNudgeAction,
   useMembers,
   useUpdateQuotationStage,
 } from "../../../../lib/query";
+import { toast } from "sonner";
 
 export default function ManagerDashboardPage() {
   const { signOut } = useDashboardAuth();
+  const router = useRouter();
   const [activeView, setActiveView] = useState<"approvals" | "telemetry" | "team">("approvals");
   const [profileOpen, setProfileOpen] = useState(false);
 
   // Live TanStack Query Hooks
   const { data: apiQuotes } = useQuotations({ stage: "PENDING_APPROVAL" });
   const { data: apiAnomalies } = useDealAnomalies();
+  const { data: apiStalled } = useStalledQuotations();
+  const { data: apiSlippage } = useFulfillmentSlippage();
   const { data: apiMembers } = useMembers();
   const updateStageMutation = useUpdateQuotationStage();
+  const nudgeMutation = useNudgeAction();
 
   const initialApprovals: ManagerApprovalRequest[] = apiQuotes && apiQuotes.length > 0
     ? apiQuotes.map((q) => ({
@@ -75,22 +84,59 @@ export default function ManagerDashboardPage() {
     : INITIAL_MANAGER_APPROVALS;
 
   const anomaliesList = apiAnomalies?.anomalies || (Array.isArray(apiAnomalies) ? apiAnomalies : []);
-  const initialAnomalies: DealAnomalyRecord[] = anomaliesList.length > 0
-    ? anomaliesList.map((a: any) => ({
-        id: a.quotationId || a.id || "anom-1",
-        quoteId: a.quoteNumber || "QT-1042",
-        account: a.customerName || "Strategic Account",
-        accountInitials: (a.customerName || "SA").slice(0, 2).toUpperCase(),
-        repName: a.salesRepName || a.repName || "Account Rep",
-        dealValue: a.dealSize || 75000,
-        riskGaugePercent: a.blendedRiskScore || 25,
-        riskLevel: (a.severity === "HIGH" || a.severity === "CRITICAL" ? "high" : a.severity === "LOW" ? "low" : "medium") as "high" | "medium" | "low",
-        anomalyType: a.isStalledAnomaly ? ("Stalled Deal" as const) : ("Discount Breach" as const),
-        idleDays: a.daysSinceLastActivity || 3,
-        actionStatus: "flagged" as const,
-        details: a.recommendation || `Discount deviation: +${a.discountDeviation || 5}% against historical average`,
-      }))
-    : INITIAL_DEAL_ANOMALIES;
+  const stalledList = apiStalled?.alerts || [];
+  const slippageList = apiSlippage?.alerts || [];
+
+  // Unified alert list merging all 3 sources
+  const allAlerts: DealAnomalyRecord[] = [
+    ...anomaliesList.map((a: any) => ({
+      id: a.quotationId || a.id || "anom-" + Math.random(),
+      quoteId: a.quoteNumber || "",
+      quotationId: a.quotationId,
+      account: a.customerName || "Strategic Account",
+      accountInitials: (a.customerName || "SA").slice(0, 2).toUpperCase(),
+      repName: a.salesRepName || a.repName || "Account Rep",
+      dealValue: a.dealSize || 0,
+      riskGaugePercent: a.blendedRiskScore || 25,
+      riskLevel: (a.severity === "HIGH" || a.severity === "CRITICAL" ? "high" : a.severity === "LOW" ? "low" : "medium") as "high" | "medium" | "low",
+      anomalyType: "Discount Breach" as const,
+      idleDays: a.daysSinceLastActivity || 0,
+      actionStatus: "flagged" as const,
+      details: a.recommendation || `Discount +${a.excessPercent?.toFixed(1) || 0}% above rep baseline (${a.repBaselinePercent?.toFixed(1) || 0}%)`,
+    })),
+    ...stalledList.map((s: any) => ({
+      id: s.quotationId || "stall-" + Math.random(),
+      quoteId: s.quoteNumber || "",
+      quotationId: s.quotationId,
+      account: s.customerName || "Strategic Account",
+      accountInitials: (s.customerName || "SA").slice(0, 2).toUpperCase(),
+      repName: s.salesRepName || "Account Rep",
+      dealValue: s.grandTotal || 0,
+      riskGaugePercent: s.severity === "HIGH" ? 80 : s.severity === "MEDIUM" ? 50 : 25,
+      riskLevel: (s.severity === "HIGH" ? "high" : s.severity === "MEDIUM" ? "medium" : "low") as "high" | "medium" | "low",
+      anomalyType: "Stalled Deal" as const,
+      idleDays: s.daysInactive || 0,
+      actionStatus: "flagged" as const,
+      details: `Inactive for ${s.daysInactive || 0} days (threshold: ${s.thresholdDays || 7}d) — Stage: ${s.stage}`,
+    })),
+    ...slippageList.map((sl: any) => ({
+      id: sl.fulfillmentOrderId || "slip-" + Math.random(),
+      quoteId: sl.fulfillmentNumber || "",
+      quotationId: sl.quotationId,
+      account: sl.fulfillmentNumber || "Fulfillment",
+      accountInitials: "SL",
+      repName: "Fulfillment Ops",
+      dealValue: 0,
+      riskGaugePercent: 70,
+      riskLevel: "high" as const,
+      anomalyType: "SLA Alert" as const,
+      idleDays: sl.daysOverdue || 0,
+      actionStatus: "flagged" as const,
+      details: `Delivery ${sl.daysOverdue || 0} days past SLA — ${sl.reason || "No shipment dispatched"}`,
+    })),
+  ];
+
+  const initialAnomalies: DealAnomalyRecord[] = allAlerts.length > 0 ? allAlerts : INITIAL_DEAL_ANOMALIES;
 
   const [approvals, setApprovals] = useState<ManagerApprovalRequest[]>(initialApprovals);
   const [anomalies, setAnomalies] = useState<DealAnomalyRecord[]>(initialAnomalies);
@@ -722,21 +768,21 @@ export default function ManagerDashboardPage() {
                   <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Stalled Deals</h3>
                   <p className="text-2xl font-black text-[#0f172a]">
                     {anomalies.filter((a) => a.anomalyType === "Stalled Deal").length}{" "}
-                    <span className="text-sm font-medium text-slate-500">quotes idle 7+ days</span>
+                    <span className="text-sm font-medium text-slate-500">idle 7+ days</span>
                   </p>
                 </div>
                 <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs">
                   <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Discount Anomalies</h3>
                   <p className="text-2xl font-black text-[#0f172a]">
                     {anomalies.filter((a) => a.anomalyType === "Discount Breach").length}{" "}
-                    <span className="text-sm font-medium text-slate-500">above rep average</span>
+                    <span className="text-sm font-medium text-slate-500">above rep avg</span>
                   </p>
                 </div>
                 <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs">
-                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Active Approvals</h3>
+                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">SLA Slippage</h3>
                   <p className="text-2xl font-black text-[#0f172a]">
-                    {pendingApprovals.length}{" "}
-                    <span className="text-sm font-medium text-slate-500">pending sign-off</span>
+                    {anomalies.filter((a) => a.anomalyType === "SLA Alert").length}{" "}
+                    <span className="text-sm font-medium text-slate-500">past delivery date</span>
                   </p>
                 </div>
               </div>
@@ -748,55 +794,101 @@ export default function ManagerDashboardPage() {
                     <tr className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-50/80 border-b border-slate-100 font-semibold">
                       <th className="py-4 px-6 rounded-tl-2xl">Deal</th>
                       <th className="py-4 px-4">Issue</th>
-                      <th className="py-4 px-4">Flagged Risk</th>
-                      <th className="py-4 px-6 rounded-tr-2xl">Action Status</th>
+                      <th className="py-4 px-4">Risk</th>
+                      <th className="py-4 px-6 rounded-tr-2xl">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
                     {anomalies.length > 0 ? (
-                      anomalies.map((a) => (
-                        <tr key={a.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="py-4 px-6 font-bold text-slate-900">
-                            <div>{a.account}</div>
-                            <div className="text-[11px] font-mono text-slate-400">{a.quoteId} &bull; {a.repName}</div>
-                          </td>
-                          <td className="py-4 px-4">
-                            <div className={`font-semibold ${a.riskLevel === "high" ? "text-rose-600 font-bold" : "text-slate-800"}`}>
-                              {a.details || `${a.anomalyType}: Idle ${a.idleDays} days`}
-                            </div>
-                          </td>
-                          <td className="py-4 px-4 text-slate-500 font-mono text-[11px]">
-                            Risk: {a.riskGaugePercent}%
-                          </td>
-                          <td className="py-4 px-6 text-slate-500">
-                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                              a.riskLevel === "high"
-                                ? "bg-rose-50 text-rose-700 border border-rose-200"
-                                : "bg-amber-50 text-amber-700 border border-amber-200"
-                            }`}>
-                              {a.actionStatus === "flagged" ? "Flagged for Review" : a.actionStatus}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
+                      anomalies.map((a: any) => {
+                        const quotationHref = a.quotationId
+                          ? `/dashboard/manager/approvals/${a.quotationId}`
+                          : null;
+                        return (
+                          <tr
+                            key={a.id}
+                            className={`hover:bg-orange-50/40 transition-colors group ${quotationHref ? "cursor-pointer" : ""}`}
+                            onClick={() => quotationHref && router.push(quotationHref)}
+                          >
+                            <td className="py-4 px-6 font-bold text-slate-900">
+                              <div className="flex items-center gap-2">
+                                <div>
+                                  <div className={quotationHref ? "group-hover:text-[#ff5e3a] transition-colors" : ""}>{a.account}</div>
+                                  <div className="text-[11px] font-mono text-slate-400">{a.quoteId} • {a.repName}</div>
+                                </div>
+                                {quotationHref && (
+                                  <ArrowUpRight size={13} className="text-slate-300 group-hover:text-[#ff5e3a] transition-colors flex-shrink-0" />
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-4 px-4 max-w-xs">
+                              <div className={`font-semibold text-xs ${a.riskLevel === "high" ? "text-rose-600" : "text-slate-700"}`}>
+                                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold mr-2 ${
+                                  a.anomalyType === "Stalled Deal" ? "bg-amber-50 text-amber-700" :
+                                  a.anomalyType === "Discount Breach" ? "bg-rose-50 text-rose-700" :
+                                  "bg-purple-50 text-purple-700"
+                                }`}>{a.anomalyType}</span>
+                                {a.details}
+                              </div>
+                            </td>
+                            <td className="py-4 px-4">
+                              <div className="flex items-center gap-2">
+                                <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full ${
+                                      a.riskLevel === "high" ? "bg-rose-500" : a.riskLevel === "medium" ? "bg-amber-400" : "bg-emerald-400"
+                                    }`}
+                                    style={{ width: `${a.riskGaugePercent}%` }}
+                                  />
+                                </div>
+                                <span className="text-[11px] font-mono text-slate-500">{a.riskGaugePercent}%</span>
+                              </div>
+                            </td>
+                            <td className="py-4 px-6">
+                              {a.quotationId ? (
+                                <div
+                                  className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <button
+                                    onClick={() =>
+                                      nudgeMutation.mutate(
+                                        { quotationId: a.quotationId, type: "nudge" },
+                                        { onSuccess: () => toast.success(`Nudge sent for ${a.quoteId || a.account}`), onError: () => toast.error("Failed to send nudge") }
+                                      )
+                                    }
+                                    className="px-2.5 py-1 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-700 text-[10px] font-bold border border-sky-200 cursor-pointer transition"
+                                  >
+                                    Nudge
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      nudgeMutation.mutate(
+                                        { quotationId: a.quotationId, type: "escalate" },
+                                        { onSuccess: () => toast.success(`Escalated ${a.quoteId || a.account}`), onError: () => toast.error("Failed to escalate") }
+                                      )
+                                    }
+                                    className="px-2.5 py-1 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-bold border border-rose-200 cursor-pointer transition"
+                                  >
+                                    Escalate
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-50 text-slate-500 border border-slate-200">Flagged</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
                     ) : (
                       <tr>
                         <td colSpan={4} className="py-8 text-center text-slate-400">
-                          No deal anomalies or stalled quotations detected. All deals healthy.
+                          No deal anomalies or stalled quotations detected. All deals healthy. ✅
                         </td>
                       </tr>
                     )}
                   </tbody>
-              </table>
-            </div>
-
-            <div className="flex items-center gap-4 pt-4">
-              <button className="px-5 py-2.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-sm cursor-pointer transition">
-                Escalate
-              </button>
-              <button className="px-5 py-2.5 rounded-full bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold shadow-sm cursor-pointer transition">
-                Nudge Rep
-              </button>
+               </table>
             </div>
           </div>
         )}
