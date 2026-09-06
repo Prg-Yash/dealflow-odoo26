@@ -1912,15 +1912,111 @@ export function CustomerNegotiationPortal({
                                         : "bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-xs"
                                     }`}
                                   >
-                                    {msg.quotationLineId && (
-                                      <div
-                                        className={`text-[10px] font-bold mb-1 opacity-80 ${
-                                          isCustomer ? "text-orange-100" : "text-slate-400"
-                                        }`}
-                                      >
-                                        📎 Attached to line item
-                                      </div>
-                                    )}
+                                    {(() => {
+                                      const attachedLine = msg.quotationLineId
+                                        ? (quotation.lines || []).find((l: any) => l.id === msg.quotationLineId)
+                                        : null;
+
+                                      if (!msg.quotationLineId) return null;
+
+                                      return (
+                                        <div
+                                          className={`mb-2.5 p-2.5 rounded-xl text-left transition-all ${
+                                            isCustomer
+                                              ? "bg-black/20 border border-white/25 text-white shadow-2xs backdrop-blur-xs"
+                                              : "bg-slate-50 border border-slate-200/90 text-slate-800 shadow-2xs"
+                                          }`}
+                                        >
+                                          <div className="flex items-center justify-between gap-2 mb-1">
+                                            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider">
+                                              <span className={isCustomer ? "text-orange-100" : "text-slate-500"}>
+                                                📎 Attached Line Item
+                                              </span>
+                                              {attachedLine?.itemType && (
+                                                <span
+                                                  className={`px-1.5 py-0.2 rounded font-mono text-[9px] font-bold ${
+                                                    isCustomer
+                                                      ? "bg-white/20 text-white"
+                                                      : "bg-slate-200 text-slate-700"
+                                                  }`}
+                                                >
+                                                  {attachedLine.itemType}
+                                                </span>
+                                              )}
+                                            </div>
+                                            {attachedLine?.product?.sku && (
+                                              <span
+                                                className={`text-[9px] font-mono ${
+                                                  isCustomer ? "text-orange-200" : "text-slate-400"
+                                                }`}
+                                              >
+                                                {attachedLine.product.sku}
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          {attachedLine ? (
+                                            <div className="space-y-1">
+                                              <div
+                                                className={`font-bold text-xs leading-snug ${
+                                                  isCustomer ? "text-white" : "text-slate-900"
+                                                }`}
+                                              >
+                                                {attachedLine.product?.name || attachedLine.description || "Product Item"}
+                                              </div>
+                                              {attachedLine.description &&
+                                                attachedLine.description !== attachedLine.product?.name && (
+                                                  <div
+                                                    className={`text-[10px] truncate max-w-[280px] ${
+                                                      isCustomer ? "text-orange-100/80" : "text-slate-500"
+                                                    }`}
+                                                  >
+                                                    {attachedLine.description}
+                                                  </div>
+                                                )}
+                                              <div
+                                                className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] pt-1.5 mt-1 border-t ${
+                                                  isCustomer
+                                                    ? "border-white/15 text-orange-100"
+                                                    : "border-slate-200 text-slate-600"
+                                                }`}
+                                              >
+                                                <span>
+                                                  Qty:{" "}
+                                                  <strong className={isCustomer ? "text-white font-bold" : "text-slate-900 font-bold"}>
+                                                    {attachedLine.quantity || 1}
+                                                  </strong>
+                                                </span>
+                                                <span>
+                                                  Unit:{" "}
+                                                  <strong className={isCustomer ? "text-white font-bold" : "text-slate-900 font-bold"}>
+                                                    ₹{Number(attachedLine.unitPrice || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                                                  </strong>
+                                                </span>
+                                                {Number(attachedLine.discountPercent || 0) > 0 && (
+                                                  <span>
+                                                    Disc:{" "}
+                                                    <strong className={isCustomer ? "text-white font-bold" : "text-emerald-600 font-bold"}>
+                                                      {attachedLine.discountPercent}%
+                                                    </strong>
+                                                  </span>
+                                                )}
+                                                <span>
+                                                  Net:{" "}
+                                                  <strong className={isCustomer ? "text-white font-black" : "text-slate-900 font-black"}>
+                                                    ₹{Number(attachedLine.netPrice || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                                                  </strong>
+                                                </span>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <div className={`text-[10px] ${isCustomer ? "text-orange-100" : "text-slate-500"}`}>
+                                              Line Item Ref: {msg.quotationLineId}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                     {msg.message}
                                   </div>
 
