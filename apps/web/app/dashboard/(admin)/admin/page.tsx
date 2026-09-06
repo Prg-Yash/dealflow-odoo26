@@ -17,6 +17,7 @@ import {
   Clock,
   AlertTriangle,
   Activity,
+  FileText,
 } from "lucide-react";
 import {
   useCurrentOrg,
@@ -32,7 +33,150 @@ import {
   useDealAnomalies,
   useStalledQuotations,
   useFulfillmentSlippage,
+  useApproveQuotation,
+  useRejectQuotation,
+  useAcceptCounterProposal,
 } from "../../../../lib/query";
+
+function AdminApprovalQueues({ quotations }: { quotations: any[] }) {
+  const [activeModalRequest, setActiveModalRequest] = useState<{ request: any; type: "approve" | "reject" | "accept-counter" | "reject-counter"; queue: "manager" | "finance" | "negotiation" } | null>(null);
+  const [modalReason, setModalReason] = useState("");
+  
+  const approveMutation = useApproveQuotation();
+  const rejectMutation = useRejectQuotation();
+  const acceptCounterMutation = useAcceptCounterProposal();
+
+  const managerQueue = quotations.filter((q) => {
+    if (q.stage !== "PENDING_APPROVAL") return false;
+    const step1 = q.approvalRequest?.steps?.find((s: any) => s.stepNumber === 1);
+    return step1 && step1.status === "PENDING";
+  });
+
+  const financeQueue = quotations.filter((q) => {
+    if (q.stage !== "PENDING_APPROVAL") return false;
+    const reqFinance = q.requiresFinanceApproval || q.approvalRequest?.steps?.some((s: any) => s.level === "FINANCE") || (q.blendedRiskScore && q.blendedRiskScore > 10);
+    if (!reqFinance) return false;
+    
+    if (q.approvalRequest?.steps && q.approvalRequest.steps.length > 0) {
+      const step1 = q.approvalRequest.steps.find((s: any) => s.stepNumber === 1);
+      if (step1 && step1.level === "SALES_MANAGER") {
+        if (step1.status !== "APPROVED" && q.approvalRequest.currentStep < 2) return false;
+      }
+    }
+    return true;
+  });
+
+  const negotiationQueue = quotations.filter((q) => q.stage === "NEGOTIATION");
+
+  const handleConfirmDecision = async () => {
+    if (!activeModalRequest) return;
+    const { request, type } = activeModalRequest;
+    
+    if (type === "approve") {
+      await approveMutation.mutateAsync({ id: request.id, comments: modalReason || "Approved by Admin" });
+    } else if (type === "reject") {
+      await rejectMutation.mutateAsync({ id: request.id, reason: modalReason || "Rejected by Admin" });
+    } else if (type === "accept-counter") {
+      await acceptCounterMutation.mutateAsync({ id: request.id, reason: modalReason || "Counter-proposal accepted by Admin" });
+    } else if (type === "reject-counter") {
+      await rejectMutation.mutateAsync({ id: request.id, reason: modalReason || "Counter-proposal rejected by Admin" });
+    }
+    setActiveModalRequest(null);
+    setModalReason("");
+  };
+
+  const renderQueueTable = (title: string, desc: string, queue: any[], type: "manager" | "finance", themeColor: string) => (
+    <div className="bg-white rounded-2xl border border-black/[0.06] shadow-xs overflow-hidden flex flex-col h-full">
+      <div className="p-5 border-b border-slate-100">
+        <h2 className="text-base font-bold text-[#0f172a]">{title}</h2>
+        <p className="text-xs text-slate-400 mt-0.5">{desc}</p>
+      </div>
+      <div className="divide-y divide-slate-100 flex-1">
+        {queue.length === 0 ? (
+          <div className="p-8 text-center text-xs text-slate-400">✅ No quotes pending {type} approval.</div>
+        ) : (
+          queue.map((q) => (
+            <div key={q.id} className="p-5 flex flex-col gap-3 hover:bg-slate-50/60 transition">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Link href={`/dashboard/${type}/approvals/${q.quoteNumber || q.id}`} className={`font-mono text-xs font-bold text-${themeColor}-600 hover:underline`}>
+                    {q.quoteNumber || q.id}
+                  </Link>
+                  <div className="font-bold text-sm text-slate-900 mt-0.5">{q.customer?.name || "Client"}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Deal Value</div>
+                  <div className="text-sm font-extrabold text-slate-900 font-mono">₹{Number(q.grandTotal || 0).toLocaleString()}</div>
+                </div>
+              </div>
+              <p className="text-xs text-slate-600 bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/70">
+                <span className="font-bold text-slate-700">Flag: </span>
+                {q.notes || `${q.discountPercent || 0}% discount requested`}
+              </p>
+              <div className="flex gap-2 mt-1">
+                {type === "negotiation" ? (
+                  <>
+                    <button onClick={() => { setActiveModalRequest({ request: q, type: "accept-counter", queue: type }); setModalReason("Accepted customer counter terms."); }} className={`flex-1 py-2 rounded-xl text-white text-xs font-bold bg-${themeColor}-600 hover:bg-${themeColor}-700 shadow-xs transition`}>
+                      Accept Offer
+                    </button>
+                    <button onClick={() => { setActiveModalRequest({ request: q, type: "reject-counter", queue: type }); setModalReason("Rejected customer counter terms."); }} className="flex-1 py-2 rounded-xl text-slate-700 text-xs font-bold bg-white border border-slate-200 hover:bg-slate-50 shadow-xs transition">
+                      Reject
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => { setActiveModalRequest({ request: q, type: "approve", queue: type }); setModalReason("Approved as strategic exception by Admin."); }} className={`flex-1 py-2 rounded-xl text-white text-xs font-bold bg-${themeColor}-600 hover:bg-${themeColor}-700 shadow-xs transition`}>
+                      Approve
+                    </button>
+                    <button onClick={() => { setActiveModalRequest({ request: q, type: "reject", queue: type }); setModalReason("Rejected due to margin policies."); }} className="flex-1 py-2 rounded-xl text-slate-700 text-xs font-bold bg-white border border-slate-200 hover:bg-slate-50 shadow-xs transition">
+                      Reject
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-6">
+        {renderQueueTable("Sales Manager Exception Queue", "Step 1: Level 1 Approvals (Discount > 5%)", managerQueue, "manager", "orange")}
+        {renderQueueTable("Finance Ops Exception Queue", "Step 2: Dual Approval & Margin Review", financeQueue, "finance", "purple")}
+        {renderQueueTable("Customer Negotiations", "Pending Counter-Proposals from Client", negotiationQueue, "negotiation", "blue")}
+      </div>
+
+      {activeModalRequest && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-black/[0.08] shadow-2xl p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-slate-900 text-base capitalize">
+                Admin Override: {activeModalRequest.type} Quote
+              </h3>
+              <button onClick={() => setActiveModalRequest(null)} className="text-slate-400 hover:text-slate-600">&times;</button>
+            </div>
+            <textarea
+              value={modalReason}
+              onChange={(e) => setModalReason(e.target.value)}
+              rows={3}
+              className={`w-full p-3 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-${activeModalRequest.queue === "manager" ? "orange" : "purple"}-600/30`}
+              placeholder="Rationale for decision..."
+            />
+            <div className="flex justify-end gap-3 pt-2">
+              <button onClick={() => setActiveModalRequest(null)} className="px-4 py-2 rounded-full border text-xs font-semibold hover:bg-slate-50">Cancel</button>
+              <button onClick={handleConfirmDecision} className={`px-5 py-2 rounded-full text-white text-xs font-bold bg-${activeModalRequest.queue === "manager" ? "orange" : activeModalRequest.queue === "finance" ? "purple" : "blue"}-600`}>
+                Confirm Decision
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 export default function AdminOverviewPage() {
   const [filterLevel, setFilterLevel] = useState<"ALL" | "INFO" | "WARN" | "CRITICAL">("ALL");
@@ -205,6 +349,13 @@ export default function AdminOverviewPage() {
 
         {/* Quick Action Shortcuts */}
         <div className="flex flex-wrap items-center gap-2.5">
+          <Link
+            href="/dashboard/sale-ref/quotations/new"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-sm transition"
+          >
+            <FileText size={14} />
+            <span>Build Quotation</span>
+          </Link>
           <Link
             href="/dashboard/admin/catalog"
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-semibold shadow-sm shadow-[#ff5e3a]/25 transition"
@@ -685,6 +836,9 @@ export default function AdminOverviewPage() {
           </div>
         )}
       </div>
+
+      {/* Admin Approvals Consolidation (Manager + Finance) */}
+      <AdminApprovalQueues quotations={quotationsList} />
     </div>
   );
 }
