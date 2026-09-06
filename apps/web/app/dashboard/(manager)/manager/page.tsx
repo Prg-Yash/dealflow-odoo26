@@ -94,7 +94,7 @@ export default function ManagerDashboardPage() {
       })
     : INITIAL_MANAGER_APPROVALS;
 
-  const anomaliesList = apiAnomalies?.anomalies || (Array.isArray(apiAnomalies) ? apiAnomalies : []);
+  const anomaliesList = apiAnomalies?.alerts || (Array.isArray(apiAnomalies) ? apiAnomalies : []);
   const stalledList = apiStalled?.alerts || [];
   const slippageList = apiSlippage?.alerts || [];
 
@@ -147,10 +147,9 @@ export default function ManagerDashboardPage() {
     })),
   ];
 
-  const initialAnomalies: DealAnomalyRecord[] = allAlerts.length > 0 ? allAlerts : INITIAL_DEAL_ANOMALIES;
+  const displayAnomalies: DealAnomalyRecord[] = allAlerts.length > 0 ? allAlerts : INITIAL_DEAL_ANOMALIES;
 
   const [approvals, setApprovals] = useState<ManagerApprovalRequest[]>(initialApprovals);
-  const [anomalies, setAnomalies] = useState<DealAnomalyRecord[]>(initialAnomalies);
 
   useEffect(() => {
     if (apiQuotes && apiQuotes.length > 0) {
@@ -191,26 +190,7 @@ export default function ManagerDashboardPage() {
     }
   }, [apiQuotes]);
 
-  useEffect(() => {
-    if (anomaliesList && anomaliesList.length > 0) {
-      setAnomalies(
-        anomaliesList.map((a: any) => ({
-          id: a.quotationId || a.id || "anom-1",
-          quoteId: a.quoteNumber || "QT-1042",
-          account: a.customerName || "Strategic Account",
-          accountInitials: (a.customerName || "SA").slice(0, 2).toUpperCase(),
-          repName: a.salesRepName || a.repName || "Account Rep",
-          dealValue: a.dealSize || 75000,
-          riskGaugePercent: a.blendedRiskScore || 25,
-          riskLevel: (a.severity === "HIGH" || a.severity === "CRITICAL" ? "high" : a.severity === "LOW" ? "low" : "medium") as "high" | "medium" | "low",
-          anomalyType: a.isStalledAnomaly ? ("Stalled Deal" as const) : ("Discount Breach" as const),
-          idleDays: a.daysSinceLastActivity || 3,
-          actionStatus: "flagged" as const,
-          details: a.recommendation || `Discount deviation: +${a.discountDeviation || 5}% against historical average`,
-        }))
-      );
-    }
-  }, [anomaliesList]);
+
   const [approvalFilter, setApprovalFilter] = useState<"pending" | "all">("pending");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -242,7 +222,7 @@ export default function ManagerDashboardPage() {
     );
   });
 
-  const filteredAnomalies = anomalies.filter((item) => {
+  const filteredAnomalies = displayAnomalies.filter((item) => {
     if (riskFilter === "High Risk Only" && item.riskLevel !== "high") return false;
     if (riskFilter === "Medium & High" && item.riskLevel === "low") return false;
     if (repFilter !== "All Reps" && item.repName !== repFilter) return false;
@@ -802,21 +782,21 @@ export default function ManagerDashboardPage() {
                 <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs">
                   <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Stalled Deals</h3>
                   <p className="text-2xl font-black text-[#0f172a]">
-                    {anomalies.filter((a) => a.anomalyType === "Stalled Deal").length}{" "}
+                    {displayAnomalies.filter((a) => a.anomalyType === "Stalled Deal").length}{" "}
                     <span className="text-sm font-medium text-slate-500">idle 7+ days</span>
                   </p>
                 </div>
                 <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs">
                   <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Discount Anomalies</h3>
                   <p className="text-2xl font-black text-[#0f172a]">
-                    {anomalies.filter((a) => a.anomalyType === "Discount Breach").length}{" "}
+                    {displayAnomalies.filter((a) => a.anomalyType === "Discount Breach").length}{" "}
                     <span className="text-sm font-medium text-slate-500">above rep avg</span>
                   </p>
                 </div>
                 <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs">
                   <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">SLA Slippage</h3>
                   <p className="text-2xl font-black text-[#0f172a]">
-                    {anomalies.filter((a) => a.anomalyType === "SLA Alert").length}{" "}
+                    {displayAnomalies.filter((a) => a.anomalyType === "SLA Alert").length}{" "}
                     <span className="text-sm font-medium text-slate-500">past delivery date</span>
                   </p>
                 </div>
@@ -834,8 +814,8 @@ export default function ManagerDashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
-                    {anomalies.length > 0 ? (
-                      anomalies.map((a: any) => {
+                    {filteredAnomalies.length > 0 ? (
+                      filteredAnomalies.map((a: any) => {
                         const quotationHref = a.quotationId
                           ? `/dashboard/manager/approvals/${a.quotationId}`
                           : null;
