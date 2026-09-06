@@ -13,6 +13,8 @@ export interface InvoiceData {
   taxTotal: number;
   totalAmount: number;
   amountPaid: number;
+  amountRemaining?: number;
+  notes?: string | null;
   paymentTerms: string;
   issueDate: string;
   dueDate: string;
@@ -82,6 +84,14 @@ export interface SubscriptionData {
   };
   lines?: SubscriptionLineData[];
   invoices?: InvoiceData[];
+  creditNotes?: Array<{
+    id: string;
+    creditNoteNumber: string;
+    amount: number;
+    reason?: string | null;
+    status: string;
+    createdAt: string;
+  }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -308,4 +318,28 @@ export function useGenerateShipmentInvoice() {
     },
   });
 }
+
+export interface CreditNoteData {
+  id: string;
+  creditNoteNumber: string;
+  customerId: string;
+  subscriptionId?: string | null;
+  invoiceId?: string | null;
+  status: "ISSUED" | "APPLIED" | "REFUNDED" | "VOID";
+  amount: number;
+  reason?: string | null;
+  customer?: { id: string; name: string; email: string };
+  createdAt: string;
+}
+
+/**
+ * Hook to fetch credit notes list
+ */
+export function useCreditNotes(filters?: { customerId?: string; subscriptionId?: string }) {
+  return useQuery({
+    queryKey: queryKeys.billing.creditNotes(filters?.customerId),
+    queryFn: () => api.get<CreditNoteData[]>("/api/credit-notes", { params: filters }),
+  });
+}
+
 

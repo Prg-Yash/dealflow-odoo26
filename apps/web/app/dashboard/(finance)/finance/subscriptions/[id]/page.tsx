@@ -20,16 +20,20 @@ import {
   Mail,
   RefreshCw,
   X,
+  Plus,
+  Receipt,
+  RotateCcw,
+  Check,
+  ExternalLink,
   CreditCard,
   Box,
-  ChevronRight,
-  Sparkles,
 } from "lucide-react";
 import { BrandLogo } from "@repo/ui";
 import { useDashboardAuth } from "../../../../layout";
 import {
   useSubscription,
   useModifySubscription,
+  useUpdateSubscriptionLine,
   useCancelSubscription,
   useScheduleReminder,
   useQuotation,
@@ -51,6 +55,7 @@ export default function BillingDetailPage({ params }: { params?: { id?: string }
   const { data: apiSub, isLoading, refetch } = useSubscription(subId);
   const { data: originatingQuote } = useQuotation(apiSub?.quotationId || "");
   const modifyMutation = useModifySubscription();
+  const updateLineMutation = useUpdateSubscriptionLine();
   const cancelMutation = useCancelSubscription();
   const reminderMutation = useScheduleReminder();
 
@@ -91,7 +96,7 @@ export default function BillingDetailPage({ params }: { params?: { id?: string }
       billingInterval: (sample.cycle.toUpperCase() === "QUARTERLY" ? "QUARTERLY" : sample.cycle.toUpperCase() === "ANNUALLY" ? "ANNUALLY" : "MONTHLY") as any,
       currentPeriodStart: new Date().toISOString(),
       currentPeriodEnd: new Date(Date.now() + 30 * 86400000).toISOString(),
-      nextBillingDate: sample.nextBillDate !== "-" ? new Date(Date.now() + 15 * 86400000).toISOString() : null,
+      nextBillingDate: sample.nextBillDate !== "-" ? new Date(Date.now() + 15 * 86400000).toISOString() : (null as any),
       currentMrr: sample.amount,
       currentArr: sample.amount * 12,
       autoRenew: true,
@@ -171,6 +176,27 @@ export default function BillingDetailPage({ params }: { params?: { id?: string }
             ],
           } as any)
         : undefined,
+      invoices: isAcme
+        ? [
+            {
+              id: "inv-sub-1",
+              invoiceNumber: "INV-1043",
+              status: "PAID",
+              subtotal: 46,
+              discountTotal: 0,
+              taxTotal: 0,
+              totalAmount: 46,
+              amountPaid: 46,
+              amountRemaining: 0,
+              paymentTerms: "Net 15",
+              issueDate: new Date().toISOString(),
+              dueDate: new Date(Date.now() + 15 * 86400000).toISOString(),
+              customerId: "cust-demo",
+              createdAt: new Date().toISOString(),
+            },
+          ]
+        : [],
+      creditNotes: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -219,11 +245,28 @@ export default function BillingDetailPage({ params }: { params?: { id?: string }
     return [];
   }, [sub]);
 
-  // Live Proration Calculation
+  // Live Proration Calculation for modal preview
   const activeLine = recurringLines[0];
   const oldQty = activeLine?.quantity || 1;
   const deltaQty = editQuantity - oldQty;
-  const estProration = Math.round(deltaQty * (activeLine?.unitPrice || editUnitPrice || 46) * 0.5 * 100) / 100;
+
+  const { daysRemaining, totalDays, estProration } = useMemo(() => {
+    const now = new Date();
+    const periodStart = sub?.currentPeriodStart ? new Date(sub.currentPeriodStart) : new Date();
+    const periodEnd = sub?.currentPeriodEnd
+      ? new Date(sub.currentPeriodEnd)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const total = Math.max(1, Math.round((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24)));
+    const remaining = Math.max(0, Math.round((periodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+    const fraction = Math.max(0, Math.min(1, remaining / total));
+    const prorationAmount = Math.round(deltaQty * (activeLine?.unitPrice || editUnitPrice || 46) * fraction * 100) / 100;
+
+    return { daysRemaining: remaining, totalDays: total, estProration: prorationAmount };
+  }, [sub, deltaQty, activeLine, editUnitPrice]);
+
+  // Extract Invoices and Credit Notes
+  const subInvoices = sub?.invoices || [];
+  const subCreditNotes = sub?.creditNotes || [];
 
   // Open Modify Modal
   const handleOpenModify = () => {
@@ -241,10 +284,22 @@ export default function BillingDetailPage({ params }: { params?: { id?: string }
     setIsModifyModalOpen(true);
   };
 
-  // Submit Modify
+  // Submit Modify (Triggers backend mid-cycle proration if quantity changed)
   const handleSaveModify = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const primaryLine = sub?.lines?.[0];
+
+      // 1. If seat quantity changed, invoke the proration engine
+      if (primaryLine && primaryLine.id && primaryLine.quantity !== editQuantity) {
+        await updateLineMutation.mutateAsync({
+          subscriptionId: subId,
+          lineId: primaryLine.id,
+          quantity: editQuantity,
+        });
+      }
+
+      // 2. Update general subscription schedule details
       await modifyMutation.mutateAsync({
         id: sub.id,
         body: {
@@ -259,9 +314,14 @@ export default function BillingDetailPage({ params }: { params?: { id?: string }
       });
 
       setIsModifyModalOpen(false);
-      setFeedback({ type: "success", text: "Subscription schedule modified and synchronized." });
+      setFeedback({
+        type: "success",
+        text: primaryLine && primaryLine.quantity !== editQuantity
+          ? `Seat adjustment applied (${editQuantity > primaryLine.quantity ? `+${editQuantity - primaryLine.quantity} seats: Prorated Invoice issued` : `${editQuantity - primaryLine.quantity} seats: Prorated Credit Note issued`}).`
+          : "Subscription schedule modified and synchronized.",
+      });
       refetch();
-      setTimeout(() => setFeedback(null), 4000);
+      setTimeout(() => setFeedback(null), 5000);
     } catch (err: any) {
       // In sample demo mode, update gracefully
       setIsModifyModalOpen(false);
@@ -270,7 +330,7 @@ export default function BillingDetailPage({ params }: { params?: { id?: string }
     }
   };
 
-  // Submit Cancel
+  // Submit Cancel (Triggers refund rule & proration credit note)
   const handleConfirmCancel = async () => {
     try {
       await cancelMutation.mutateAsync({
@@ -280,9 +340,12 @@ export default function BillingDetailPage({ params }: { params?: { id?: string }
       });
 
       setIsCancelModalOpen(false);
-      setFeedback({ type: "success", text: "Subscription has been cancelled. Recurring billing stopped." });
+      setFeedback({
+        type: "success",
+        text: `Subscription cancelled with ${refundRule} refund policy. Recurring schedule halted.`,
+      });
       refetch();
-      setTimeout(() => setFeedback(null), 4000);
+      setTimeout(() => setFeedback(null), 5000);
     } catch (err: any) {
       // In sample demo mode, simulate cancellation gracefully
       setIsCancelModalOpen(false);
@@ -562,7 +625,90 @@ export default function BillingDetailPage({ params }: { params?: { id?: string }
           </div>
         </div>
 
-        {/* ── SECTION 3: BULLMQ RENEWAL REMINDER TELEMETRY ── */}
+        {/* ── SECTION 3: PRORATION INVOICES & CREDIT NOTES HISTORY ── */}
+        {(subInvoices.length > 0 || subCreditNotes.length > 0) && (
+          <div className="space-y-3">
+            <h2 className="text-sm font-bold text-sky-700 tracking-tight flex items-center gap-2">
+              <Receipt size={16} className="text-emerald-600" />
+              <span>Proration Invoices &amp; Credit Ledger</span>
+            </h2>
+
+            <div className="bg-white rounded-2xl border border-black/[0.06] shadow-xs overflow-hidden divide-y divide-slate-100">
+              {/* Invoices */}
+              {subInvoices.length > 0 && (
+                <div className="p-4 space-y-2">
+                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Issued Invoices</div>
+                  <div className="space-y-2">
+                    {subInvoices.map((inv) => (
+                      <div
+                        key={inv.id}
+                        className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="font-bold text-slate-900 flex items-center gap-2">
+                            <span>{inv.invoiceNumber}</span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                                inv.status === "PAID"
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                  : "bg-amber-50 text-amber-700 border-amber-200"
+                              }`}
+                            >
+                              {inv.status}
+                            </span>
+                          </div>
+                          <p className="text-slate-500 text-[11px]">
+                            Due {new Date(inv.dueDate).toLocaleDateString()} &bull; Total: ₹{Number(inv.totalAmount).toLocaleString()}
+                          </p>
+                        </div>
+
+                        <Link
+                          href={`/dashboard/finance/invoices/${inv.id}`}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-[#ff5e3a] hover:underline transition"
+                        >
+                          <span>View Invoice &rarr;</span>
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Credit Notes */}
+              {subCreditNotes.length > 0 && (
+                <div className="p-4 space-y-2">
+                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Credit Notes (Prorated Adjustments)</div>
+                  <div className="space-y-2">
+                    {subCreditNotes.map((cn) => (
+                      <div
+                        key={cn.id}
+                        className="p-3 rounded-xl bg-amber-50/60 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="font-bold text-amber-900 flex items-center gap-2">
+                            <RotateCcw size={13} />
+                            <span>{cn.creditNoteNumber}</span>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">
+                              CREDIT: ₹{Number(cn.amount).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-slate-600 text-[11px]">
+                            {cn.reason || "Prorated mid-cycle adjustment"}
+                          </p>
+                        </div>
+                        <span className="text-[11px] text-slate-500 font-mono">
+                          {new Date(cn.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── SECTION 4: BULLMQ RENEWAL REMINDER TELEMETRY ── */}
         <div className="p-4 bg-orange-50/60 border border-orange-200/80 rounded-2xl shadow-2xs space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
@@ -710,6 +856,12 @@ export default function BillingDetailPage({ params }: { params?: { id?: string }
               <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1.5">
                 <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mid-Cycle Proration Schedule:</div>
                 <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-600 font-medium">Days Remaining:</span>
+                  <span className="text-slate-900 font-mono font-bold">
+                    {daysRemaining} / {totalDays} days in cycle
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
                   <span className="text-slate-600 font-medium">Seat Delta:</span>
                   <span className={deltaQty >= 0 ? "text-emerald-600 font-mono font-bold" : "text-amber-600 font-mono font-bold"}>
                     {deltaQty >= 0 ? `+${deltaQty} seats` : `${deltaQty} seats`}
@@ -723,7 +875,7 @@ export default function BillingDetailPage({ params }: { params?: { id?: string }
                 </div>
                 <div className="flex items-center justify-between text-xs font-bold pt-1 border-t border-slate-200">
                   <span className="text-slate-600">Estimated Adjustment:</span>
-                  <span className="font-mono text-xs text-sky-600">
+                  <span className="font-mono text-xs text-sky-600 font-bold">
                     {estProration >= 0 ? `+₹${estProration.toLocaleString()}` : `-₹${Math.abs(estProration).toLocaleString()}`}
                   </span>
                 </div>
@@ -763,10 +915,10 @@ export default function BillingDetailPage({ params }: { params?: { id?: string }
                 </button>
                 <button
                   type="submit"
-                  disabled={modifyMutation.isPending}
+                  disabled={modifyMutation.isPending || updateLineMutation.isPending}
                   className="px-5 py-2 rounded-full bg-[#ff5e3a] hover:bg-[#ff4e26] text-white text-xs font-bold transition shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
-                  {modifyMutation.isPending && <Loader2 size={13} className="animate-spin" />}
+                  {(modifyMutation.isPending || updateLineMutation.isPending) && <Loader2 size={13} className="animate-spin" />}
                   <span>Save Changes</span>
                 </button>
               </div>
