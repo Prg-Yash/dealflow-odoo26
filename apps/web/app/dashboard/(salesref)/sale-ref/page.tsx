@@ -21,7 +21,7 @@ import { useQuotations } from "../../../../lib/query";
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user } = useDashboardAuth();
+  const { user, signOut } = useDashboardAuth();
   const [selectedFilter, setSelectedFilter] = useState<string>("all");
 
   // Dynamic live quotations for the logged-in sales rep
@@ -113,6 +113,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-[#f8fafc] text-[#0f172a] font-sans antialiased">
       {/* Role-Aware Navigation Bar */}
       <SalesNav
+        onSignOut={signOut}
         activeTab="dashboard"
         userName={user?.name || "Sales Representative"}
         userInitials={userInitials}
@@ -146,7 +147,7 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2.5">
               <Link
                 href="/dashboard/sale-ref/quotations/new"
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0066cc] hover:bg-[#0052a3] text-white text-xs font-bold shadow-md shadow-[#0066cc]/25 active:translate-y-0.5 transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-bold shadow-md shadow-[#ff5e3a]/25 active:translate-y-0.5 transition-all cursor-pointer"
               >
                 <Plus size={15} strokeWidth={2.5} />
                 <span>+ New Quotation</span>
@@ -176,12 +177,12 @@ export default function DashboardPage() {
           {/* Card 2: Open Quotations */}
           <Link
             href="/dashboard/sale-ref/quotations"
-            className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs hover:shadow-md hover:border-[#0066cc]/40 transition-all text-left block group"
+            className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs hover:shadow-md hover:border-[#ff5e3a]/40 transition-all text-left block group"
           >
-            <h3 className="text-sm font-bold text-slate-900 group-hover:text-[#0066cc] transition-colors">
+            <h3 className="text-sm font-bold text-slate-900 group-hover:text-[#ff5e3a] transition-colors">
               Open Quotations
             </h3>
-            <div className="mt-2 text-2xl font-black text-[#0066cc]">
+            <div className="mt-2 text-2xl font-black text-[#ff5e3a]">
               {openDealsCount}
             </div>
             <p className="text-xs text-slate-500 mt-1">
@@ -210,7 +211,7 @@ export default function DashboardPage() {
         <div className="flex flex-wrap items-center gap-3">
           <Link
             href="/dashboard/sale-ref/quotations/new"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0066cc] hover:bg-[#0052a3] text-white text-xs font-bold shadow-md shadow-[#0066cc]/25 transition cursor-pointer"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-bold shadow-md shadow-[#ff5e3a]/25 transition cursor-pointer"
           >
             <Plus size={15} strokeWidth={2.5} />
             <span>+ New Quotation</span>
@@ -234,7 +235,7 @@ export default function DashboardPage() {
         {/* ── RECENT ACTIVITY (DYNAMIC ONLY) ── */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs text-left space-y-3">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h2 className="text-sm font-bold text-[#0066cc] flex items-center gap-2">
+            <h2 className="text-sm font-bold text-[#ff5e3a] flex items-center gap-2">
               <Activity size={16} />
               <span>Recent Activity</span>
             </h2>
@@ -243,7 +244,7 @@ export default function DashboardPage() {
 
           {isLoading ? (
             <div className="py-6 flex items-center justify-center gap-2 text-xs text-slate-400">
-              <Loader2 size={16} className="animate-spin text-[#0066cc]" />
+              <Loader2 size={16} className="animate-spin text-[#ff5e3a]" />
               <span>Loading recent activity...</span>
             </div>
           ) : quotations.length === 0 ? (
@@ -304,7 +305,7 @@ export default function DashboardPage() {
                 onClick={() => setSelectedFilter(stage)}
                 className={`px-3 py-1 rounded-xl text-xs font-semibold capitalize transition-all cursor-pointer ${
                   selectedFilter === stage
-                    ? "bg-[#0066cc] text-white shadow-xs"
+                    ? "bg-[#ff5e3a] text-white shadow-xs"
                     : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200"
                 }`}
               >
@@ -323,7 +324,7 @@ export default function DashboardPage() {
             {quotations.length > 0 && (
               <Link
                 href="/dashboard/sale-ref/quotations"
-                className="text-xs font-bold text-[#0066cc] hover:underline flex items-center gap-1"
+                className="text-xs font-bold text-[#ff5e3a] hover:underline flex items-center gap-1"
               >
                 <span>View Full Pipeline</span>
                 <ArrowRight size={13} />
@@ -333,13 +334,13 @@ export default function DashboardPage() {
 
           {isLoading ? (
             <div className="py-16 flex flex-col items-center justify-center gap-2 text-xs text-slate-400">
-              <Loader2 size={20} className="animate-spin text-[#0066cc]" />
+              <Loader2 size={20} className="animate-spin text-[#ff5e3a]" />
               <span>Fetching live pipeline data...</span>
             </div>
           ) : quotations.length === 0 ? (
             /* Explicit Empty State requested by user */
             <div className="py-16 px-4 text-center max-w-md mx-auto space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-blue-50 border border-blue-200 text-[#0066cc] flex items-center justify-center mx-auto shadow-xs">
+              <div className="w-14 h-14 rounded-2xl bg-orange-50 border border-orange-200 text-[#ff5e3a] flex items-center justify-center mx-auto shadow-xs">
                 <FileText size={28} />
               </div>
               <div className="space-y-1">
@@ -352,7 +353,7 @@ export default function DashboardPage() {
               </div>
               <Link
                 href="/dashboard/sale-ref/quotations/new"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0066cc] hover:bg-[#0052a3] text-white text-xs font-bold shadow-md shadow-[#0066cc]/25 transition cursor-pointer"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-bold shadow-md shadow-[#ff5e3a]/25 transition cursor-pointer"
               >
                 <Plus size={15} strokeWidth={2.5} />
                 <span>Create Quotation Now</span>
@@ -378,7 +379,7 @@ export default function DashboardPage() {
                       <td className="py-3.5 px-5 font-mono font-bold text-slate-900">
                         <Link
                           href={`/dashboard/sale-ref/quotations/${q.rawId}`}
-                          className="hover:text-[#0066cc] transition-colors"
+                          className="hover:text-[#ff5e3a] transition-colors"
                         >
                           {q.id}
                         </Link>
@@ -424,7 +425,7 @@ export default function DashboardPage() {
                       <td className="py-3.5 px-5 text-right">
                         <Link
                           href={`/dashboard/sale-ref/quotations/${q.rawId}`}
-                          className="inline-flex items-center gap-1 text-[#0066cc] hover:underline font-bold text-xs"
+                          className="inline-flex items-center gap-1 text-[#ff5e3a] hover:underline font-bold text-xs"
                         >
                           <span>Open</span>
                           <ArrowUpRight size={13} />

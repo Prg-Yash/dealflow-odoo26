@@ -1,14 +1,16 @@
 import type { Request, Response, NextFunction } from "express";
 import type { PortalRequest } from "../middleware/portalAuth.js";
+import type { AuthRequest } from "../middleware/auth.middleware.js";
 import * as portalService from "../services/portal.service.js";
 
 export async function listActiveQuotations(
-  _req: Request,
+  req: AuthRequest,
   res: Response,
   next: NextFunction
 ) {
   try {
-    const quotations = await portalService.listActivePortalQuotations();
+    const userEmail = req.user?.email;
+    const quotations = await portalService.listActivePortalQuotations(userEmail);
     return res.json({
       success: true,
       data: quotations,

@@ -30,7 +30,7 @@ export default function QuotationDetailPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center gap-3">
-        <Loader2 size={28} className="animate-spin text-[#0066cc]" />
+        <Loader2 size={28} className="animate-spin text-[#ff5e3a]" />
         <span className="text-xs text-slate-500 font-medium">Loading quotation details...</span>
       </div>
     );
@@ -71,6 +71,7 @@ export default function QuotationDetailPage() {
     <div className="min-h-screen bg-[#f8fafc] text-[#0f172a] font-sans antialiased">
       {/* Role-Aware Navigation Bar */}
       <SalesNav
+        onSignOut={signOut}
         activeTab="quotations"
         userName={user?.name || "Sales Representative"}
         userInitials={userInitials}

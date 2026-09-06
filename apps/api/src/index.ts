@@ -51,6 +51,7 @@ const allowedOrigins = [
   "http://127.0.0.1:3000",
   "http://localhost:3001",
   "http://localhost:4000",
+  "http://localhost:8081", // Expo dev server
 ];
 
 // CORS Middleware with credentials enabled for cross-origin cookies & headers
