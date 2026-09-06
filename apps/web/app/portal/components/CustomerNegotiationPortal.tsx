@@ -310,11 +310,13 @@ export function CustomerNegotiationPortal({
 
   // Handler: Switch Quotation within Authenticated Session
   const handleSelectToken = (selectedToken: string) => {
+    if (!selectedToken) return;
     hasLoadedQuotationRef.current = false;
     setToken(selectedToken);
     setTokenInput(selectedToken);
     setShowTokenSelector(false);
     setViewMode("detail");
+    fetchQuotationData(selectedToken, false);
   };
 
   // Handler: Submit Counter-Proposal
@@ -519,13 +521,13 @@ export function CustomerNegotiationPortal({
           const comments = (prev.comments || []).map((c: any) =>
             c.id === optimisticComment.id
               ? {
-                  id: resJson.data.id,
-                  message: resJson.data.message,
-                  authorRole: resJson.data.authorRole || "CUSTOMER",
-                  authorName: resJson.data.author?.name || authorName,
-                  quotationLineId: resJson.data.quotationLineId,
-                  createdAt: resJson.data.createdAt,
-                }
+                id: resJson.data.id,
+                message: resJson.data.message,
+                authorRole: resJson.data.authorRole || "CUSTOMER",
+                authorName: resJson.data.author?.name || authorName,
+                quotationLineId: resJson.data.quotationLineId,
+                createdAt: resJson.data.createdAt,
+              }
               : c
           );
           return { ...prev, comments };
@@ -889,11 +891,10 @@ export function CustomerNegotiationPortal({
           <div className="flex items-center bg-slate-100 border border-slate-200 p-1 rounded-xl shadow-inner">
             <button
               onClick={() => setActiveTab("quotation")}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === "quotation"
+              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === "quotation"
                   ? "bg-white text-slate-900 shadow-sm border border-slate-200/80"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-              }`}
+                }`}
             >
               <FileText size={14} className={activeTab === "quotation" ? "text-[#ff5e3a]" : ""} />
               <span>My Quotations</span>
@@ -906,11 +907,10 @@ export function CustomerNegotiationPortal({
 
             <button
               onClick={() => setActiveTab("trails")}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === "trails"
+              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === "trails"
                   ? "bg-white text-slate-900 shadow-sm border border-slate-200/80"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-              }`}
+                }`}
             >
               <MessageSquare size={14} className={activeTab === "trails" ? "text-[#ff5e3a]" : ""} />
               <span>Trails &amp; Messages</span>
@@ -923,11 +923,10 @@ export function CustomerNegotiationPortal({
 
             <button
               onClick={() => setActiveTab("profile")}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === "profile"
+              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === "profile"
                   ? "bg-white text-slate-900 shadow-sm border border-slate-200/80"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-              }`}
+                }`}
             >
               <User size={14} className={activeTab === "profile" ? "text-[#ff5e3a]" : ""} />
               <span>Company Profile</span>
@@ -967,31 +966,40 @@ export function CustomerNegotiationPortal({
                   </div>
 
                   <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
-                    {customerQuotations.map((item) => (
-                      <button
-                        key={item.id || item.portalToken || item.quoteNumber}
-                        onClick={() => handleSelectToken(item.portalToken || item.quoteNumber)}
-                        className={`w-full text-left p-2 rounded-xl text-xs flex flex-col gap-0.5 transition cursor-pointer ${
-                          token === item.portalToken || token === item.quoteNumber
-                            ? "bg-orange-50 border border-orange-200 text-[#ff5e3a]"
-                            : "hover:bg-slate-50 text-slate-700"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-slate-900">{item.quoteNumber}</span>
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100">
-                            {item.stage}
+                    {customerQuotations.map((item) => {
+                      const itemToken = item.quoteNumber || item.portalToken || item.id;
+                      const isActive =
+                        token === item.quoteNumber ||
+                        token === item.portalToken ||
+                        token === item.id ||
+                        quotation?.quoteNumber === item.quoteNumber ||
+                        quotation?.portalToken === item.portalToken;
+
+                      return (
+                        <button
+                          key={item.id || item.portalToken || item.quoteNumber}
+                          onClick={() => handleSelectToken(itemToken)}
+                          className={`w-full text-left p-2.5 rounded-xl text-xs flex flex-col gap-0.5 transition cursor-pointer ${isActive
+                              ? "bg-orange-50 border border-orange-200 text-[#ff5e3a]"
+                              : "hover:bg-slate-50 text-slate-700"
+                            }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-900">{item.quoteNumber}</span>
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100">
+                              {item.stage}
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-slate-500 truncate">{item.title}</span>
+                          <span className="text-[11px] font-bold text-[#ff5e3a]">
+                            ₹
+                            {Number(item.grandTotal || 0).toLocaleString("en-IN", {
+                              minimumFractionDigits: 2,
+                            })}
                           </span>
-                        </div>
-                        <span className="text-[11px] text-slate-500 truncate">{item.title}</span>
-                        <span className="text-[11px] font-bold text-[#ff5e3a]">
-                          ₹
-                          {Number(item.grandTotal || 0).toLocaleString("en-IN", {
-                            minimumFractionDigits: 2,
-                          })}
-                        </span>
-                      </button>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
 
                   <div className="pt-2 border-t border-slate-100 flex gap-1.5">
@@ -1040,13 +1048,12 @@ export function CustomerNegotiationPortal({
       {/* ── NOTIFICATION BANNER ── */}
       {notification && (
         <div
-          className={`px-6 py-2.5 text-xs font-semibold flex items-center justify-between transition-all ${
-            notification.type === "success"
+          className={`px-6 py-2.5 text-xs font-semibold flex items-center justify-between transition-all ${notification.type === "success"
               ? "bg-emerald-50 border-b border-emerald-200 text-emerald-800"
               : notification.type === "error"
-              ? "bg-red-50 border-b border-red-200 text-red-800"
-              : "bg-blue-50 border-b border-blue-200 text-blue-800"
-          }`}
+                ? "bg-red-50 border-b border-red-200 text-red-800"
+                : "bg-blue-50 border-b border-blue-200 text-blue-800"
+            }`}
         >
           <div className="flex items-center gap-2 max-w-7xl mx-auto w-full">
             {notification.type === "success" && (
@@ -1164,22 +1171,20 @@ export function CustomerNegotiationPortal({
                       <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
                         <button
                           onClick={() => setDisplayLayout("grid")}
-                          className={`p-1.5 rounded-lg transition ${
-                            displayLayout === "grid"
+                          className={`p-1.5 rounded-lg transition ${displayLayout === "grid"
                               ? "bg-white text-slate-900 shadow-xs"
                               : "text-slate-500 hover:text-slate-900"
-                          }`}
+                            }`}
                           title="Grid View"
                         >
                           <LayoutGrid size={15} />
                         </button>
                         <button
                           onClick={() => setDisplayLayout("table")}
-                          className={`p-1.5 rounded-lg transition ${
-                            displayLayout === "table"
+                          className={`p-1.5 rounded-lg transition ${displayLayout === "table"
                               ? "bg-white text-slate-900 shadow-xs"
                               : "text-slate-500 hover:text-slate-900"
-                          }`}
+                            }`}
                           title="Table View"
                         >
                           <List size={15} />
@@ -1873,17 +1878,15 @@ export function CustomerNegotiationPortal({
 
                               {/* Message Bubble */}
                               <div
-                                className={`flex items-end gap-2 mt-1 ${
-                                  isCustomer ? "flex-row-reverse" : "flex-row"
-                                }`}
+                                className={`flex items-end gap-2 mt-1 ${isCustomer ? "flex-row-reverse" : "flex-row"
+                                  }`}
                               >
                                 {!isSameAuthor ? (
                                   <div
-                                    className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mb-0.5 ${
-                                      isCustomer
+                                    className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mb-0.5 ${isCustomer
                                         ? "bg-linear-to-br from-[#ff5e3a] to-[#ea4e28] text-white"
                                         : "bg-slate-200 text-slate-700"
-                                    }`}
+                                      }`}
                                   >
                                     {initials}
                                   </div>
@@ -1892,9 +1895,8 @@ export function CustomerNegotiationPortal({
                                 )}
 
                                 <div
-                                  className={`max-w-[75%] flex flex-col ${
-                                    isCustomer ? "items-end" : "items-start"
-                                  }`}
+                                  className={`max-w-[75%] flex flex-col ${isCustomer ? "items-end" : "items-start"
+                                    }`}
                                 >
                                   {!isSameAuthor && (
                                     <span className="text-[10px] font-semibold text-slate-500 mb-0.5 px-1">
@@ -1906,11 +1908,10 @@ export function CustomerNegotiationPortal({
                                   )}
 
                                   <div
-                                    className={`px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed ${
-                                      isCustomer
+                                    className={`px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed ${isCustomer
                                         ? "bg-[#ff5e3a] text-white rounded-br-sm shadow-sm shadow-[#ff5e3a]/20"
                                         : "bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-xs"
-                                    }`}
+                                      }`}
                                   >
                                     {(() => {
                                       const attachedLine = msg.quotationLineId
@@ -1921,11 +1922,10 @@ export function CustomerNegotiationPortal({
 
                                       return (
                                         <div
-                                          className={`mb-2.5 p-2.5 rounded-xl text-left transition-all ${
-                                            isCustomer
+                                          className={`mb-2.5 p-2.5 rounded-xl text-left transition-all ${isCustomer
                                               ? "bg-black/20 border border-white/25 text-white shadow-2xs backdrop-blur-xs"
                                               : "bg-slate-50 border border-slate-200/90 text-slate-800 shadow-2xs"
-                                          }`}
+                                            }`}
                                         >
                                           <div className="flex items-center justify-between gap-2 mb-1">
                                             <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider">
@@ -1934,11 +1934,10 @@ export function CustomerNegotiationPortal({
                                               </span>
                                               {attachedLine?.itemType && (
                                                 <span
-                                                  className={`px-1.5 py-0.2 rounded font-mono text-[9px] font-bold ${
-                                                    isCustomer
+                                                  className={`px-1.5 py-0.2 rounded font-mono text-[9px] font-bold ${isCustomer
                                                       ? "bg-white/20 text-white"
                                                       : "bg-slate-200 text-slate-700"
-                                                  }`}
+                                                    }`}
                                                 >
                                                   {attachedLine.itemType}
                                                 </span>
@@ -1946,9 +1945,8 @@ export function CustomerNegotiationPortal({
                                             </div>
                                             {attachedLine?.product?.sku && (
                                               <span
-                                                className={`text-[9px] font-mono ${
-                                                  isCustomer ? "text-orange-200" : "text-slate-400"
-                                                }`}
+                                                className={`text-[9px] font-mono ${isCustomer ? "text-orange-200" : "text-slate-400"
+                                                  }`}
                                               >
                                                 {attachedLine.product.sku}
                                               </span>
@@ -1958,28 +1956,25 @@ export function CustomerNegotiationPortal({
                                           {attachedLine ? (
                                             <div className="space-y-1">
                                               <div
-                                                className={`font-bold text-xs leading-snug ${
-                                                  isCustomer ? "text-white" : "text-slate-900"
-                                                }`}
+                                                className={`font-bold text-xs leading-snug ${isCustomer ? "text-white" : "text-slate-900"
+                                                  }`}
                                               >
                                                 {attachedLine.product?.name || attachedLine.description || "Product Item"}
                                               </div>
                                               {attachedLine.description &&
                                                 attachedLine.description !== attachedLine.product?.name && (
                                                   <div
-                                                    className={`text-[10px] truncate max-w-[280px] ${
-                                                      isCustomer ? "text-orange-100/80" : "text-slate-500"
-                                                    }`}
+                                                    className={`text-[10px] truncate max-w-[280px] ${isCustomer ? "text-orange-100/80" : "text-slate-500"
+                                                      }`}
                                                   >
                                                     {attachedLine.description}
                                                   </div>
                                                 )}
                                               <div
-                                                className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] pt-1.5 mt-1 border-t ${
-                                                  isCustomer
+                                                className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] pt-1.5 mt-1 border-t ${isCustomer
                                                     ? "border-white/15 text-orange-100"
                                                     : "border-slate-200 text-slate-600"
-                                                }`}
+                                                  }`}
                                               >
                                                 <span>
                                                   Qty:{" "}
@@ -2488,22 +2483,20 @@ export function CustomerNegotiationPortal({
                     <button
                       type="button"
                       onClick={() => setSignatureMode("type")}
-                      className={`px-2.5 py-0.5 rounded-md ${
-                        signatureMode === "type"
+                      className={`px-2.5 py-0.5 rounded-md ${signatureMode === "type"
                           ? "bg-white font-bold text-slate-900 shadow-xs"
                           : "text-slate-600"
-                      }`}
+                        }`}
                     >
                       Typed
                     </button>
                     <button
                       type="button"
                       onClick={() => setSignatureMode("draw")}
-                      className={`px-2.5 py-0.5 rounded-md ${
-                        signatureMode === "draw"
+                      className={`px-2.5 py-0.5 rounded-md ${signatureMode === "draw"
                           ? "bg-white font-bold text-slate-900 shadow-xs"
                           : "text-slate-600"
-                      }`}
+                        }`}
                     >
                       Drawn
                     </button>
