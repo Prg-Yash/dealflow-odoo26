@@ -42,6 +42,7 @@ model User {
   sessions                  Session[]
   organization              Organization?        @relation("user_organization", fields: [organizationId], references: [id])
   createdWarehouses         Warehouse[]          @relation("warehouse_creator")
+  memberships               OrganizationMember[] @relation("user_memberships")
 
   @@index([organizationId])
   @@map("user")
@@ -165,9 +166,28 @@ model Organization {
   subscriptions         Subscription[]
   users                 User[]                  @relation("user_organization")
   warehouses            Warehouse[]
+  members               OrganizationMember[]    @relation("org_memberships")
 
   @@index([createdById])
   @@map("organizations")
+}
+
+/// Model: OrganizationMember
+/// Use Case: Multi-tenant role-based membership linking users to organizations. Supports multi-org accounts where a user can be an Admin in one org, Sales Rep in another, etc.
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  role           UserRole     @default(SALES_REP)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation("org_memberships", fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation("user_memberships", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+  @@map("organization_members")
 }
 
 /// Model: SalesManager

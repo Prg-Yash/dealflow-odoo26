@@ -124,7 +124,9 @@ dataSyncWorker.on("error", (err) => {
 
 // Worker Event Listeners: Subscription Reminder
 subscriptionReminderWorker.on("completed", (job, returnvalue) => {
-  logger.info(`[SubscriptionReminder] Job #${job.id} COMPLETED for ${returnvalue?.customerEmail || "subscriber"}`);
+  logger.info(
+    `[SubscriptionReminder] Job #${job.id} COMPLETED for ${returnvalue?.customerEmail || "subscriber"} | Plan: "${returnvalue?.planName || "N/A"}" | ₹${(returnvalue?.amount || 0).toLocaleString()} | SMTP Status: ${returnvalue?.emailDelivered ? "Delivered (" + returnvalue.messageId + ")" : "Logged Fallback"}`
+  );
 });
 
 subscriptionReminderWorker.on("failed", (job, err) => {

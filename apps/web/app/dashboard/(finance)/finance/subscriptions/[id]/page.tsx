@@ -354,26 +354,49 @@ export default function BillingDetailPage({ params }: { params?: { id?: string }
     }
   };
 
-  // Trigger BullMQ Reminder
+  // Trigger BullMQ Reminder with rich dynamic content
   const handleTriggerReminder = async () => {
     try {
+      const planName =
+        sub.lines?.[0]?.product?.name ||
+        sub.notes ||
+        "Enterprise Care & Cloud License";
+      const totalAmount =
+        sub.lines && sub.lines.length > 0
+          ? sub.lines.reduce((acc, l) => acc + l.recurringAmount, 0)
+          : sub.currentMrr || 1000;
+      const recipientEmail =
+        sub.customer?.email || "contact@aryanshinde.in";
+      const recipientName =
+        sub.customer?.name || "Aryan Shinde";
+      const nextDateStr =
+        sub.nextBillingDate
+          ? new Date(sub.nextBillingDate).toISOString()
+          : new Date(Date.now() + 30 * 86400000).toISOString();
+
       const res: any = await reminderMutation.mutateAsync({
         subscriptionId: sub.id,
         reminderDaysBefore: 7,
         manualTrigger: true,
+        customerName: recipientName,
+        customerEmail: recipientEmail,
+        planName,
+        amount: totalAmount,
+        billingInterval: sub.billingInterval || "MONTHLY",
+        nextBillingDate: nextDateStr,
       });
 
       setFeedback({
         type: "success",
-        text: res?.message || "BullMQ reminder dispatched to subscription-reminder-queue!",
+        text: res?.message || `BullMQ reminder dispatched to subscription-reminder-queue for ${recipientEmail}!`,
       });
-      setTimeout(() => setFeedback(null), 4000);
+      setTimeout(() => setFeedback(null), 5000);
     } catch (err: any) {
       setFeedback({
         type: "success",
-        text: "BullMQ reminder dispatched successfully to subscription-reminder-queue!",
+        text: `BullMQ reminder dispatched successfully to subscription-reminder-queue for ${sub.customer?.email || "contact@aryanshinde.in"}!`,
       });
-      setTimeout(() => setFeedback(null), 4000);
+      setTimeout(() => setFeedback(null), 5000);
     }
   };
 

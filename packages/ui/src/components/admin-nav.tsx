@@ -2,8 +2,8 @@
 
 import { useState, type ReactNode, type ComponentType } from "react";
 import { BrandLogo } from "./brand-logo";
-import { OrgDropdown } from "./org-dropdown";
 import { Activity, Layers, Sliders, Warehouse, Boxes, BarChart3, CheckCircle2, FileText } from "lucide-react";
+import { OrgDropdown, type OrgItem } from "./org-dropdown";
 import { ProfileModal } from "./profile-modal";
 
 export interface AdminNavTabItem {
@@ -20,6 +20,12 @@ export interface AdminNavProps {
   adminEmail?: string;
   adminInitials?: string;
   orgName?: string;
+  currentOrgId?: string;
+  currentRole?: string;
+  organizations?: OrgItem[];
+  onSwitchOrg?: (orgId: string) => Promise<void> | void;
+  onCreateOrg?: (data: { name: string; slug?: string; currency: string }) => Promise<void> | void;
+  onManageTeam?: () => void;
   onSignOut?: () => void;
   className?: string;
   linkComponent?: ComponentType<{ href: string; className?: string; children: ReactNode }>;
@@ -56,6 +62,12 @@ export function AdminNav({
   adminEmail = "",
   adminInitials = "AD",
   orgName = "",
+  currentOrgId,
+  currentRole = "ADMIN",
+  organizations,
+  onSwitchOrg,
+  onCreateOrg,
+  onManageTeam,
   onSignOut,
   className = "",
   linkComponent: LinkComp,
@@ -83,7 +95,15 @@ export function AdminNav({
             <BrandLogo href="/dashboard/admin" as={LinkComp} />
             <div className="hidden sm:block h-4 w-px bg-slate-200 mx-1"></div>
             <div className="hidden sm:block">
-              <OrgDropdown />
+              <OrgDropdown
+                organizations={organizations}
+                currentOrgId={currentOrgId}
+                currentOrgName={orgName}
+                currentRole={currentRole}
+                onSwitchOrg={onSwitchOrg}
+                onCreateOrg={onCreateOrg}
+                onManageTeam={onManageTeam}
+              />
             </div>
           </div>
 

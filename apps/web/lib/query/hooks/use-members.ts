@@ -37,13 +37,19 @@ export interface InvitationData {
 export interface OrganizationData {
   id: string;
   name: string;
-  slug: string;
+  slug?: string;
   currency: string;
+  createdById?: string;
+  createdAt?: string;
+  userRole?: "ADMIN" | "SALES_REP" | "SALES_MANAGER" | "FINANCE_OPS" | "CUSTOMER";
+  isCurrent?: boolean;
+  isCreator?: boolean;
   _count?: {
-    users: number;
-    quotations: number;
-    products: number;
-    warehouses: number;
+    users?: number;
+    members?: number;
+    quotations?: number;
+    products?: number;
+    warehouses?: number;
   };
 }
 
@@ -76,6 +82,21 @@ export function useInvitations() {
 }
 
 /**
+ * Hook to fetch all organizations the authenticated user belongs to
+ */
+export function useUserOrganizations() {
+  return useQuery({
+    queryKey: queryKeys.organizations.list(),
+    queryFn: async () => {
+      const res = await api.get<{ organizations?: OrganizationData[] } | OrganizationData[]>("/api/organizations");
+      const list = (res as any)?.organizations ?? res;
+      return Array.isArray(list) ? list : [];
+    },
+    staleTime: 1000 * 60 * 2, // 2 minutes
+  });
+}
+
+/**
  * Hook to fetch active organization profile
  */
 export function useCurrentOrg() {
@@ -84,6 +105,79 @@ export function useCurrentOrg() {
     queryFn: async () => {
       const res = await api.get<{ organization?: OrganizationData } & OrganizationData>("/api/organizations/current");
       return res?.organization ?? res;
+    },
+  });
+}
+
+/**
+ * Mutation: Create a new Organization (creator becomes ADMIN)
+ */
+export function useCreateOrganization() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body: { name: string; slug?: string; currency?: string }) =>
+      api.post<{ message: string; organization: OrganizationData; role: string }>("/api/organizations", body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.organizations.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.users.all });
+      queryClient.invalidateQueries({ queryKey: ["quotations"] });
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["warehouses"] });
+      queryClient.invalidateQueries({ queryKey: ["invitations"] });
+    },
+  });
+}
+
+/**
+ * Mutation: Switch active organization context
+ */
+export function useSwitchOrganization() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (orgId: string) =>
+      api.post<{ success: boolean; message: string; organization: OrganizationData; role: string; user: any }>(
+        `/api/organizations/${orgId}/switch`,
+        {}
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.organizations.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.users.all });
+      queryClient.invalidateQueries({ queryKey: ["quotations"] });
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["warehouses"] });
+      queryClient.invalidateQueries({ queryKey: ["invitations"] });
+    },
+  });
+}
+
+/**
+ * Mutation: Update a member's role in the organization
+ */
+export function useUpdateMemberRole() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: string }) =>
+      api.patch<{ message: string; userId: string; role: string }>(`/api/members/${userId}/role`, { role }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.users.list() });
+    },
+  });
+}
+
+/**
+ * Mutation: Remove a member from the organization
+ */
+export function useRemoveMember() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (userId: string) =>
+      api.delete<{ message: string; userId: string }>(`/api/members/${userId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.users.list() });
     },
   });
 }

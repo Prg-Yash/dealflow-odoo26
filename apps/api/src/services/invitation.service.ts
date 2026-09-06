@@ -47,12 +47,35 @@ export async function createInvitation({
     where: { email: normalizedEmail },
   });
 
-  if (existingUser && existingUser.organizationId === organizationId) {
-    throw new AppError(
-      400,
-      "MEMBER_EXISTS",
-      `The email '${normalizedEmail}' is already a member of this team.`
-    );
+  if (existingUser) {
+    if (existingUser.organizationId === organizationId) {
+      throw new AppError(
+        400,
+        "MEMBER_EXISTS",
+        `The email '${normalizedEmail}' is already an active member of this team.`
+      );
+    }
+    try {
+      if ((prisma as any).organizationMember) {
+        const existingMembership = await (prisma as any).organizationMember.findUnique({
+          where: {
+            userId_organizationId: {
+              userId: existingUser.id,
+              organizationId,
+            },
+          },
+        });
+        if (existingMembership) {
+          throw new AppError(
+            400,
+            "MEMBER_EXISTS",
+            `The email '${normalizedEmail}' is already a member of this organization.`
+          );
+        }
+      }
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+    }
   }
 
   // 4. Revoke or mark prior pending invitations for this email + org as EXPIRED
@@ -315,6 +338,29 @@ export async function acceptInvitation({
         break;
     }
 
+    // Upsert multi-tenant OrganizationMember record
+    try {
+      if ((tx as any).organizationMember) {
+        await (tx as any).organizationMember.upsert({
+          where: {
+            userId_organizationId: {
+              userId: finalUserId,
+              organizationId: invitation.organizationId,
+            },
+          },
+          create: {
+            userId: finalUserId,
+            organizationId: invitation.organizationId,
+            role: invitation.role,
+          },
+          update: {
+            role: invitation.role,
+          },
+        });
+      }
+    } catch (err) {
+      console.warn("[InvitationService] OrganizationMember sync note:", err);
+    }
 
     // Mark invitation as ACCEPTED
     await tx.invitation.update({

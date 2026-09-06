@@ -12,6 +12,9 @@ import {
   Send,
   Loader2,
   AlertCircle,
+  Trash2,
+  Shield,
+  UserCheck,
 } from "lucide-react";
 import {
   type AdminMember,
@@ -25,15 +28,21 @@ import {
   useCreateInvitation,
   useRevokeInvitation,
   useResendInvitation,
+  useUpdateMemberRole,
+  useRemoveMember,
 } from "../../../../../lib/query";
 
 export default function AdminTeamPage() {
-  const { data: apiMembers } = useMembers();
+  const { data: apiMembers, refetch: refetchMembers } = useMembers();
   const { data: apiInvitations } = useInvitations();
   const createInviteMutation = useCreateInvitation();
   const revokeInviteMutation = useRevokeInvitation();
   const resendInviteMutation = useResendInvitation();
+  const updateMemberRoleMutation = useUpdateMemberRole();
+  const removeMemberMutation = useRemoveMember();
   const [resendingId, setResendingId] = useState<string | null>(null);
+  const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null);
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
 
   const rawMembers = Array.isArray(apiMembers)
     ? apiMembers
@@ -81,6 +90,7 @@ export default function AdminTeamPage() {
         approvalThreshold: m.salesManager?.approvalThreshold ?? undefined,
         historicalAvgDiscount: m.salesRep?.historicalAvgDiscount ?? undefined,
         managerName: m.salesRep?.manager?.user?.name ?? undefined,
+        isCreator: Boolean(m.isCreator || m.isOwner),
       };
     });
 
@@ -160,6 +170,37 @@ export default function AdminTeamPage() {
       invitationsList.map((i) => (i.id === invId ? { ...i, status: "REVOKED" as const } : i))
     );
     showToast("Invitation revoked.");
+  };
+
+  const handleRoleChange = async (memberId: string, newRole: string) => {
+    try {
+      setUpdatingMemberId(memberId);
+      await updateMemberRoleMutation.mutateAsync({ userId: memberId, role: newRole });
+      await refetchMembers();
+      showToast(`Member role successfully updated to '${newRole}'.`);
+    } catch (err: any) {
+      console.error("Failed to update member role:", err);
+      showToast(err?.message || "Failed to update member role.");
+    } finally {
+      setUpdatingMemberId(null);
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string, memberName: string) => {
+    if (!confirm(`Are you sure you want to remove ${memberName} from this organization?`)) {
+      return;
+    }
+    try {
+      setRemovingMemberId(memberId);
+      await removeMemberMutation.mutateAsync(memberId);
+      await refetchMembers();
+      showToast(`${memberName} removed from this organization.`);
+    } catch (err: any) {
+      console.error("Failed to remove member:", err);
+      showToast(err?.message || "Failed to remove member.");
+    } finally {
+      setRemovingMemberId(null);
+    }
   };
 
   const handleSendInvite = async (e: React.FormEvent) => {
@@ -331,21 +372,14 @@ export default function AdminTeamPage() {
                 <th className="py-3.5">Target Quota / Threshold</th>
                 <th className="py-3.5">Discount Baseline</th>
                 <th className="py-3.5">Manager Hierarchy</th>
-                <th className="py-3.5 pr-5 text-right">Status</th>
+                <th className="py-3.5">Status</th>
+                <th className="py-3.5 pr-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {membersList.map((member) => {
-                const roleBadgeColor =
-                  member.role === "ADMIN"
-                    ? "bg-slate-900 text-white"
-                    : member.role === "SALES_MANAGER"
-                    ? "bg-amber-50 text-amber-800 border-amber-200"
-                    : member.role === "FINANCE_OPS"
-                    ? "bg-purple-50 text-purple-800 border-purple-200"
-                    : member.role === "SALES_REP"
-                    ? "bg-sky-50 text-sky-800 border-sky-200"
-                    : "bg-slate-100 text-slate-700";
+                const isUpdatingThis = updatingMemberId === member.id;
+                const isRemovingThis = removingMemberId === member.id;
 
                 return (
                   <tr key={member.id} className="hover:bg-slate-50/70 transition-colors">
@@ -355,15 +389,33 @@ export default function AdminTeamPage() {
                           {member.avatarInitials}
                         </div>
                         <div>
-                          <div className="font-bold text-slate-900">{member.name}</div>
+                          <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                            <span>{member.name}</span>
+                            {(member as any).isCreator && (
+                              <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-bold border border-amber-200">
+                                Owner
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[11px] text-slate-400 font-mono">{member.email}</div>
                         </div>
                       </div>
                     </td>
                     <td className="py-3.5">
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${roleBadgeColor}`}>
-                        {member.role.replace("_", " ")}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={member.role}
+                          disabled={isUpdatingThis || (member as any).isCreator}
+                          onChange={(e) => handleRoleChange(member.id, e.target.value)}
+                          className="px-2.5 py-1 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-800 focus:outline-none focus:border-[#ff5e3a] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          <option value="ADMIN">Admin</option>
+                          <option value="SALES_MANAGER">Sales Manager</option>
+                          <option value="SALES_REP">Sales Rep</option>
+                          <option value="FINANCE_OPS">Finance Ops</option>
+                        </select>
+                        {isUpdatingThis && <Loader2 size={12} className="animate-spin text-[#ff5e3a]" />}
+                      </div>
                     </td>
                     <td className="py-3.5 text-slate-600 font-medium">{member.department}</td>
                     <td className="py-3.5">
@@ -396,11 +448,31 @@ export default function AdminTeamPage() {
                         <span className="text-slate-400 text-[11px]">Direct Report / None</span>
                       )}
                     </td>
-                    <td className="py-3.5 pr-5 text-right">
+                    <td className="py-3.5">
                       <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                         <span>Active</span>
                       </span>
+                    </td>
+                    <td className="py-3.5 pr-5 text-right">
+                      {!(member as any).isCreator ? (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMember(member.id, member.name)}
+                          disabled={isRemovingThis}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer disabled:opacity-50"
+                          title="Remove from organization"
+                        >
+                          {isRemovingThis ? (
+                            <Loader2 size={13} className="animate-spin" />
+                          ) : (
+                            <Trash2 size={13} />
+                          )}
+                          <span className="text-[11px] font-medium">Remove</span>
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-mono pr-2">—</span>
+                      )}
                     </td>
                   </tr>
                 );

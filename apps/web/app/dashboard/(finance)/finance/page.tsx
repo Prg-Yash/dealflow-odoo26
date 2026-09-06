@@ -1,8 +1,9 @@
-"use client";
+"use client"
 
 import { useState, useEffect, useMemo, Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   Check,
   XCircle,
@@ -36,14 +37,23 @@ import {
   useUpdateQuotationStage,
   useApproveStep,
   useRejectStep,
+  useCurrentOrg,
+  useUserOrganizations,
+  useCreateOrganization,
+  useSwitchOrganization,
 } from "../../../../lib/query";
 
 function FinanceDashboardContent() {
-  const { signOut } = useDashboardAuth();
+  const { user, signOut, refreshAuth } = useDashboardAuth();
+  const router = useRouter();
+  const { data: currentOrg } = useCurrentOrg();
+  const { data: userOrgs } = useUserOrganizations();
+  const createOrgMutation = useCreateOrganization();
+  const switchOrgMutation = useSwitchOrganization();
   const [profileOpen, setProfileOpen] = useState(false);
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
-  
+
   const [activeView, setActiveView] = useState<"approvals" | "fulfillment" | "subscriptions" | "invoices">(
     (tabParam === "fulfillment" || tabParam === "subscriptions" || tabParam === "invoices")
       ? tabParam
@@ -143,8 +153,8 @@ function FinanceDashboardContent() {
         escalationReason: isWaitingOnSalesManager
           ? `Awaiting Sales Manager (Step 1) • High Risk ${q.blendedRiskScore || 12}% Blended`
           : managerStep && managerStep.status === "APPROVED"
-          ? `Sales Manager Approved (Step 1 ✓) • High Risk ${q.blendedRiskScore || 12}% Blended`
-          : `Quote escalated for ${discountPct}% discount threshold`,
+            ? `Sales Manager Approved (Step 1 ✓) • High Risk ${q.blendedRiskScore || 12}% Blended`
+            : `Quote escalated for ${discountPct}% discount threshold`,
       };
     });
   }, [allQuotes]);
@@ -179,8 +189,8 @@ function FinanceDashboardContent() {
       type === "approve"
         ? "Financial impact cleared. Margin risk accepted."
         : type === "revise"
-        ? "Please restructure payment terms to mitigate upfront margin hit."
-        : "Margin erosion exceeds acceptable threshold. Deal rejected."
+          ? "Please restructure payment terms to mitigate upfront margin hit."
+          : "Margin erosion exceeds acceptable threshold. Deal rejected."
     );
   };
 
@@ -191,8 +201,8 @@ function FinanceDashboardContent() {
       type === "approve"
         ? "APPROVED"
         : type === "reject"
-        ? "REJECTED"
-        : "REVISION_REQUESTED";
+          ? "REJECTED"
+          : "REVISION_REQUESTED";
 
     try {
       const targetQuoteId = request.id || request.quoteId;
@@ -351,14 +361,14 @@ function FinanceDashboardContent() {
           sub.billingInterval === "MONTHLY"
             ? "Monthly"
             : sub.billingInterval === "QUARTERLY"
-            ? "Quarterly"
-            : "Annual";
+              ? "Quarterly"
+              : "Annual";
         const status =
           sub.status === "ACTIVE"
             ? "Active"
             : sub.status === "PAUSED"
-            ? "Paused"
-            : "Cancelled";
+              ? "Paused"
+              : "Cancelled";
 
         return {
           id: sub.id,
@@ -447,7 +457,47 @@ function FinanceDashboardContent() {
               <BrandLogo href="/dashboard/finance" subtitle="Finance Operations" />
               <div className="hidden sm:block h-4 w-px bg-slate-200 mx-1"></div>
               <div className="hidden sm:block">
-                <OrgDropdown />
+                <OrgDropdown
+                  organizations={userOrgs as any}
+                  currentOrgId={currentOrg?.id || user?.organizationId || ""}
+                  currentOrgName={currentOrg?.name || user?.organization?.name || "Workspace"}
+                  currentRole={user?.role || "FINANCE_OPS"}
+                  onSwitchOrg={async (targetOrgId) => {
+                    try {
+                      const res = await switchOrgMutation.mutateAsync(targetOrgId);
+                      toast.success(res.message || `Switched active organization to ${res.organization?.name}`);
+                      await refreshAuth();
+                      const targetRole = res.role?.toUpperCase() || res.activeRole?.toUpperCase() || res.organization?.userRole?.toUpperCase() || "FINANCE_OPS";
+                      if (targetRole === "ADMIN") {
+                        router.push("/dashboard/admin");
+                      } else if (targetRole === "SALES_MANAGER") {
+                        router.push("/dashboard/manager");
+                      } else if (targetRole === "FINANCE_OPS") {
+                        router.push("/dashboard/finance");
+                      } else {
+                        router.push("/dashboard/sale-ref");
+                      }
+                    } catch (err: any) {
+                      toast.error(err?.message || "Failed to switch organization.");
+                    }
+                  }}
+                  onCreateOrg={async (data) => {
+                    try {
+                      const res = await createOrgMutation.mutateAsync(data);
+                      toast.success(res.message || `Organization '${res.organization?.name}' created!`);
+                      await refreshAuth();
+                      router.push("/dashboard/admin");
+                    } catch (err: any) {
+                      toast.error(err?.message || "Failed to create organization.");
+                      throw err;
+                    }
+                  }}
+                  onManageTeam={() => {
+                    if (user?.role === "ADMIN") {
+                      router.push("/dashboard/admin/team");
+                    }
+                  }}
+                />
               </div>
             </div>
 
@@ -456,21 +506,19 @@ function FinanceDashboardContent() {
               <button
                 type="button"
                 onClick={() => setActiveView("approvals")}
-                className={`inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 cursor-pointer ${
-                  activeView === "approvals"
+                className={`inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 cursor-pointer ${activeView === "approvals"
                     ? "bg-[#ff5e3a] text-white shadow-sm"
                     : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
-                }`}
+                  }`}
               >
                 <AlertTriangle size={13} className={activeView === "approvals" ? "text-white" : "text-slate-500"} />
                 <span>Approvals</span>
                 {pendingApprovals.length > 0 && (
                   <span
-                    className={`w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center ${
-                      activeView === "approvals"
+                    className={`w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center ${activeView === "approvals"
                         ? "bg-white text-[#ff5e3a]"
                         : "bg-cyan-50 text-[#ff5e3a] border border-cyan-200"
-                    }`}
+                      }`}
                   >
                     {pendingApprovals.length}
                   </span>
@@ -480,11 +528,10 @@ function FinanceDashboardContent() {
               <button
                 type="button"
                 onClick={() => setActiveView("fulfillment")}
-                className={`inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 cursor-pointer ${
-                  activeView === "fulfillment"
+                className={`inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 cursor-pointer ${activeView === "fulfillment"
                     ? "bg-[#ff5e3a] text-white shadow-sm"
                     : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
-                }`}
+                  }`}
               >
                 <Package size={13} className={activeView === "fulfillment" ? "text-white" : "text-slate-500"} />
                 <span>Fulfillment</span>
@@ -493,11 +540,10 @@ function FinanceDashboardContent() {
               <button
                 type="button"
                 onClick={() => setActiveView("subscriptions")}
-                className={`inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 cursor-pointer ${
-                  activeView === "subscriptions"
+                className={`inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 cursor-pointer ${activeView === "subscriptions"
                     ? "bg-[#ff5e3a] text-white shadow-sm"
                     : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
-                }`}
+                  }`}
               >
                 <TrendingUp size={13} className={activeView === "subscriptions" ? "text-white" : "text-slate-500"} />
                 <span>Subscriptions</span>
@@ -506,11 +552,10 @@ function FinanceDashboardContent() {
               <button
                 type="button"
                 onClick={() => setActiveView("invoices")}
-                className={`inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 cursor-pointer ${
-                  activeView === "invoices"
+                className={`inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 cursor-pointer ${activeView === "invoices"
                     ? "bg-[#ff5e3a] text-white shadow-sm"
                     : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
-                }`}
+                  }`}
               >
                 <CreditCard size={13} className={activeView === "invoices" ? "text-white" : "text-slate-500"} />
                 <span>Invoices</span>
@@ -537,8 +582,8 @@ function FinanceDashboardContent() {
               </div>
             </button>
             <ProfileModal
-                onSignOut={signOut}
-                open={profileOpen}
+              onSignOut={signOut}
+              open={profileOpen}
               onClose={() => setProfileOpen(false)}
               user={{
                 name: "Fiona Ops",
@@ -553,7 +598,7 @@ function FinanceDashboardContent() {
 
       {/* Main Workspace */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        
+
         {/* VIEW 1: HIGH-RISK APPROVALS */}
         {activeView === "approvals" && (
           <div className="space-y-8">
@@ -611,7 +656,7 @@ function FinanceDashboardContent() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="p-6 rounded-2xl bg-white border border-black/[0.06] shadow-xs flex flex-col justify-between">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
@@ -655,22 +700,20 @@ function FinanceDashboardContent() {
                     <button
                       type="button"
                       onClick={() => setApprovalFilter("pending")}
-                      className={`px-3 py-1 rounded-full font-semibold transition cursor-pointer ${
-                        approvalFilter === "pending"
+                      className={`px-3 py-1 rounded-full font-semibold transition cursor-pointer ${approvalFilter === "pending"
                           ? "bg-white text-slate-900 shadow-2xs"
                           : "text-slate-500 hover:text-slate-900"
-                      }`}
+                        }`}
                     >
                       Action ({pendingApprovals.length})
                     </button>
                     <button
                       type="button"
                       onClick={() => setApprovalFilter("all")}
-                      className={`px-3 py-1 rounded-full font-semibold transition cursor-pointer ${
-                        approvalFilter === "all"
+                      className={`px-3 py-1 rounded-full font-semibold transition cursor-pointer ${approvalFilter === "all"
                           ? "bg-white text-slate-900 shadow-2xs"
                           : "text-slate-500 hover:text-slate-900"
-                      }`}
+                        }`}
                     >
                       All ({approvals.length})
                     </button>
@@ -696,7 +739,7 @@ function FinanceDashboardContent() {
                             {item.accountTier}
                           </span>
                         </div>
-                        
+
                         <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                           {item.escalationReason}
                         </div>
@@ -769,13 +812,12 @@ function FinanceDashboardContent() {
                               <div />
                               <div className="flex justify-end items-start mt-1">
                                 <span
-                                  className={`inline-flex items-center px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider ${
-                                    item.status === "APPROVED"
+                                  className={`inline-flex items-center px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider ${item.status === "APPROVED"
                                       ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                                       : item.status === "REVISION_REQUESTED"
-                                      ? "bg-amber-50 text-amber-700 border border-amber-200"
-                                      : "bg-rose-50 text-rose-700 border border-rose-100"
-                                  }`}
+                                        ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                        : "bg-rose-50 text-rose-700 border border-rose-100"
+                                    }`}
                                 >
                                   {item.status.replace("_", " ")}
                                 </span>
@@ -943,15 +985,14 @@ function FinanceDashboardContent() {
                         </td>
                         <td className="py-4 px-4">
                           <span
-                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                              order.status === "Backorder"
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${order.status === "Backorder"
                                 ? "bg-rose-50 text-rose-700 border-rose-200"
                                 : order.status === "Fulfilled" || order.status === "Dispatched" || order.status === "Shipped"
-                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                : order.status === "Split Confirmed" || order.status === "Partially Dispatched"
-                                ? "bg-blue-50 text-blue-700 border-blue-200"
-                                : "bg-amber-50 text-amber-700 border-amber-200"
-                            }`}
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                  : order.status === "Split Confirmed" || order.status === "Partially Dispatched"
+                                    ? "bg-blue-50 text-blue-700 border-blue-200"
+                                    : "bg-amber-50 text-amber-700 border-amber-200"
+                              }`}
                           >
                             {order.status}
                           </span>
@@ -1054,13 +1095,12 @@ function FinanceDashboardContent() {
                       </td>
                       <td className="py-4 px-6 text-right">
                         <span
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                            sub.status === "Active"
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${sub.status === "Active"
                               ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                               : sub.status === "Paused"
-                              ? "bg-amber-50 text-amber-700 border-amber-200"
-                              : "bg-rose-50 text-rose-700 border-rose-200"
-                          }`}
+                                ? "bg-amber-50 text-amber-700 border-amber-200"
+                                : "bg-rose-50 text-rose-700 border-rose-200"
+                            }`}
                         >
                           {sub.status}
                         </span>
@@ -1070,7 +1110,7 @@ function FinanceDashboardContent() {
                 </tbody>
               </table>
             </div>
-            
+
             {/* Info Banner & Admin Action */}
             <div className="space-y-4">
               <div className="bg-amber-50 text-amber-800 p-4 rounded-xl border border-amber-200/50 text-xs font-semibold shadow-2xs">
@@ -1156,11 +1196,10 @@ function FinanceDashboardContent() {
                       </td>
                       <td className="py-4 px-4">
                         <span
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                            inv.status === "Unpaid"
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${inv.status === "Unpaid"
                               ? "bg-rose-50 text-rose-700 border-rose-200"
                               : "bg-emerald-50 text-emerald-700 border-emerald-200"
-                          }`}
+                            }`}
                         >
                           {inv.status}
                         </span>
@@ -1173,7 +1212,7 @@ function FinanceDashboardContent() {
                 </tbody>
               </table>
             </div>
-            
+
             {/* Info Banner */}
             <div className="bg-amber-50 text-amber-800 p-4 rounded-xl border border-amber-200/50 text-xs font-semibold shadow-2xs">
               Click an invoice row to open its full payment and delivery reconciliation detail.
@@ -1190,13 +1229,12 @@ function FinanceDashboardContent() {
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-white shadow-sm ${
-                    activeModalRequest.type === "approve"
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-white shadow-sm ${activeModalRequest.type === "approve"
                       ? "bg-emerald-500"
                       : activeModalRequest.type === "reject"
-                      ? "bg-rose-500"
-                      : "bg-amber-500"
-                  }`}
+                        ? "bg-rose-500"
+                        : "bg-amber-500"
+                    }`}
                 >
                   {activeModalRequest.type === "approve" ? (
                     <Check size={16} strokeWidth={3} />
@@ -1249,13 +1287,12 @@ function FinanceDashboardContent() {
                 <button
                   type="button"
                   onClick={handleConfirmDecision}
-                  className={`px-5 py-2 rounded-full text-xs font-bold text-white shadow-sm transition cursor-pointer ${
-                    activeModalRequest.type === "approve"
+                  className={`px-5 py-2 rounded-full text-xs font-bold text-white shadow-sm transition cursor-pointer ${activeModalRequest.type === "approve"
                       ? "bg-emerald-600 hover:bg-emerald-700"
                       : activeModalRequest.type === "reject"
-                      ? "bg-rose-600 hover:bg-rose-700"
-                      : "bg-amber-500 hover:bg-amber-600"
-                  }`}
+                        ? "bg-rose-600 hover:bg-rose-700"
+                        : "bg-amber-500 hover:bg-amber-600"
+                    }`}
                 >
                   Confirm &amp; Log
                 </button>

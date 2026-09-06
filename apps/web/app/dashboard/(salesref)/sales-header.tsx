@@ -1,9 +1,8 @@
-"use client"
+"use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { AdminNav } from "@repo/ui";
-import { useSession } from "@/lib/auth-client";
+import { useRouter } from "next/navigation";
+import { SalesNav } from "@repo/ui";
 import {
   useCurrentOrg,
   useUserOrganizations,
@@ -13,30 +12,32 @@ import {
 import { useDashboardAuth } from "../layout";
 import { toast } from "sonner";
 
-export function AdminHeader() {
-  const pathname = usePathname();
+export interface SalesHeaderProps {
+  activeTab?: "dashboard" | "quotations" | "new-quote" | "approvals" | "invoices";
+  className?: string;
+}
+
+export function SalesHeader({ activeTab = "dashboard", className = "" }: SalesHeaderProps) {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { user, signOut, refreshAuth } = useDashboardAuth();
   const { data: currentOrg } = useCurrentOrg();
   const { data: userOrgs } = useUserOrganizations();
   const createOrgMutation = useCreateOrganization();
   const switchOrgMutation = useSwitchOrganization();
-  const { user, signOut, refreshAuth } = useDashboardAuth();
 
-  const adminName = user?.name || session?.user?.name || "Administrator";
-  const adminEmail = user?.email || session?.user?.email || "";
-  const adminInitials = adminName
-    ? adminName
-      .split(" ")
-      .map((n) => n[0])
-      .filter(Boolean)
-      .slice(0, 2)
-      .join("")
-      .toUpperCase()
-    : "AD";
+  const userName = user?.name || "Sales Representative";
+  const userInitials = userName
+    ? userName
+        .split(" ")
+        .map((p) => p[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase()
+    : "SR";
 
-  const orgName = currentOrg?.name || user?.organization?.name || "";
+  const orgName = currentOrg?.name || user?.organization?.name || "Workspace";
   const currentOrgId = currentOrg?.id || user?.organizationId || "";
+  const currentRole = user?.role || "SALES_REP";
 
   const handleSwitchOrg = async (targetOrgId: string) => {
     try {
@@ -44,7 +45,6 @@ export function AdminHeader() {
       toast.success(res.message || `Switched active organization to ${res.organization?.name}`);
       await refreshAuth();
 
-      // Route dynamically to the proper dashboard based on assigned role in that organization
       const targetRole = res.role?.toUpperCase() || res.activeRole?.toUpperCase() || res.organization?.userRole?.toUpperCase() || "ADMIN";
       if (targetRole === "ADMIN") {
         router.push("/dashboard/admin");
@@ -73,22 +73,27 @@ export function AdminHeader() {
   };
 
   return (
-    <AdminNav
-      currentPath={pathname}
-      adminName={adminName}
-      adminEmail={adminEmail}
-      adminInitials={adminInitials}
+    <SalesNav
+      activeTab={activeTab}
+      userName={userName}
+      userInitials={userInitials}
+      roleLabel={user?.role === "SALES_REP" ? "Sales Representative" : user?.role || "Sales Rep"}
       orgName={orgName}
       currentOrgId={currentOrgId}
-      currentRole={user?.role || "ADMIN"}
+      currentRole={currentRole}
       organizations={userOrgs as any}
       onSwitchOrg={handleSwitchOrg}
       onCreateOrg={handleCreateOrg}
-      onManageTeam={() => router.push("/dashboard/admin/team")}
+      onManageTeam={() => {
+        if (user?.role === "ADMIN") {
+          router.push("/dashboard/admin/team");
+        } else {
+          toast.info("Only Organization Admins can manage team members.");
+        }
+      }}
       onSignOut={signOut}
       linkComponent={Link as any}
+      className={className}
     />
   );
 }
-
-

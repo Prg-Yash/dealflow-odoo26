@@ -13,6 +13,8 @@ import {
   verifyInvitation,
   acceptInvitation,
   listMembers,
+  updateMemberRole,
+  removeMember,
 } from "../controllers/member.controller.js";
 
 export const memberRouter = Router();
@@ -29,3 +31,8 @@ memberRouter.post(["/invitations/accept", "/invitations/:token/accept"], acceptI
 
 // Organization member roster
 memberRouter.get("/members", requireAuth, requireOrg, listMembers);
+
+// Organization member management (ADMIN only)
+memberRouter.patch("/members/:userId/role", requireAuth, requireRole(UserRole.ADMIN), requireOrg, updateMemberRole);
+memberRouter.delete("/members/:userId", requireAuth, requireRole(UserRole.ADMIN), requireOrg, removeMember);
+

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, type ReactNode, type ComponentType } from "react";
 import { Search, Bell, X, ArrowRight } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
-import { OrgDropdown } from "./org-dropdown";
+import { OrgDropdown, type OrgItem } from "./org-dropdown";
 import { NotificationModal } from "./notification-modal";
 import { ProfileModal } from "./profile-modal";
 
@@ -18,6 +18,13 @@ export interface SalesNavProps {
   userInitials?: string;
   userName?: string;
   roleLabel?: string;
+  orgName?: string;
+  currentOrgId?: string;
+  currentRole?: string;
+  organizations?: OrgItem[];
+  onSwitchOrg?: (orgId: string) => Promise<void> | void;
+  onCreateOrg?: (data: { name: string; slug?: string; currency: string }) => Promise<void> | void;
+  onManageTeam?: () => void;
   onSignOut?: () => void;
   className?: string;
   linkComponent?: ComponentType<{ href: string; className?: string; children: ReactNode }>;
@@ -58,6 +65,13 @@ export function SalesNav({
   userInitials = "SJ",
   userName = "Sarah Jenkins",
   roleLabel = "Sales Rep",
+  orgName,
+  currentOrgId,
+  currentRole,
+  organizations,
+  onSwitchOrg,
+  onCreateOrg,
+  onManageTeam,
   onSignOut,
   className = "",
   linkComponent: LinkComp,
@@ -97,7 +111,15 @@ export function SalesNav({
               <BrandLogo href="/dashboard/sale-ref" as={LinkComp} />
               <div className="hidden sm:block h-4 w-px bg-slate-200 mx-1"></div>
               <div className="hidden sm:block">
-                <OrgDropdown />
+                <OrgDropdown
+                  organizations={organizations}
+                  currentOrgId={currentOrgId}
+                  currentOrgName={orgName}
+                  currentRole={currentRole || (roleLabel === "Sales Rep" ? "SALES_REP" : "MEMBER")}
+                  onSwitchOrg={onSwitchOrg}
+                  onCreateOrg={onCreateOrg}
+                  onManageTeam={onManageTeam}
+                />
               </div>
             </div>
 

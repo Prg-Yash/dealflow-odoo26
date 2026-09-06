@@ -39,7 +39,7 @@ export async function requireAuth(
       });
     }
 
-    const dbUser = await prisma.user.findUnique({
+    let dbUser = await prisma.user.findUnique({
       where: { id: sessionResult.user.id },
       include: {
         organization: true,
@@ -55,6 +55,148 @@ export async function requireAuth(
         error: "Unauthorized",
         message: "User account no longer exists.",
       });
+    }
+
+    // Auto-resolve organization or sync per-org role from OrganizationMember or profile discovery
+    try {
+      if (dbUser.organizationId) {
+        if ((prisma as any).organizationMember) {
+          const memberRecord = await (prisma as any).organizationMember.findUnique({
+            where: {
+              userId_organizationId: {
+                userId: dbUser.id,
+                organizationId: dbUser.organizationId,
+              },
+            },
+          });
+          if (memberRecord && memberRecord.role && memberRecord.role !== dbUser.role) {
+            dbUser = await prisma.user.update({
+              where: { id: dbUser.id },
+              data: { role: memberRecord.role },
+              include: {
+                organization: true,
+                salesRep: true,
+                salesManager: true,
+                financeOpsUser: true,
+                customerProfile: true,
+              },
+            });
+          }
+        }
+      } else {
+        // If active organizationId is not set, resolve to their first accessible org across all roles
+        let resolvedOrgId: string | null = null;
+        let resolvedRole: UserRole = UserRole.SALES_REP;
+
+        // 1. OrganizationMember table
+        if ((prisma as any).organizationMember) {
+          const firstMember = await (prisma as any).organizationMember.findFirst({
+            where: { userId: dbUser.id },
+            orderBy: { createdAt: "desc" },
+          });
+          if (firstMember) {
+            resolvedOrgId = firstMember.organizationId;
+            resolvedRole = firstMember.role;
+          }
+        }
+
+        // 2. Created Organization (Admin)
+        if (!resolvedOrgId) {
+          const createdOrg = await prisma.organization.findFirst({
+            where: { createdById: dbUser.id },
+            orderBy: { createdAt: "desc" },
+          });
+          if (createdOrg) {
+            resolvedOrgId = createdOrg.id;
+            resolvedRole = UserRole.ADMIN;
+          }
+        }
+
+        // 3. Sales Manager Profile
+        if (!resolvedOrgId && dbUser.salesManager?.organizationId) {
+          resolvedOrgId = dbUser.salesManager.organizationId;
+          resolvedRole = UserRole.SALES_MANAGER;
+        }
+
+        // 4. Finance Ops Profile
+        if (!resolvedOrgId && dbUser.financeOpsUser?.organizationId) {
+          resolvedOrgId = dbUser.financeOpsUser.organizationId;
+          resolvedRole = UserRole.FINANCE_OPS;
+        }
+
+        // 5. Sales Rep Profile
+        if (!resolvedOrgId && dbUser.salesRep?.organizationId) {
+          resolvedOrgId = dbUser.salesRep.organizationId;
+          resolvedRole = UserRole.SALES_REP;
+        }
+
+        // 6. Invitations by email
+        if (!resolvedOrgId && dbUser.email) {
+          const invite = await prisma.invitation.findFirst({
+            where: {
+              email: { equals: dbUser.email.trim(), mode: "insensitive" },
+            },
+            orderBy: { createdAt: "desc" },
+          });
+          if (invite) {
+            resolvedOrgId = invite.organizationId;
+            resolvedRole = invite.role;
+          }
+        }
+
+        // 7. Organizations user is connected to
+        if (!resolvedOrgId) {
+          const connectedOrg = await prisma.organization.findFirst({
+            where: { users: { some: { id: dbUser.id } } },
+            orderBy: { createdAt: "desc" },
+          });
+          if (connectedOrg) {
+            resolvedOrgId = connectedOrg.id;
+            resolvedRole = dbUser.role || UserRole.SALES_REP;
+          }
+        }
+
+        if (resolvedOrgId) {
+          // Upsert OrganizationMember
+          try {
+            if ((prisma as any).organizationMember) {
+              await (prisma as any).organizationMember.upsert({
+                where: {
+                  userId_organizationId: {
+                    userId: dbUser.id,
+                    organizationId: resolvedOrgId,
+                  },
+                },
+                create: {
+                  userId: dbUser.id,
+                  organizationId: resolvedOrgId,
+                  role: resolvedRole,
+                },
+                update: {
+                  role: resolvedRole,
+                },
+              });
+            }
+          } catch {}
+
+          dbUser = await prisma.user.update({
+            where: { id: dbUser.id },
+            data: {
+              organizationId: resolvedOrgId,
+              role: resolvedRole,
+            },
+            include: {
+              organization: true,
+              salesRep: true,
+              salesManager: true,
+              financeOpsUser: true,
+              customerProfile: true,
+            },
+          });
+        }
+      }
+    } catch (syncErr) {
+      // Non-blocking sync note
     }
 
     req.user = dbUser;

@@ -13,7 +13,7 @@ import {
   Clock,
   FileText,
 } from "lucide-react";
-import { SalesNav } from "@repo/ui";
+import { SalesHeader } from "../../sales-header";
 import { useQuotations } from "../../../../../lib/query";
 import { useDashboardAuth } from "../../../layout";
 
@@ -122,15 +122,8 @@ export default function QuotationsListPage() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-[#0f172a] font-sans antialiased">
-      {/* Role-Aware Navigation */}
-      <SalesNav
-        onSignOut={signOut}
-        activeTab="quotations"
-        userName={user?.name || "Sales Representative"}
-        userInitials={userInitials}
-        roleLabel={user?.role === "SALES_REP" ? "Sales Representative" : user?.role || "Sales Rep"}
-        linkComponent={Link}
-      />
+      {/* Role-Aware Navigation with Multi-Org Switcher */}
+      <SalesHeader activeTab="quotations" />
 
       <main className="pt-20 pb-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full space-y-6">
         {/* Page Header */}

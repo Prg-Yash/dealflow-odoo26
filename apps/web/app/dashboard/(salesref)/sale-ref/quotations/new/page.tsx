@@ -27,7 +27,7 @@ import {
   Award,
   DollarSign,
 } from "lucide-react";
-import { SalesNav } from "@repo/ui";
+import { SalesHeader } from "../../../sales-header";
 import {
   useCustomers,
   useCustomerTiers,
@@ -498,15 +498,8 @@ export default function NewQuotationPage() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-[#0f172a] font-sans antialiased">
-      {/* Role-Aware Navigation Header */}
-      <SalesNav
-        onSignOut={signOut}
-        activeTab="new-quote"
-        userName={user?.name || "Sales Representative"}
-        userInitials={userInitials}
-        roleLabel={user?.role === "SALES_REP" ? "Sales Representative" : user?.role || "Sales Rep"}
-        linkComponent={Link}
-      />
+      {/* Role-Aware Navigation Header with Organization Switcher */}
+      <SalesHeader activeTab="new-quote" />
 
       <main className="pt-20 pb-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full space-y-6 text-left">
         {/* Header Breadcrumbs */}
@@ -619,8 +612,8 @@ export default function NewQuotationPage() {
                     onClick={() => setCustomerMode("existing")}
                     disabled={!apiCustomers || apiCustomers.length === 0}
                     className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${customerMode === "existing"
-                        ? "bg-white text-[#0066cc] font-bold shadow-xs"
-                        : "text-slate-600 hover:text-slate-900 disabled:opacity-50"
+                      ? "bg-white text-[#0066cc] font-bold shadow-xs"
+                      : "text-slate-600 hover:text-slate-900 disabled:opacity-50"
                       }`}
                   >
                     Select Existing ({apiCustomers?.length || 0})
@@ -629,8 +622,8 @@ export default function NewQuotationPage() {
                     type="button"
                     onClick={() => setCustomerMode("new")}
                     className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${customerMode === "new"
-                        ? "bg-white text-[#0066cc] font-bold shadow-xs"
-                        : "text-slate-600 hover:text-slate-900"
+                      ? "bg-white text-[#0066cc] font-bold shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
                       }`}
                   >
                     + New Customer
@@ -1147,10 +1140,10 @@ export default function NewQuotationPage() {
                   <span className="text-slate-600 font-semibold">Blended Risk Score:</span>
                   <span
                     className={`font-black text-sm ${riskSummary.blendedScore === 0
-                        ? "text-emerald-600"
-                        : riskSummary.blendedScore <= 10
-                          ? "text-amber-600"
-                          : "text-rose-600"
+                      ? "text-emerald-600"
+                      : riskSummary.blendedScore <= 10
+                        ? "text-amber-600"
+                        : "text-rose-600"
                       }`}
                   >
                     {riskSummary.blendedScore}%
@@ -1161,10 +1154,10 @@ export default function NewQuotationPage() {
                 <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
                   <div
                     className={`h-full transition-all duration-300 ${riskSummary.blendedScore === 0
-                        ? "bg-emerald-500"
-                        : riskSummary.blendedScore <= 10
-                          ? "bg-amber-500"
-                          : "bg-rose-500"
+                      ? "bg-emerald-500"
+                      : riskSummary.blendedScore <= 10
+                        ? "bg-amber-500"
+                        : "bg-rose-500"
                       }`}
                     style={{ width: `${Math.min(100, Math.max(5, riskSummary.blendedScore * 5))}%` }}
                   />

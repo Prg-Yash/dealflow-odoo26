@@ -5,8 +5,11 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
-const API = 'http://localhost:4000';
+// Prefer environment variable, then dynamic Expo host IP, then localhost fallback
+const debuggerHost = Constants.expoConfig?.hostUri?.split(':')[0];
+const API = process.env.EXPO_PUBLIC_API_URL || (debuggerHost ? `http://${debuggerHost}:4000` : 'http://localhost:4000');
 
 async function post(path: string, body: object) {
   const token = await AsyncStorage.getItem('auth_token');

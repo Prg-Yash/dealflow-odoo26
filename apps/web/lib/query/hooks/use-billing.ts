@@ -206,19 +206,39 @@ export function useScheduleReminder() {
       subscriptionId,
       reminderDaysBefore = 7,
       manualTrigger = true,
+      customerName,
+      customerEmail,
+      planName,
+      amount,
+      billingInterval,
+      nextBillingDate,
     }: {
       subscriptionId: string;
       reminderDaysBefore?: number;
       manualTrigger?: boolean;
+      customerName?: string;
+      customerEmail?: string;
+      planName?: string;
+      amount?: number;
+      billingInterval?: string;
+      nextBillingDate?: string;
     }) =>
       api.post(`/api/subscriptions/${subscriptionId}/schedule-reminder`, {
         reminderDaysBefore,
         manualTrigger,
+        customerName,
+        customerEmail,
+        planName,
+        amount,
+        billingInterval,
+        nextBillingDate,
       }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.billing.subscriptionDetail(variables.subscriptionId),
       });
+      queryClient.invalidateQueries({ queryKey: queryKeys.billing.subscriptions() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.billing.all });
     },
   });
 }

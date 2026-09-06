@@ -3,7 +3,6 @@
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, FileQuestion, RefreshCw } from "lucide-react";
-import { SalesNav } from "@repo/ui";
 import { useQuotation, useProducts } from "../../../../../../lib/query";
 import { useDashboardAuth } from "../../../../layout";
 import { QuotationDetailView } from "../../../../components/QuotationDetailView";

@@ -3,7 +3,7 @@
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, FileQuestion, RefreshCw } from "lucide-react";
-import { SalesNav } from "@repo/ui";
+import { SalesHeader } from "../../../sales-header";
 import { useQuotation, useProducts } from "../../../../../../lib/query";
 import { useDashboardAuth } from "../../../../layout";
 import { QuotationDetailView } from "../../../../components/QuotationDetailView";
@@ -17,11 +17,11 @@ export default function QuotationDetailPage() {
 
   const userInitials = user?.name
     ? user.name
-        .split(" ")
-        .map((p) => p[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase()
+      .split(" ")
+      .map((p) => p[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase()
     : "SR";
 
   if (isLoading) {
@@ -65,15 +65,8 @@ export default function QuotationDetailPage() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-[#0f172a] font-sans antialiased">
-      {/* Role-Aware Navigation Bar */}
-      <SalesNav
-        onSignOut={signOut}
-        activeTab="quotations"
-        userName={user?.name || "Sales Representative"}
-        userInitials={userInitials}
-        roleLabel={user?.role === "SALES_REP" ? "Sales Representative" : user?.role || "Sales Rep"}
-        linkComponent={Link}
-      />
+      {/* Role-Aware Navigation Bar with Organization Switcher */}
+      <SalesHeader activeTab="quotations" />
 
       <main className="pt-20 pb-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
         <QuotationDetailView

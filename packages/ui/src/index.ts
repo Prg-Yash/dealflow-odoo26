@@ -33,4 +33,6 @@ export { QuotationBuilderCanvas } from "./components/quotation-builder-canvas";
 export { ShareQuotationModal } from "./components/share-quotation-modal";
 export { AdminNav, type AdminNavProps, type AdminNavTabItem } from "./components/admin-nav";
 export { ProfileModal, type ProfileModalProps } from "./components/profile-modal";
-export { OrgDropdown } from "./components/org-dropdown";
+export { OrgDropdown, type OrgItem, type OrgDropdownProps } from "./components/org-dropdown";
+export { CreateOrgModal, type CreateOrgModalProps } from "./components/create-org-modal";
+

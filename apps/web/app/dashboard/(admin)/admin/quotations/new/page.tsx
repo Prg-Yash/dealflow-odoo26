@@ -27,7 +27,6 @@ import {
   Award,
   DollarSign,
 } from "lucide-react";
-import { SalesNav } from "@repo/ui";
 import {
   useCustomers,
   useCustomerTiers,

@@ -41,8 +41,15 @@ import {
   type User2FAStatusResponse,
 } from "../../lib/auth-client";
 import { BrandLogo, SalesNav, AdminNav } from "@repo/ui";
-import { getStoredRole, ROLES } from "../../lib/roles";
-import { useQuotations, useMembers, useDealAnomalies, useCurrentOrg } from "../../lib/query";
+import {
+  useQuotations,
+  useMembers,
+  useDealAnomalies,
+  useCurrentOrg,
+  useUserOrganizations,
+  useSwitchOrganization,
+  useCreateOrganization,
+} from "../../lib/query";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -55,6 +62,35 @@ export default function ProfilePage() {
     }
     return null;
   });
+
+  const { data: currentOrg } = useCurrentOrg();
+  const { data: userOrgs = [] } = useUserOrganizations();
+  const switchOrgMutation = useSwitchOrganization();
+  const createOrgMutation = useCreateOrganization();
+
+  const handleSwitchOrg = async (orgId: string) => {
+    try {
+      const res = await switchOrgMutation.mutateAsync(orgId);
+      const targetRole = res?.role?.toUpperCase() || res?.activeRole?.toUpperCase() || res?.organization?.userRole?.toUpperCase() || "ADMIN";
+      if (targetRole === "ADMIN") {
+        router.push("/dashboard/admin");
+      } else if (targetRole === "SALES_MANAGER") {
+        router.push("/dashboard/manager");
+      } else if (targetRole === "FINANCE_OPS") {
+        router.push("/dashboard/finance");
+      } else {
+        router.push("/dashboard/sale-ref");
+      }
+    } catch (err: any) {
+      console.error("Failed to switch organization:", err);
+    }
+  };
+
+  const handleCreateOrg = async (data: { name: string; currency?: string; country?: string }) => {
+    const newOrg = await createOrgMutation.mutateAsync(data);
+    router.push("/dashboard/admin");
+    return newOrg;
+  };
 
   const [verificationAlert, setVerificationAlert] = useState<{
     type: "success" | "error";
@@ -446,7 +482,12 @@ export default function ProfilePage() {
           adminName={user.name || "Admin"}
           adminEmail={user.email}
           adminInitials={initials}
-          orgName={org?.name || "Acme Corp"}
+          orgName={currentOrg?.name || "My Organization"}
+          userOrganizations={userOrgs}
+          currentOrgId={currentOrg?.id}
+          onSwitchOrganization={handleSwitchOrg}
+          onCreateOrganization={handleCreateOrg}
+          isSwitchingOrg={switchOrgMutation.isPending}
           onSignOut={handleSignOut}
           linkComponent={Link as any}
         />
@@ -464,6 +505,12 @@ export default function ProfilePage() {
           userName={user.name || "User"}
           userInitials={initials}
           roleLabel={roleLabel}
+          orgName={currentOrg?.name || "My Organization"}
+          userOrganizations={userOrgs}
+          currentOrgId={currentOrg?.id}
+          onSwitchOrganization={handleSwitchOrg}
+          onCreateOrganization={handleCreateOrg}
+          isSwitchingOrg={switchOrgMutation.isPending}
           onSignOut={handleSignOut}
           linkComponent={Link as any}
         />

@@ -13,7 +13,6 @@ import {
   Clock,
   FileText,
 } from "lucide-react";
-import { SalesNav } from "@repo/ui";
 import { useQuotations } from "../../../../../lib/query";
 import { useDashboardAuth } from "../../../layout";
 

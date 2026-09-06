@@ -55,6 +55,12 @@ export const CancelSubscriptionSchema = z.object({
 export const ScheduleReminderSchema = z.object({
   reminderDaysBefore: z.number().int().min(1).max(90).optional().default(7),
   manualTrigger: z.boolean().optional().default(false),
+  customerName: z.string().optional(),
+  customerEmail: z.string().email().optional(),
+  planName: z.string().optional(),
+  amount: z.number().optional(),
+  billingInterval: z.enum(["MONTHLY", "QUARTERLY", "ANNUALLY"]).optional(),
+  nextBillingDate: z.string().optional(),
 });
 
 export const RecordPaymentSchema = z.object({

@@ -48,12 +48,20 @@ import {
   useRejectStep,
   useApproveQuotation,
   useRejectQuotation,
+  useCurrentOrg,
+  useUserOrganizations,
+  useCreateOrganization,
+  useSwitchOrganization,
 } from "../../../../lib/query";
 import { toast } from "sonner";
 
 export default function ManagerDashboardPage() {
-  const { user, signOut } = useDashboardAuth();
+  const { user, signOut, refreshAuth } = useDashboardAuth();
   const router = useRouter();
+  const { data: currentOrg } = useCurrentOrg();
+  const { data: userOrgs } = useUserOrganizations();
+  const createOrgMutation = useCreateOrganization();
+  const switchOrgMutation = useSwitchOrganization();
   const [activeView, setActiveView] = useState<"approvals" | "telemetry" | "team">("approvals");
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -562,7 +570,49 @@ export default function ManagerDashboardPage() {
               <BrandLogo href="/dashboard/manager" subtitle="Sales Director Hub" />
               <div className="hidden sm:block h-4 w-px bg-slate-200 mx-1"></div>
               <div className="hidden sm:block">
-                <OrgDropdown />
+                <OrgDropdown
+                  organizations={userOrgs as any}
+                  currentOrgId={currentOrg?.id || user?.organizationId || ""}
+                  currentOrgName={currentOrg?.name || user?.organization?.name || "Workspace"}
+                  currentRole={user?.role || "SALES_MANAGER"}
+                  onSwitchOrg={async (targetOrgId) => {
+                    try {
+                      const res = await switchOrgMutation.mutateAsync(targetOrgId);
+                      toast.success(res.message || `Switched active organization to ${res.organization?.name}`);
+                      await refreshAuth();
+                      const targetRole = res.role?.toUpperCase() || res.activeRole?.toUpperCase() || res.organization?.userRole?.toUpperCase() || "SALES_MANAGER";
+                      if (targetRole === "ADMIN") {
+                        router.push("/dashboard/admin");
+                      } else if (targetRole === "SALES_MANAGER") {
+                        router.push("/dashboard/manager");
+                      } else if (targetRole === "FINANCE_OPS") {
+                        router.push("/dashboard/finance");
+                      } else {
+                        router.push("/dashboard/sale-ref");
+                      }
+                    } catch (err: any) {
+                      toast.error(err?.message || "Failed to switch organization.");
+                    }
+                  }}
+                  onCreateOrg={async (data) => {
+                    try {
+                      const res = await createOrgMutation.mutateAsync(data);
+                      toast.success(res.message || `Organization '${res.organization?.name}' created!`);
+                      await refreshAuth();
+                      router.push("/dashboard/admin");
+                    } catch (err: any) {
+                      toast.error(err?.message || "Failed to create organization.");
+                      throw err;
+                    }
+                  }}
+                  onManageTeam={() => {
+                    if (user?.role === "ADMIN") {
+                      router.push("/dashboard/admin/team");
+                    } else {
+                      setActiveView("team");
+                    }
+                  }}
+                />
               </div>
             </div>
 
