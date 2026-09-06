@@ -53,7 +53,7 @@ export default function InvoiceDetailPage({ params }: { params?: { id?: string }
       return invoice.lines.map((l) => ({
         id: invoiceNumber,
         product: l.description || "Dispatched Hardware Unit",
-        amount: l.netAmount || (l.quantity * l.unitPrice),
+        amount: l.totalAmount || (l.quantity * l.unitPrice),
         status: isPaid ? "Paid" : "Unpaid",
         dueDate,
       }));

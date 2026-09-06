@@ -243,8 +243,6 @@ export function useApproveStep() {
   });
 }
 
-export const useApproveQuotation = useApproveStep;
-
 /**
  * Mutation: Reject / Request revision on an approval step
  */
@@ -270,6 +268,4 @@ export function useRejectStep() {
     },
   });
 }
-
-export const useRejectQuotation = useRejectStep;
 

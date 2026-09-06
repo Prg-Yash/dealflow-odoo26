@@ -9,6 +9,7 @@
     "strictNullChecks": true,
     "declaration": false,
     "declarationMap": false,
+    "ignoreDeprecations": "5.0",
     "baseUrl": ".",
     "paths": {
       "@/*": [
