@@ -2,12 +2,13 @@ import { Router } from "express";
 import { UserRole } from "@repo/db";
 import { requireAuth, requireRole } from "../middleware/auth.middleware.js";
 import { tenantMiddleware } from "../middleware/tenant.js";
-import { validateQuery } from "../middleware/validate.js";
+import { validateQuery, validateBody } from "../middleware/validate.js";
 import * as controller from "../controllers/deal-health.controller.js";
 import {
   QueryStalledDealsSchema,
   QueryAnomaliesSchema,
   QuerySlippageSchema,
+  NudgeActionSchema,
 } from "../schemas/deal-health.schema.js";
 
 const STAFF_ROLES = [
@@ -43,6 +44,13 @@ dealHealthRouter.get(
   requireRole(...STAFF_ROLES),
   validateQuery(QuerySlippageSchema),
   controller.getFulfillmentSlippage
+);
+
+dealHealthRouter.post(
+  "/:quotationId/nudge",
+  requireRole(UserRole.ADMIN, UserRole.SALES_MANAGER),
+  validateBody(NudgeActionSchema),
+  controller.nudgeOrEscalate
 );
 
 // =============================================================================

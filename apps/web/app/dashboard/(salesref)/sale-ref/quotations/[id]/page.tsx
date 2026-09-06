@@ -11,53 +11,49 @@ import { QuotationDetailView } from "../../../../components/QuotationDetailView"
 export default function QuotationDetailPage() {
   const routeParams = useParams();
   const quoteId = (routeParams?.id as string) || "";
-
   const { user, signOut } = useDashboardAuth();
-  const { data: quotation, isLoading, isError, refetch } = useQuotation(quoteId, {
-    enabled: Boolean(quoteId),
-  });
+  const { data: quotation, isLoading, error, refetch } = useQuotation(quoteId);
   const { data: products } = useProducts();
 
   const userInitials = user?.name
     ? user.name
         .split(" ")
-        .map((n) => n[0])
+        .map((p) => p[0])
         .join("")
-        .toUpperCase()
         .slice(0, 2)
+        .toUpperCase()
     : "SR";
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center gap-3">
-        <Loader2 size={28} className="animate-spin text-[#ff5e3a]" />
-        <span className="text-xs text-slate-500 font-medium">Loading quotation details...</span>
+        <Loader2 size={32} className="animate-spin text-[#ff5e3a]" />
+        <span className="text-xs text-slate-500 font-semibold">Loading proposal details...</span>
       </div>
     );
   }
 
-  if (isError || !quotation) {
+  if (error || !quotation) {
     return (
       <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-14 h-14 rounded-2xl bg-slate-100 border border-slate-200 text-slate-400 flex items-center justify-center mx-auto mb-4">
+        <div className="w-14 h-14 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto mb-4">
           <FileQuestion size={28} />
         </div>
         <h2 className="text-base font-bold text-slate-900">Quotation Not Found</h2>
         <p className="text-xs text-slate-500 mt-1 max-w-sm">
-          The requested quotation could not be located in this workspace or you do not have permission to view it.
+          The requested quotation could not be found or you do not have permission to view it.
         </p>
-        <div className="mt-5 flex items-center gap-3">
+        <div className="flex items-center gap-3 mt-5">
           <button
-            type="button"
             onClick={() => refetch()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-xs transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50 transition cursor-pointer"
           >
             <RefreshCw size={13} />
-            <span>Try Again</span>
+            <span>Retry</span>
           </button>
           <Link
             href="/dashboard/sale-ref/quotations"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0066cc] text-white text-xs font-bold shadow-xs hover:bg-[#0052a3] transition"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff5e3a] text-white text-xs font-bold shadow-xs hover:bg-[#ea4e28] transition cursor-pointer"
           >
             <ArrowLeft size={13} />
             <span>Back to Quotations</span>

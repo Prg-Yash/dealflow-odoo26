@@ -82,6 +82,31 @@ export function useStalledQuotations(filters?: { thresholdDays?: number }) {
 }
 
 /**
+ * Hook to fetch fulfillment delivery slippage
+ */
+export function useFulfillmentSlippage(filters?: { slaDays?: number }) {
+  return useQuery({
+    queryKey: [...queryKeys.approvals.all, "slippage", filters],
+    queryFn: () => api.get<{ count: number; alerts: any[] }>("/api/deal-health/slippage", { params: filters }),
+  });
+}
+
+/**
+ * Mutation: Nudge or escalate a stalled/anomalous deal
+ */
+export function useNudgeAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quotationId, type, note }: { quotationId: string; type: "nudge" | "escalate"; note?: string }) =>
+      api.post(`/api/deal-health/${quotationId}/nudge`, { type, note }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.approvals.all, "anomalies"] });
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.approvals.all, "stalled"] });
+    },
+  });
+}
+
+/**
  * Mutation: Create discount approval rule
  */
 export function useCreateDiscountRule() {

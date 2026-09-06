@@ -12,6 +12,7 @@ import type {
   QueryStalledDealsInput,
   QueryAnomaliesInput,
   QuerySlippageInput,
+  NudgeActionInput,
 } from "../schemas/deal-health.schema.js";
 
 // =============================================================================
@@ -159,5 +160,41 @@ export async function getFulfillmentSlippage(
   return {
     count: alerts.length,
     alerts,
+  };
+}
+
+export async function createNudgeAction(
+  quotationId: string,
+  orgId: string,
+  actorId: string,
+  actorRole: string,
+  body: NudgeActionInput
+) {
+  // Verify the quotation belongs to this org
+  const quotation = await prisma.quotation.findFirst({
+    where: { id: quotationId, organizationId: orgId },
+    select: { id: true, quoteNumber: true },
+  });
+  if (!quotation) throw new Error("Quotation not found");
+
+  const action = body.type === "escalate" ? "DEAL_ESCALATED" : "REP_NUDGED";
+
+  const log = await prisma.approvalAuditLog.create({
+    data: {
+      quotationId,
+      organizationId: orgId,
+      actorId,
+      actorRole: actorRole as any,
+      action,
+      reason: body.note ?? (body.type === "escalate" ? "Escalated via deal health dashboard" : "Nudge sent via deal health dashboard"),
+      metadata: { type: body.type, source: "deal_health_dashboard" },
+    },
+  });
+
+  return {
+    success: true,
+    logId: log.id,
+    action,
+    quoteNumber: quotation.quoteNumber,
   };
 }

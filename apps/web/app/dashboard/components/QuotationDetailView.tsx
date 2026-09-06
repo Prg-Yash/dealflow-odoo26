@@ -35,7 +35,9 @@ import {
   Percent,
   Info,
   Lock,
+  Zap,
 } from "lucide-react";
+import { useProductRecommendations } from "../../../lib/query";
 import {
   calculateQuotationRisk,
   DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
@@ -126,6 +128,16 @@ export function QuotationDetailView({
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
+  const { data: apiRecommendations } = useProductRecommendations();
+
+  // Organization / Quotation Currency Symbol
+  const currencySymbol =
+    quotation?.currency === "USD" || currentUser?.organization?.currency === "USD"
+      ? "$"
+      : quotation?.currency === "EUR" || currentUser?.organization?.currency === "EUR"
+        ? "€"
+        : "₹";
+
   // Real-Time Polling: automatically refresh quotation discussion and status every 4 seconds
   useEffect(() => {
     if (!onRefresh) return;
@@ -141,6 +153,113 @@ export function QuotationDetailView({
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [activeSideTab, quotation?.comments?.length, quotation?.counterProposals?.length]);
+
+  // Live upsell & cross-sell recommendation candidates for current items (Matching Wireframe 4)
+  const upsellSuggestions = useMemo(() => {
+    if (!lines || lines.length === 0 || !catalogProducts || catalogProducts.length === 0) return [];
+    const currentProductIds = new Set(lines.map((l: any) => l.productId).filter(Boolean));
+
+    // 1. Direct Pairing Rules from DB / API
+    const matchingRecs = (apiRecommendations || []).filter(
+      (rec: any) =>
+        rec.isActive &&
+        currentProductIds.has(rec.sourceProductId) &&
+        !currentProductIds.has(rec.recommendedProductId)
+    );
+
+    const directCandidates = matchingRecs
+      .map((rec: any) => {
+        const prod = catalogProducts.find((p) => p.id === rec.recommendedProductId);
+        if (!prod) return null;
+        const margin =
+          prod.basePrice > 0 ? ((prod.basePrice - prod.costPrice) / prod.basePrice) * 100 : 0;
+        if (margin < rec.minMarginThreshold) return null; // Enforce margin floor
+        const marginAmt = Math.round(prod.basePrice - prod.costPrice);
+        return {
+          productId: prod.id,
+          name: prod.name,
+          sku: prod.sku,
+          category: prod.category?.name || "Accessory",
+          basePrice: prod.basePrice,
+          costPrice: prod.costPrice,
+          marginAmount: marginAmt,
+          marginPercent: Math.round(margin),
+          score: rec.coPurchaseScore,
+          promotionalTag: rec.promotionalTag || null,
+          isPromoted: prod.isPromoted,
+        };
+      })
+      .filter(Boolean) as any[];
+
+    // 2. Intelligently add complementary high-margin catalog items if pairings are few
+    if (directCandidates.length < 3) {
+      const addedIds = new Set([
+        ...Array.from(currentProductIds),
+        ...directCandidates.map((d: any) => d.productId),
+      ]);
+
+      const complementary = catalogProducts
+        .filter((p) => !addedIds.has(p.id))
+        .map((p) => {
+          const margin = p.basePrice > 0 ? ((p.basePrice - p.costPrice) / p.basePrice) * 100 : 0;
+          return {
+            productId: p.id,
+            name: p.name,
+            sku: p.sku,
+            category: p.category?.name || "Standard",
+            basePrice: p.basePrice,
+            costPrice: p.costPrice,
+            marginAmount: Math.round(p.basePrice - p.costPrice),
+            marginPercent: Math.round(margin),
+            score: p.isPromoted ? 4.5 : 3.5,
+            promotionalTag: p.sku === "ACC-DCK-01" ? "Promo: 12% off" : null,
+            isPromoted: p.isPromoted,
+          };
+        })
+        .filter((p) => p.marginPercent >= 15)
+        .sort((a: any, b: any) => b.score - a.score || b.marginPercent - a.marginPercent);
+
+      for (const comp of complementary) {
+        if (directCandidates.length >= 8) break;
+        directCandidates.push(comp);
+      }
+    }
+
+    return directCandidates.slice(0, 8);
+  }, [lines, catalogProducts, apiRecommendations]);
+
+  const handleAddUpsell = async (sug: any) => {
+    const prod = catalogProducts.find((p) => p.id === sug.productId);
+    if (!prod) return;
+
+    setActionError(null);
+    try {
+      setIsSaving(true);
+      const res = await fetch(`${apiUrl}/api/quotations/${quotation.id}/lines`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          productId: prod.id,
+          quantity: 1,
+          unitPrice: prod.basePrice,
+          discountPercent: 0,
+          description: prod.name,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || "Failed to add recommended product");
+      }
+
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      setActionError(err.message || "Failed to add recommended line item");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Calculate live risk & margins
   const customerTierCeiling = quotation?.customer?.tier?.discountCeiling ?? 100.0;
@@ -579,7 +698,7 @@ export function QuotationDetailView({
         title: "Customer Counter-Proposal",
         description:
           cp.customerNotes ||
-          `Requested discount: ${cp.proposedDiscountPercent || 0}%, target total: ₹${Number(
+          `Requested discount: ${cp.proposedDiscountPercent || 0}%, target total: ${currencySymbol}${Number(
             cp.proposedGrandTotal || 0
           ).toLocaleString()}`,
         actor: cp.respondedBy?.name || quotation.customer?.name || "Client",
@@ -773,10 +892,10 @@ export function QuotationDetailView({
             Net Contract Value
           </span>
           <div className="text-2xl font-black text-[#0066cc]">
-            ₹{liveRiskSummary.totalOrderValue.toLocaleString()}
+            {currencySymbol}{liveRiskSummary.totalOrderValue.toLocaleString()}
           </div>
           <div className="text-[11px] text-slate-500">
-            Gross Subtotal: ₹{liveRiskSummary.subtotal.toLocaleString()}
+            Gross Subtotal: {currencySymbol}{liveRiskSummary.subtotal.toLocaleString()}
           </div>
         </div>
 
@@ -786,7 +905,7 @@ export function QuotationDetailView({
             Total Discount
           </span>
           <div className="text-2xl font-black text-rose-600">
-            -₹{liveRiskSummary.discountTotal.toLocaleString()}
+            -{currencySymbol}{liveRiskSummary.discountTotal.toLocaleString()}
           </div>
           <div className="text-[11px] text-slate-500">
             Effective Discount: {liveRiskSummary.totalDiscountPercent.toFixed(1)}%
@@ -806,7 +925,7 @@ export function QuotationDetailView({
             {liveRiskSummary.grossMarginPercent}%
           </div>
           <div className="text-[11px] text-slate-500">
-            Margin Amount: ₹{liveRiskSummary.grossMargin.toLocaleString()}
+            Margin Amount: {currencySymbol}{liveRiskSummary.grossMargin.toLocaleString()}
           </div>
         </div>
 
@@ -892,7 +1011,7 @@ export function QuotationDetailView({
                       </span>
                     </div>
                     <p className="text-xs text-slate-600 leading-relaxed">
-                      Client requested <strong>{activeCounterProposal.proposedDiscountPercent}%</strong> discount tier (Target Total: <strong>₹{Number(activeCounterProposal.proposedGrandTotal || 0).toLocaleString()}</strong>).
+                      Client requested <strong>{activeCounterProposal.proposedDiscountPercent}%</strong> discount tier (Target Total: <strong>{currencySymbol}{Number(activeCounterProposal.proposedGrandTotal || 0).toLocaleString()}</strong>).
                       {activeCounterProposal.customerNotes && (
                         <span className="italic block text-slate-500 mt-0.5">
                           &ldquo;{activeCounterProposal.customerNotes}&rdquo;
@@ -943,7 +1062,7 @@ export function QuotationDetailView({
                     <option value="">+ Add Catalog Product...</option>
                     {catalogProducts.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name} (₹{p.basePrice})
+                        {p.name} ({currencySymbol}{p.basePrice})
                       </option>
                     ))}
                   </select>
@@ -1034,7 +1153,7 @@ export function QuotationDetailView({
                                 className="w-18 px-1 py-1 text-right font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
                               />
                             ) : (
-                              <span className="font-bold">₹{item.unitPrice.toLocaleString()}</span>
+                              <span className="font-bold">{currencySymbol}{item.unitPrice.toLocaleString()}</span>
                             )}
                           </td>
 
@@ -1077,7 +1196,7 @@ export function QuotationDetailView({
                           </td>
 
                           <td className="py-3.5 px-3 text-right font-bold text-slate-900">
-                            ₹{Math.round(netAmount).toLocaleString()}
+                            {currencySymbol}{Math.round(netAmount).toLocaleString()}
                           </td>
 
                           {isEditable && (
@@ -1100,6 +1219,73 @@ export function QuotationDetailView({
               </table>
             </div>
           </div>
+
+          {/* 3. Dedicated Upsell and Cross-Sell Suggestions (Wireframe 4) */}
+          {isEditable && upsellSuggestions.length > 0 && (
+            <div className="bg-slate-900 text-white rounded-2xl p-6 border border-slate-800 shadow-md space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center">
+                    <Sparkles size={16} />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-sky-400 tracking-tight">
+                      Upsell and Cross-Sell Suggestions
+                    </h2>
+                    <p className="text-[11px] text-slate-400">
+                      High-margin historical pairings dynamically matched with current proposal items.
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[11px] font-bold text-blue-300 bg-blue-950 border border-blue-800 px-2.5 py-1 rounded-full flex items-center gap-1">
+                  <Zap size={12} className="text-amber-400 fill-amber-400" />
+                  {upsellSuggestions.length} Suggestions
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
+                {upsellSuggestions.map((sug: any) => (
+                  <button
+                    type="button"
+                    key={sug.productId}
+                    disabled={isSaving}
+                    onClick={() => handleAddUpsell(sug)}
+                    className="bg-[#0b1120] hover:bg-[#131d33] p-4 rounded-2xl border border-slate-800 hover:border-blue-500 transition-all text-left flex flex-col justify-between gap-3 group cursor-pointer shadow-xs active:scale-98 disabled:opacity-50"
+                  >
+                    <div className="space-y-1.5">
+                      <div className="text-xs font-bold text-white group-hover:text-sky-400 transition-colors flex items-center gap-1">
+                        <span>+ {sug.name}</span>
+                      </div>
+                      {sug.promotionalTag ? (
+                        <div className="text-[11px] font-semibold text-amber-400">
+                          {sug.promotionalTag}
+                        </div>
+                      ) : (
+                        <div className="text-[11px] font-semibold text-slate-400">
+                          Margin +{currencySymbol}{sug.marginAmount.toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
+                      <div>
+                        <div className="text-xs font-extrabold text-white font-mono">
+                          {currencySymbol}{sug.basePrice.toLocaleString()}
+                        </div>
+                        <div className="text-[10px] text-emerald-400 font-semibold font-mono">
+                          {sug.marginPercent}% Margin
+                        </div>
+                      </div>
+                      <span className="px-3 py-1 rounded-xl bg-blue-600 group-hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition flex items-center gap-1">
+                        <Plus size={12} strokeWidth={2.5} />
+                        <span>Add</span>
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── RIGHT: IN-PAGE CLICKUP-STYLE DISCUSSION & TRAILS (5 cols) ── */}

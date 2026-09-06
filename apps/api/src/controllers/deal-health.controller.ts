@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { asyncHandler } from "../middleware/error.js";
 import type { TenantRequest } from "../middleware/tenant.js";
+import type { AuthRequest } from "../middleware/auth.middleware.js";
 import * as dealHealthService from "../services/deal-health.service.js";
 import * as jobService from "../services/job.service.js";
 
@@ -62,5 +63,18 @@ export const getJobStatus = asyncHandler(
       source: result.source,
       data: result.job,
     });
+  }
+);
+
+export const nudgeOrEscalate = asyncHandler(
+  async (req: TenantRequest & AuthRequest, res: Response) => {
+    const result = await dealHealthService.createNudgeAction(
+      req.params.quotationId!,
+      req.orgId!,
+      req.user!.id,
+      req.user!.role,
+      req.body
+    );
+    return res.json(result);
   }
 );

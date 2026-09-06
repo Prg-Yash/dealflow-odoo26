@@ -289,7 +289,7 @@ export async function deleteDiscountRule(organizationId: string, id: string) {
 // =============================================================================
 
 export async function listRecommendations(organizationId: string) {
-  return prisma.productRecommendation.findMany({
+  let recs = await prisma.productRecommendation.findMany({
     where: { organizationId },
     include: {
       sourceProduct: { select: { id: true, name: true, sku: true, basePrice: true, costPrice: true } },
@@ -297,6 +297,64 @@ export async function listRecommendations(organizationId: string) {
     },
     orderBy: { coPurchaseScore: "desc" },
   });
+
+  if (recs.length === 0) {
+    const products = await prisma.product.findMany({ where: { organizationId } });
+    const laptop = products.find((p) => p.sku === "HW-LP-14" || p.name.includes("Laptop"));
+    const mouse = products.find((p) => p.sku === "ACC-MSE-01" || p.name.includes("Mouse"));
+    const dock = products.find((p) => p.sku === "ACC-DCK-01" || p.name.includes("Docking"));
+    const care = products.find((p) => p.sku === "SUB-CARE-2Y" || p.name.includes("Care"));
+    const onsite = products.find((p) => p.sku === "SRV-ONST-01" || p.name.includes("Onsite") || p.name.includes("Deploy"));
+    const warranty = products.find((p) => p.sku === "SRV-WRNT-01" || p.name.includes("Warranty"));
+    const server = products.find((p) => p.sku.startsWith("HW-SRV") || p.name.includes("Server"));
+    const sla = products.find((p) => p.sku.startsWith("SRV-SLA") || p.name.includes("SLA"));
+
+    const defaultPairs = [
+      { src: laptop, tgt: mouse, score: 4.8, minMargin: 15, tag: null },
+      { src: laptop, tgt: dock, score: 4.9, minMargin: 15, tag: "Promo: 12% off" },
+      { src: laptop, tgt: care, score: 5.0, minMargin: 20, tag: null },
+      { src: laptop, tgt: onsite, score: 4.5, minMargin: 20, tag: "Popular Pairing" },
+      { src: laptop, tgt: warranty, score: 4.6, minMargin: 15, tag: "Extended Care" },
+      { src: server, tgt: sla, score: 5.0, minMargin: 25, tag: "Enterprise SLA" },
+      { src: server, tgt: onsite, score: 4.8, minMargin: 20, tag: "Fast Delivery" },
+    ].filter((p) => p.src && p.tgt);
+
+    for (const dp of defaultPairs) {
+      if (dp.src && dp.tgt) {
+        await prisma.productRecommendation.upsert({
+          where: {
+            id: `rec-${dp.src.id}-${dp.tgt.id}`.slice(0, 36),
+          },
+          update: {
+            coPurchaseScore: dp.score,
+            promotionalTag: dp.tag,
+            minMarginThreshold: dp.minMargin,
+            isActive: true,
+          },
+          create: {
+            organizationId,
+            sourceProductId: dp.src.id,
+            recommendedProductId: dp.tgt.id,
+            coPurchaseScore: dp.score,
+            promotionalTag: dp.tag,
+            minMarginThreshold: dp.minMargin,
+            isActive: true,
+          },
+        });
+      }
+    }
+
+    recs = await prisma.productRecommendation.findMany({
+      where: { organizationId },
+      include: {
+        sourceProduct: { select: { id: true, name: true, sku: true, basePrice: true, costPrice: true } },
+        recommendedProduct: { select: { id: true, name: true, sku: true, basePrice: true, costPrice: true } },
+      },
+      orderBy: { coPurchaseScore: "desc" },
+    });
+  }
+
+  return recs;
 }
 
 export async function createRecommendation(

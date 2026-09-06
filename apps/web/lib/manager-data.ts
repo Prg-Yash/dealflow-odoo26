@@ -399,6 +399,7 @@ export const INITIAL_MANAGER_APPROVALS: ManagerApprovalRequest[] = [
 export const INITIAL_DEAL_ANOMALIES: DealAnomalyRecord[] = [
   {
     id: "ANOM-01",
+    quotationId: "cmtolm9ei0012v5hc9c15985t",
     quoteId: "Q-1042",
     account: "Acme Corp Enterprise",
     accountInitials: "AC",
@@ -413,6 +414,7 @@ export const INITIAL_DEAL_ANOMALIES: DealAnomalyRecord[] = [
   },
   {
     id: "ANOM-02",
+    quotationId: "cmtolm9ei0012v5hc9c15985t",
     quoteId: "Q-1039",
     account: "Nova Retail Global",
     accountInitials: "NR",
@@ -427,6 +429,7 @@ export const INITIAL_DEAL_ANOMALIES: DealAnomalyRecord[] = [
   },
   {
     id: "ANOM-03",
+    quotationId: "cmtolm9ei0012v5hc9c15985t",
     quoteId: "Q-1044",
     account: "CloudScale Infra",
     accountInitials: "CS",
@@ -437,10 +440,11 @@ export const INITIAL_DEAL_ANOMALIES: DealAnomalyRecord[] = [
     anomalyType: "Stalled Deal",
     idleDays: 11,
     actionStatus: "flagged",
-    details: "Stalled in Negotiation for 11 days without client interaction",
+    details: "Inactive for 11 days (+4 days over 7d limit) — Stage: DRAFT",
   },
   {
     id: "ANOM-04",
+    quotationId: "cmtolm9ei0012v5hc9c15985t",
     quoteId: "Q-1035",
     account: "Zenith Co Network",
     accountInitials: "ZC",
