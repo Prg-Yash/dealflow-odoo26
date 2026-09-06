@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode, type ComponentType } from "react";
 import { BrandLogo } from "./brand-logo";
+import { OrgDropdown } from "./org-dropdown";
 import { Activity, Layers, Sliders, Warehouse, Boxes, BarChart3, CheckCircle2, FileText } from "lucide-react";
 import { ProfileModal } from "./profile-modal";
 
@@ -45,7 +46,6 @@ const ADMIN_TABS: AdminNavTabItem[] = [
   { id: "approvals", label: "Approvals", href: "/dashboard/admin/approvals", icon: CheckCircle2 },
   { id: "quotations", label: "Quotations", href: "/dashboard/admin/quotations", icon: FileText },
   { id: "warehouses", label: "Warehouses", href: "/dashboard/admin/warehouses", icon: Warehouse },
-  { id: "inventory", label: "Inventory", href: "/dashboard/admin/inventory", icon: Boxes },
   { id: "reports", label: "Reports", href: "/dashboard/admin/reports", icon: BarChart3 },
 ];
 
@@ -68,6 +68,9 @@ export function AdminNav({
     if (tab.id === "overview") {
       return currentPath === "/dashboard/admin" || currentPath === "/admin";
     }
+    if (tab.id === "warehouses") {
+      return currentPath.startsWith("/dashboard/admin/warehouses") || currentPath.startsWith("/dashboard/admin/inventory");
+    }
     return currentPath.startsWith(tab.href);
   };
 
@@ -75,9 +78,13 @@ export function AdminNav({
     <>
       <header className={`fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200 shadow-[0_2px_12px_rgba(0,0,0,0.03)] ${className}`}>
         <div className="h-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
-          {/* Left: Brand Monogram */}
+          {/* Left: Brand Monogram & Org Dropdown */}
           <div className="flex items-center gap-3 shrink-0">
             <BrandLogo href="/dashboard/admin" as={LinkComp} />
+            <div className="hidden sm:block h-4 w-px bg-slate-200 mx-1"></div>
+            <div className="hidden sm:block">
+              <OrgDropdown />
+            </div>
           </div>
 
           {/* Center: Admin Module Pill Navigation with Uniform Height and nowrap */}
@@ -125,6 +132,45 @@ export function AdminNav({
                 );
               }
 
+              if (tab.id === "warehouses") {
+                return (
+                  <div key={tab.id} className="relative group">
+                    <NavLink
+                      href={tab.href}
+                      linkComponent={LinkComp}
+                      className={`inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap tracking-tight transition-all shrink-0 ${
+                        isActive
+                          ? "bg-[#ff5e3a] text-white shadow-sm"
+                          : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
+                      }`}
+                    >
+                      <Icon size={14} className={isActive ? "text-white" : "text-slate-500"} />
+                      <span>{tab.label}</span>
+                    </NavLink>
+                    
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                      <div className="bg-white border border-slate-200 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.08)] p-1.5 flex flex-col min-w-[160px]">
+                        <NavLink
+                          href="/dashboard/admin/warehouses"
+                          linkComponent={LinkComp}
+                          className="px-3 py-2.5 text-xs font-bold text-slate-600 hover:text-[#ff5e3a] hover:bg-slate-50 rounded-lg whitespace-nowrap transition-colors flex items-center gap-2"
+                        >
+                          <Warehouse size={13} className="opacity-50" />
+                          All Warehouses
+                        </NavLink>
+                        <NavLink
+                          href="/dashboard/admin/inventory"
+                          linkComponent={LinkComp}
+                          className="px-3 py-2.5 text-xs font-bold text-slate-600 hover:text-[#ff5e3a] hover:bg-slate-50 rounded-lg whitespace-nowrap transition-colors flex items-center gap-2"
+                        >
+                          <Boxes size={13} className="opacity-50" />
+                          Inventory Tracker
+                        </NavLink>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
               return (
                 <NavLink
                   key={tab.id}

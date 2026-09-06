@@ -20,7 +20,13 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { useDashboardAuth } from "../../layout";
-import { BrandLogo, ProfileModal } from "@repo/ui";
+import {
+  BrandLogo,
+  StatCard,
+  NotificationModal,
+  ProfileModal,
+  OrgDropdown,
+} from "@repo/ui";
 import {
   type ManagerApprovalRequest,
   type DealAnomalyRecord,
@@ -551,8 +557,14 @@ export default function ManagerDashboardPage() {
       {/* Top Universal Header */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-xl border-b border-black/[0.06] shadow-xs">
         <div className="h-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-6">
-            <BrandLogo href="/dashboard/manager" subtitle="Sales Director Hub" />
+          <div className="flex items-center gap-6 shrink-0">
+            <div className="flex items-center gap-3">
+              <BrandLogo href="/dashboard/manager" subtitle="Sales Director Hub" />
+              <div className="hidden sm:block h-4 w-px bg-slate-200 mx-1"></div>
+              <div className="hidden sm:block">
+                <OrgDropdown />
+              </div>
+            </div>
 
             {/* Hub Primary Navigation Tabs with Uniform Height and Styling */}
             <nav className="hidden md:flex items-center gap-1 p-1 h-10 rounded-full bg-slate-100 border border-slate-200 shadow-2xs">
