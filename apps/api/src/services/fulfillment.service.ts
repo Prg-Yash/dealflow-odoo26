@@ -5,6 +5,8 @@ import {
   BackorderStatus,
   StockMovementType,
   QuoteStage,
+  CategoryType,
+  type Prisma,
 } from "@repo/db";
 import { AppError } from "../middleware/error.js";
 import { splitLine, type WarehouseCandidate } from "../lib/fulfillment-engine.js";
@@ -15,7 +17,840 @@ import type {
 } from "../schemas/fulfillment.schema.js";
 
 // =============================================================================
-// Fulfillment Order Creation & Preview
+// Helper ID / Number Generators
+// =============================================================================
+
+async function generateFulfillmentNumber(tx: Prisma.TransactionClient, orgId: string): Promise<string> {
+  const count = await tx.fulfillmentOrder.count({ where: { organizationId: orgId } });
+  const year = new Date().getFullYear();
+  let num = `FUL-${year}-${String(count + 1).padStart(4, "0")}`;
+  const existing = await tx.fulfillmentOrder.findFirst({
+    where: { fulfillmentNumber: num, organizationId: orgId },
+  });
+  if (existing) {
+    num = `FUL-${year}-${String(count + 1).padStart(4, "0")}-${Math.floor(1000 + Math.random() * 9000)}`;
+  }
+  return num;
+}
+
+// =============================================================================
+// Phase 1: The Auto-Split Allocation Engine
+// =============================================================================
+
+export interface AutoSplitInput {
+  quotationId?: string;
+  fulfillmentOrderId?: string;
+  notes?: string;
+}
+
+/**
+ * Phase 1: Waterfall Allocation Engine.
+ *
+ * Triggered when a Quotation moves to the CONFIRMED stage or invoked directly via API.
+ * 1. Processes QuotationLine items where itemType === "HARDWARE".
+ * 2. Queries active Warehouses and StockLevels.
+ * 3. Sorts candidate warehouses by:
+ *    a) Single-shipment 100% capacity capability.
+ *    b) Admin shippingCostWeight (ascending).
+ *    c) Available stock volume tie-breaker.
+ * 4. Creates parent FulfillmentOrder, Shipments, ShipmentLines, and reserves stock atomically.
+ * 5. Creates Backorder records for any remaining deficit.
+ */
+export async function autoSplitFulfillment(orgId: string, input: AutoSplitInput) {
+  let quotationId = input.quotationId;
+  let fulfillmentOrderId = input.fulfillmentOrderId;
+
+  if (!quotationId && !fulfillmentOrderId) {
+    throw new AppError(400, "BAD_REQUEST", "Either quotationId or fulfillmentOrderId must be provided.");
+  }
+
+  // Retrieve quotation and verify stage
+  let quotation = null;
+  if (quotationId) {
+    quotation = await prisma.quotation.findFirst({
+      where: { id: quotationId, organizationId: orgId },
+      include: {
+        customer: true,
+        lines: {
+          include: { product: true, variant: true },
+          orderBy: { sortOrder: "asc" },
+        },
+      },
+    });
+  } else if (fulfillmentOrderId) {
+    const fo = await prisma.fulfillmentOrder.findFirst({
+      where: { id: fulfillmentOrderId, organizationId: orgId },
+      include: {
+        quotation: {
+          include: {
+            customer: true,
+            lines: {
+              include: { product: true, variant: true },
+              orderBy: { sortOrder: "asc" },
+            },
+          },
+        },
+      },
+    });
+    if (fo) {
+      quotation = fo.quotation;
+      quotationId = fo.quotationId;
+    }
+  }
+
+  if (!quotation) {
+    throw new AppError(404, "NOT_FOUND", "Quotation not found.");
+  }
+
+  if (
+    quotation.stage !== QuoteStage.CONFIRMED &&
+    quotation.stage !== QuoteStage.APPROVED
+  ) {
+    throw new AppError(
+      400,
+      "INVALID_STAGE",
+      `Auto-split allocation can only be executed for CONFIRMED or APPROVED quotations (current stage: ${quotation.stage}).`
+    );
+  }
+
+  // Filter ONLY physical hardware lines for warehouse fulfillment
+  const hardwareLines = quotation.lines.filter(
+    (l) => l.itemType === CategoryType.HARDWARE
+  );
+
+  if (hardwareLines.length === 0) {
+    throw new AppError(
+      400,
+      "NO_PHYSICAL_GOODS",
+      "Quotation has no physical hardware lines requiring warehouse fulfillment."
+    );
+  }
+
+  // Retrieve active warehouses
+  const warehouses = await prisma.warehouse.findMany({
+    where: { organizationId: orgId, isActive: true },
+    orderBy: { shippingCostWeight: "asc" },
+  });
+
+  if (warehouses.length === 0) {
+    throw new AppError(400, "NO_ACTIVE_WAREHOUSES", "No active warehouses found for this organization.");
+  }
+
+  const warehouseCandidates: WarehouseCandidate[] = warehouses.map((w) => ({
+    id: w.id,
+    name: w.name,
+    code: w.code,
+    shippingCostWeight: w.shippingCostWeight ?? 1.0,
+  }));
+
+  const productIds = hardwareLines.map((l) => l.productId);
+  const stockLevels = await prisma.stockLevel.findMany({
+    where: {
+      warehouseId: { in: warehouses.map((w) => w.id) },
+      productId: { in: productIds },
+    },
+  });
+
+  // Build stock lookup map: productId -> (warehouseId -> unreserved available quantity)
+  const stockByProductAndWarehouse = new Map<string, Record<string, number>>();
+  for (const sl of stockLevels) {
+    if (!stockByProductAndWarehouse.has(sl.productId)) {
+      stockByProductAndWarehouse.set(sl.productId, {});
+    }
+    const available = Math.max(0, sl.quantityOnHand - sl.quantityReserved);
+    stockByProductAndWarehouse.get(sl.productId)![sl.warehouseId] = available;
+  }
+
+  const year = new Date().getFullYear();
+
+  return prisma.$transaction(async (tx) => {
+    // 1. Get or create parent FulfillmentOrder
+    let parentFulfillmentOrder = await tx.fulfillmentOrder.findFirst({
+      where: { quotationId: quotation.id, organizationId: orgId },
+      include: { shipments: true, backorders: true },
+    });
+
+    if (!parentFulfillmentOrder) {
+      const fulfillmentNumber = await generateFulfillmentNumber(tx, orgId);
+      const shippingAddress =
+        quotation.customer.shippingAddress ||
+        quotation.customer.billingAddress ||
+        "Default Customer Delivery Address";
+
+      parentFulfillmentOrder = await tx.fulfillmentOrder.create({
+        data: {
+          fulfillmentNumber,
+          quotationId: quotation.id,
+          organizationId: orgId,
+          status: FulfillmentStatus.PENDING,
+          shippingAddress,
+          notes: input.notes || `Waterfall auto-split created for confirmed quotation ${quotation.quoteNumber}`,
+        },
+        include: { shipments: true, backorders: true },
+      });
+    }
+
+    // Map of warehouseId -> Shipment data accumulator
+    const warehouseShipmentMap = new Map<
+      string,
+      {
+        warehouseId: string;
+        warehouseName: string;
+        shippingCostWeight: number;
+        lines: Array<{
+          quotationLineId: string;
+          productId: string;
+          variantId: string | null;
+          productName: string;
+          sku: string;
+          quantity: number;
+        }>;
+        totalEstimatedCost: number;
+      }
+    >();
+
+    const backorderRecords: Array<{
+      quotationLineId: string;
+      productId: string;
+      variantId: string | null;
+      productName: string;
+      sku: string;
+      quantityBackordered: number;
+    }> = [];
+
+    const lineAllocationSummary = [];
+
+    // 2. Execute Waterfall Allocation for each Hardware line
+    for (const line of hardwareLines) {
+      const productStock = stockByProductAndWarehouse.get(line.productId) || {};
+      const splitResult = splitLine(line.quantity, warehouseCandidates, productStock);
+
+      lineAllocationSummary.push({
+        quotationLineId: line.id,
+        productId: line.productId,
+        productName: line.product.name,
+        sku: line.product.sku,
+        demandedQuantity: line.quantity,
+        allocatedQuantity: splitResult.allocatedQuantity,
+        backorderQuantity: splitResult.backorderQuantity,
+        allocations: splitResult.allocations,
+      });
+
+      for (const alloc of splitResult.allocations) {
+        if (alloc.quantity <= 0) continue;
+
+        if (!warehouseShipmentMap.has(alloc.warehouseId)) {
+          const wh = warehouses.find((w) => w.id === alloc.warehouseId)!;
+          warehouseShipmentMap.set(alloc.warehouseId, {
+            warehouseId: wh.id,
+            warehouseName: wh.name,
+            shippingCostWeight: wh.shippingCostWeight ?? 1.0,
+            lines: [],
+            totalEstimatedCost: 0,
+          });
+        }
+
+        const shipmentData = warehouseShipmentMap.get(alloc.warehouseId)!;
+        shipmentData.lines.push({
+          quotationLineId: line.id,
+          productId: line.productId,
+          variantId: line.variantId,
+          productName: line.product.name,
+          sku: line.product.sku,
+          quantity: alloc.quantity,
+        });
+        shipmentData.totalEstimatedCost += alloc.shippingCostContribution;
+
+        // Deduct from in-memory pool for consecutive lines
+        productStock[alloc.warehouseId] = Math.max(
+          0,
+          (productStock[alloc.warehouseId] ?? 0) - alloc.quantity
+        );
+      }
+
+      // Deficit Handling: Create backorder records for shortage
+      if (splitResult.backorderQuantity > 0) {
+        backorderRecords.push({
+          quotationLineId: line.id,
+          productId: line.productId,
+          variantId: line.variantId,
+          productName: line.product.name,
+          sku: line.product.sku,
+          quantityBackordered: splitResult.backorderQuantity,
+        });
+      }
+    }
+
+    // 3. Persist Shipments, ShipmentLines, and Stock Reservations
+    let shipmentLetterCode = 65; // 'A'
+    const createdShipments = [];
+
+    for (const shipData of warehouseShipmentMap.values()) {
+      const suffix = String.fromCharCode(shipmentLetterCode++);
+      const shipmentNumber = `SHP-${year}-${parentFulfillmentOrder.fulfillmentNumber.replace("FUL-", "")}-${suffix}`;
+
+      const shipment = await tx.shipment.create({
+        data: {
+          shipmentNumber,
+          fulfillmentOrderId: parentFulfillmentOrder.id,
+          warehouseId: shipData.warehouseId,
+          shippingCost: Math.round(shipData.totalEstimatedCost * 100) / 100,
+          status: ShipmentStatus.PENDING,
+        },
+      });
+
+      for (const line of shipData.lines) {
+        await tx.shipmentLine.create({
+          data: {
+            shipmentId: shipment.id,
+            quotationLineId: line.quotationLineId,
+            productId: line.productId,
+            variantId: line.variantId,
+            quantity: line.quantity,
+          },
+        });
+
+        // Reserve stock in the originating warehouse
+        await adjustStock({
+          organizationId: orgId,
+          warehouseId: shipData.warehouseId,
+          productId: line.productId,
+          variantId: line.variantId ?? undefined,
+          reservedDelta: line.quantity,
+          movementType: StockMovementType.ORDER_RESERVED,
+          referenceId: shipment.shipmentNumber,
+          notes: `Stock reserved for shipment ${shipment.shipmentNumber}`,
+          tx,
+        });
+      }
+
+      createdShipments.push(shipment);
+    }
+
+    // 4. Persist Backorder Records for any remaining deficit
+    const createdBackorders = [];
+    for (const bo of backorderRecords) {
+      const backorder = await tx.backorder.create({
+        data: {
+          fulfillmentOrderId: parentFulfillmentOrder.id,
+          quotationLineId: bo.quotationLineId,
+          productId: bo.productId,
+          variantId: bo.variantId,
+          quantityBackordered: bo.quantityBackordered,
+          status: BackorderStatus.PENDING_REPLENISHMENT,
+          notes: `Deficit remainder for ${bo.productName} (SKU: ${bo.sku})`,
+        },
+      });
+      createdBackorders.push(backorder);
+    }
+
+    // 5. Update FulfillmentOrder status
+    const finalStatus =
+      createdBackorders.length > 0
+        ? FulfillmentStatus.PARTIALLY_FULFILLED
+        : FulfillmentStatus.PENDING;
+
+    const updatedFulfillmentOrder = await tx.fulfillmentOrder.update({
+      where: { id: parentFulfillmentOrder.id },
+      data: { status: finalStatus },
+      include: {
+        shipments: {
+          include: {
+            warehouse: true,
+            lines: { include: { product: true } },
+          },
+        },
+        backorders: {
+          include: { product: true },
+        },
+      },
+    });
+
+    return {
+      message: "Waterfall allocation completed successfully.",
+      fulfillmentOrder: updatedFulfillmentOrder,
+      allocationsSummary: lineAllocationSummary,
+      shipmentsCount: createdShipments.length,
+      backordersCount: createdBackorders.length,
+    };
+  });
+}
+
+// =============================================================================
+// Phase 2: Supply Chain Edge Cases & Overrides
+// =============================================================================
+
+export interface ManualOverrideInput {
+  shipmentLineId: string;
+  targetWarehouseId?: string;
+  requestedQuantity: number;
+  notes?: string;
+}
+
+/**
+ * Phase 2: Manual ShipmentLine Override.
+ *
+ * Allows Finance or Operations to manually reassign a shipment line to a different warehouse
+ * or adjust its allocated quantity.
+ *
+ * Strict Validation:
+ * Validates that available unreserved stock in target warehouse satisfies:
+ * quantityOnHand - quantityReserved >= requestedQuantity
+ * Returns 400 Bad Request if stock is insufficient.
+ */
+export async function manualOverrideShipmentLine(orgId: string, input: ManualOverrideInput) {
+  const { shipmentLineId, targetWarehouseId, requestedQuantity, notes } = input;
+
+  if (requestedQuantity <= 0) {
+    throw new AppError(400, "INVALID_QUANTITY", "Requested quantity must be greater than 0.");
+  }
+
+  // 1. Fetch current ShipmentLine or QuotationLine
+  const shipmentLine = await prisma.shipmentLine.findFirst({
+    where: { id: shipmentLineId },
+    include: {
+      shipment: {
+        include: {
+          fulfillmentOrder: true,
+          warehouse: true,
+        },
+      },
+      product: true,
+      quotationLine: true,
+    },
+  });
+
+  if (!shipmentLine) {
+    // Check if ID matches a QuotationLine (pre-allocation override)
+    const quotationLine = await prisma.quotationLine.findFirst({
+      where: { id: shipmentLineId },
+      include: {
+        quotation: { include: { customer: true } },
+        product: true,
+      },
+    });
+
+    if (!quotationLine || quotationLine.quotation.organizationId !== orgId) {
+      throw new AppError(404, "NOT_FOUND", "Shipment line or Quotation line not found.");
+    }
+
+    const targetWh =
+      (targetWarehouseId
+        ? await prisma.warehouse.findFirst({
+            where: { id: targetWarehouseId, organizationId: orgId, isActive: true },
+          })
+        : null) ||
+      (await prisma.warehouse.findFirst({
+        where: { organizationId: orgId, isActive: true },
+        orderBy: { shippingCostWeight: "asc" },
+      }));
+
+    if (!targetWh) {
+      throw new AppError(404, "WAREHOUSE_NOT_FOUND", "Target warehouse not found or is inactive.");
+    }
+
+    // Validate stock
+    const targetStock = await prisma.stockLevel.findFirst({
+      where: { warehouseId: targetWh.id, productId: quotationLine.productId },
+    });
+
+    const qtyOnHand = targetStock?.quantityOnHand ?? 0;
+    const qtyReserved = targetStock?.quantityReserved ?? 0;
+    const available = qtyOnHand - qtyReserved;
+
+    if (available < requestedQuantity) {
+      throw new AppError(
+        400,
+        "INSUFFICIENT_STOCK",
+        `Stock validation failed for warehouse "${targetWh.name}": Available unreserved quantity is ${available} (${qtyOnHand} on hand, ${qtyReserved} reserved), but ${requestedQuantity} was requested.`
+      );
+    }
+
+    const year = new Date().getFullYear();
+
+    return prisma.$transaction(async (tx) => {
+      // Find or create FulfillmentOrder
+      let fo = await tx.fulfillmentOrder.findFirst({
+        where: { quotationId: quotationLine.quotationId, organizationId: orgId },
+      });
+
+      if (!fo) {
+        const count = await tx.fulfillmentOrder.count({ where: { organizationId: orgId } });
+        fo = await tx.fulfillmentOrder.create({
+          data: {
+            fulfillmentNumber: `FUL-${year}-${String(count + 1).padStart(4, "0")}`,
+            quotationId: quotationLine.quotationId,
+            organizationId: orgId,
+            status: "PENDING",
+            shippingAddress: quotationLine.quotation.customer?.shippingAddress || "Default Delivery Address",
+            notes: notes || "Manual initial allocation",
+          },
+        });
+      }
+
+      // Reserve stock in target warehouse
+      await adjustStock({
+        organizationId: orgId,
+        warehouseId: targetWh.id,
+        productId: quotationLine.productId,
+        reservedDelta: requestedQuantity,
+        movementType: StockMovementType.ORDER_RESERVED,
+        referenceId: fo.fulfillmentNumber,
+        notes: `Manual allocation: ${notes || "Allocated via finance override"}`,
+        tx,
+      });
+
+      // Find or create shipment for target warehouse
+      let shipment = await tx.shipment.findFirst({
+        where: { fulfillmentOrderId: fo.id, warehouseId: targetWh.id, status: ShipmentStatus.PENDING },
+      });
+
+      if (!shipment) {
+        const count = await tx.shipment.count({ where: { fulfillmentOrderId: fo.id } });
+        const suffix = String.fromCharCode(65 + count);
+        shipment = await tx.shipment.create({
+          data: {
+            shipmentNumber: `SHP-${year}-${fo.fulfillmentNumber.replace("FUL-", "")}-${suffix}`,
+            fulfillmentOrderId: fo.id,
+            warehouseId: targetWh.id,
+            status: ShipmentStatus.PENDING,
+            shippingCost: targetWh.shippingCostWeight * requestedQuantity,
+          },
+        });
+      }
+
+      // Create or update ShipmentLine
+      let sLine = await tx.shipmentLine.findFirst({
+        where: { shipmentId: shipment.id, productId: quotationLine.productId },
+      });
+
+      if (sLine) {
+        sLine = await tx.shipmentLine.update({
+          where: { id: sLine.id },
+          data: { quantity: sLine.quantity + requestedQuantity },
+          include: {
+            shipment: { include: { warehouse: true, lines: { include: { product: true } } } },
+            product: true,
+          },
+        });
+      } else {
+        sLine = await tx.shipmentLine.create({
+          data: {
+            shipmentId: shipment.id,
+            quotationLineId: quotationLine.id,
+            productId: quotationLine.productId,
+            quantity: requestedQuantity,
+          },
+          include: {
+            shipment: { include: { warehouse: true, lines: { include: { product: true } } } },
+            product: true,
+          },
+        });
+      }
+
+      return {
+        message: "Shipment line allocated successfully.",
+        line: sLine,
+        validation: {
+          warehouse: targetWh.name,
+          requestedQuantity,
+          previousQuantity: 0,
+          remainingAvailableStock: available - requestedQuantity,
+        },
+      };
+    });
+  }
+
+  if (shipmentLine.shipment.fulfillmentOrder.organizationId !== orgId) {
+    throw new AppError(404, "NOT_FOUND", "Shipment line not found.");
+  }
+
+  if (
+    shipmentLine.shipment.status === ShipmentStatus.SHIPPED ||
+    shipmentLine.shipment.status === ShipmentStatus.DELIVERED
+  ) {
+    throw new AppError(
+      400,
+      "INVALID_SHIPMENT_STATUS",
+      `Cannot override line on a shipment that is already ${shipmentLine.shipment.status}.`
+    );
+  }
+
+  const currentWarehouseId = shipmentLine.shipment.warehouseId;
+  const effectiveTargetWarehouseId = targetWarehouseId || currentWarehouseId;
+  const isWarehouseChanged = effectiveTargetWarehouseId !== currentWarehouseId;
+
+  // 2. Fetch target warehouse and verify it belongs to organization
+  const targetWarehouse = await prisma.warehouse.findFirst({
+    where: { id: effectiveTargetWarehouseId, organizationId: orgId, isActive: true },
+  });
+
+  if (!targetWarehouse) {
+    throw new AppError(404, "WAREHOUSE_NOT_FOUND", "Target warehouse not found or is inactive.");
+  }
+
+  // 3. Strict Stock Level Validation
+  const targetStockLevel = await prisma.stockLevel.findFirst({
+    where: {
+      warehouseId: effectiveTargetWarehouseId,
+      productId: shipmentLine.productId,
+      variantId: shipmentLine.variantId || null,
+    },
+  });
+
+  const quantityOnHand = targetStockLevel?.quantityOnHand ?? 0;
+  const quantityReserved = targetStockLevel?.quantityReserved ?? 0;
+
+  // If same warehouse, account for the quantity already held by this line
+  const effectiveAvailable = isWarehouseChanged
+    ? quantityOnHand - quantityReserved
+    : quantityOnHand - quantityReserved + shipmentLine.quantity;
+
+  if (effectiveAvailable < requestedQuantity) {
+    throw new AppError(
+      400,
+      "INSUFFICIENT_STOCK",
+      `Stock validation failed for warehouse "${targetWarehouse.name}": Available unreserved quantity is ${effectiveAvailable} (${quantityOnHand} on hand, ${quantityReserved} reserved), but ${requestedQuantity} was requested.`
+    );
+  }
+
+  const year = new Date().getFullYear();
+
+  return prisma.$transaction(async (tx) => {
+    // 4. Release old reservation
+    await adjustStock({
+      organizationId: orgId,
+      warehouseId: currentWarehouseId,
+      productId: shipmentLine.productId,
+      variantId: shipmentLine.variantId ?? undefined,
+      reservedDelta: -shipmentLine.quantity,
+      movementType: StockMovementType.ADJUSTMENT,
+      referenceId: shipmentLine.shipment.shipmentNumber,
+      notes: `Manual override release: ${notes || "Reallocating shipment line"}`,
+      tx,
+    });
+
+    // 5. Apply new reservation on target warehouse
+    await adjustStock({
+      organizationId: orgId,
+      warehouseId: effectiveTargetWarehouseId,
+      productId: shipmentLine.productId,
+      variantId: shipmentLine.variantId ?? undefined,
+      reservedDelta: requestedQuantity,
+      movementType: StockMovementType.ORDER_RESERVED,
+      referenceId: shipmentLine.shipment.shipmentNumber,
+      notes: `Manual override allocation: ${notes || "Assigned via manual override"}`,
+      tx,
+    });
+
+    let targetShipmentId = shipmentLine.shipmentId;
+
+    // 6. If warehouse changed, move line to target warehouse shipment
+    if (isWarehouseChanged) {
+      let targetShipment = await tx.shipment.findFirst({
+        where: {
+          fulfillmentOrderId: shipmentLine.shipment.fulfillmentOrderId,
+          warehouseId: effectiveTargetWarehouseId,
+          status: ShipmentStatus.PENDING,
+        },
+      });
+
+      if (!targetShipment) {
+        const shipmentCount = await tx.shipment.count({
+          where: { fulfillmentOrderId: shipmentLine.shipment.fulfillmentOrderId },
+        });
+        const suffix = String.fromCharCode(65 + shipmentCount);
+        const shipmentNumber = `SHP-${year}-${shipmentLine.shipment.fulfillmentOrder.fulfillmentNumber.replace("FUL-", "")}-${suffix}`;
+
+        targetShipment = await tx.shipment.create({
+          data: {
+            shipmentNumber,
+            fulfillmentOrderId: shipmentLine.shipment.fulfillmentOrderId,
+            warehouseId: effectiveTargetWarehouseId,
+            shippingCost: targetWarehouse.shippingCostWeight * requestedQuantity,
+            status: ShipmentStatus.PENDING,
+          },
+        });
+      }
+
+      targetShipmentId = targetShipment.id;
+    }
+
+    // 7. Update ShipmentLine
+    const updatedLine = await tx.shipmentLine.update({
+      where: { id: shipmentLineId },
+      data: {
+        shipmentId: targetShipmentId,
+        quantity: requestedQuantity,
+      },
+      include: {
+        shipment: {
+          include: {
+            warehouse: true,
+            lines: { include: { product: true } },
+          },
+        },
+        product: true,
+      },
+    });
+
+    // Clean up empty source shipment if all lines were moved
+    if (isWarehouseChanged) {
+      const remainingLines = await tx.shipmentLine.count({
+        where: { shipmentId: shipmentLine.shipmentId },
+      });
+      if (remainingLines === 0) {
+        await tx.shipment.delete({ where: { id: shipmentLine.shipmentId } });
+      }
+    }
+
+    return {
+      message: "Shipment line overridden successfully.",
+      line: updatedLine,
+      validation: {
+        warehouse: targetWarehouse.name,
+        requestedQuantity,
+        previousQuantity: shipmentLine.quantity,
+        remainingAvailableStock: effectiveAvailable - requestedQuantity,
+      },
+    };
+  });
+}
+
+// =============================================================================
+// Phase 2: Mid-Fulfillment Restock Webhook & Backorder Consolidate Prompt
+// =============================================================================
+
+export interface RestockWebhookInput {
+  warehouseId: string;
+  productId: string;
+  variantId?: string;
+  quantityReceived: number;
+  referenceNumber?: string;
+  notes?: string;
+}
+
+/**
+ * Phase 2: Inventory Restock Webhook.
+ *
+ * Records new stock received in StockMovement and updates StockLevel.quantityOnHand.
+ * Queries active Backorder records for that productId.
+ * If stock is now available, returns a consolidation payload designed to trigger
+ * a "Consolidate Remaining Backorder" prompt automatically on the frontend.
+ */
+export async function processRestockWebhook(orgId: string, input: RestockWebhookInput) {
+  const { warehouseId, productId, variantId, quantityReceived, referenceNumber, notes } = input;
+
+  if (quantityReceived <= 0) {
+    throw new AppError(400, "INVALID_QUANTITY", "Received restock quantity must be greater than 0.");
+  }
+
+  const warehouse = await prisma.warehouse.findFirst({
+    where: { id: warehouseId, organizationId: orgId },
+  });
+
+  if (!warehouse) {
+    throw new AppError(404, "WAREHOUSE_NOT_FOUND", "Warehouse not found.");
+  }
+
+  const product = await prisma.product.findFirst({
+    where: { id: productId, organizationId: orgId },
+  });
+
+  if (!product) {
+    throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    // 1. Record physical stock receipt in ledger & stock level
+    const adjustedResult = await adjustStock({
+      organizationId: orgId,
+      warehouseId,
+      productId,
+      variantId,
+      quantityDelta: quantityReceived,
+      movementType: StockMovementType.PURCHASE_RECEIPT,
+      referenceId: referenceNumber || `RESTOCK-${Date.now()}`,
+      notes: notes || `Restock shipment receipt of ${quantityReceived} units for ${product.name}`,
+      tx,
+    });
+    const updatedStockLevel = adjustedResult.stockLevel;
+
+    // 2. Query all active backorders for this product across the tenant (FIFO by creation date)
+    const activeBackorders = await tx.backorder.findMany({
+      where: {
+        productId,
+        ...(variantId && { variantId }),
+        status: BackorderStatus.PENDING_REPLENISHMENT,
+        fulfillmentOrder: { organizationId: orgId },
+      },
+      include: {
+        fulfillmentOrder: {
+          include: { quotation: { include: { customer: true } } },
+        },
+        product: true,
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const unreservedAvailable = Math.max(
+      0,
+      updatedStockLevel.quantityOnHand - updatedStockLevel.quantityReserved
+    );
+
+    // 3. Compute recommended consolidation allocations
+    let remainingPool = unreservedAvailable;
+    const recommendedConsolidations = [];
+
+    for (const bo of activeBackorders) {
+      if (remainingPool <= 0) break;
+      const allocatable = Math.min(remainingPool, bo.quantityBackordered);
+      if (allocatable > 0) {
+        recommendedConsolidations.push({
+          backorderId: bo.id,
+          fulfillmentOrderId: bo.fulfillmentOrderId,
+          fulfillmentNumber: bo.fulfillmentOrder.fulfillmentNumber,
+          quoteNumber: bo.fulfillmentOrder.quotation.quoteNumber,
+          customerName: bo.fulfillmentOrder.quotation.customer.name,
+          quantityBackordered: bo.quantityBackordered,
+          quantityEligibleToFulfill: allocatable,
+          fullySatisfied: allocatable === bo.quantityBackordered,
+        });
+        remainingPool -= allocatable;
+      }
+    }
+
+    const canConsolidate = recommendedConsolidations.length > 0;
+
+    return {
+      message: `Restock of ${quantityReceived} units for "${product.name}" recorded successfully.`,
+      restock: {
+        warehouseId: warehouse.id,
+        warehouseName: warehouse.name,
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        quantityReceived,
+        newQuantityOnHand: updatedStockLevel.quantityOnHand,
+        newQuantityReserved: updatedStockLevel.quantityReserved,
+        availableUnreservedStock: unreservedAvailable,
+      },
+      // Frontend Prompt / Webhook Dispatch Payload
+      consolidationTrigger: {
+        canConsolidate,
+        activeBackordersCount: activeBackorders.length,
+        eligibleBackordersCount: recommendedConsolidations.length,
+        promptMessage: canConsolidate
+          ? `Inventory restocked for ${product.name}. ${recommendedConsolidations.length} active backorder(s) are eligible for immediate consolidation.`
+          : `Inventory restocked for ${product.name}. No backorders currently waiting.`,
+        recommendedConsolidations,
+      },
+    };
+  });
+}
+
+// =============================================================================
+// Fulfillment Order Listing & Detail Querying
 // =============================================================================
 
 export async function createFulfillmentOrder(
@@ -23,73 +858,14 @@ export async function createFulfillmentOrder(
   quotationId: string,
   input?: CreateFulfillmentOrderInput
 ) {
-  const quotation = await prisma.quotation.findFirst({
-    where: { id: quotationId, organizationId: orgId },
-    include: {
-      customer: true,
-      lines: {
-        include: { product: true },
-      },
-    },
+  return autoSplitFulfillment(orgId, {
+    quotationId,
+    notes: input?.notes,
   });
+}
 
-  if (!quotation) {
-    throw new AppError(404, "NOT_FOUND", "Quotation not found.");
-  }
-
-  if (
-    quotation.stage !== QuoteStage.APPROVED &&
-    quotation.stage !== QuoteStage.CONFIRMED
-  ) {
-    throw new AppError(
-      400,
-      "INVALID_STAGE",
-      `Fulfillment orders can only be created for APPROVED or CONFIRMED quotations (current stage: ${quotation.stage}).`
-    );
-  }
-
-  // Idempotency: return existing fulfillment order if already created
-  const existing = await prisma.fulfillmentOrder.findFirst({
-    where: { quotationId, organizationId: orgId },
-    include: {
-      shipments: { include: { lines: true } },
-      backorders: true,
-    },
-  });
-  if (existing) return existing;
-
-  const count = await prisma.fulfillmentOrder.count();
-  const year = new Date().getFullYear();
-  let fulfillmentNumber = `FUL-${year}-${String(count + 1).padStart(4, "0")}`;
-  const existingNum = await prisma.fulfillmentOrder.findFirst({
-    where: { fulfillmentNumber, organizationId: orgId },
-  });
-  if (existingNum) {
-    fulfillmentNumber = `FUL-${year}-${String(count + 1).padStart(4, "0")}-${Math.floor(1000 + Math.random() * 9000)}`;
-  }
-
-  const shippingAddress =
-    input?.shippingAddress || quotation.customer.shippingAddress || null;
-
-  return prisma.fulfillmentOrder.create({
-    data: {
-      fulfillmentNumber,
-      quotationId: quotation.id,
-      organizationId: orgId,
-      status: FulfillmentStatus.PENDING,
-      shippingAddress,
-      notes: input?.notes,
-    },
-    include: {
-      quotation: {
-        include: {
-          lines: { include: { product: true } },
-        },
-      },
-      shipments: true,
-      backorders: true,
-    },
-  });
+export async function acceptSplit(orgId: string, fulfillmentOrderId: string) {
+  return autoSplitFulfillment(orgId, { fulfillmentOrderId });
 }
 
 export async function listFulfillmentOrders(
@@ -105,17 +881,27 @@ export async function listFulfillmentOrders(
     orderBy: { createdAt: "desc" },
     include: {
       quotation: {
-        select: { id: true, quoteNumber: true, title: true, stage: true },
+        include: { customer: true },
       },
-      shipments: true,
-      backorders: true,
+      shipments: {
+        include: {
+          warehouse: true,
+          lines: { include: { product: true } },
+        },
+      },
+      backorders: {
+        include: { product: true },
+      },
     },
   });
 }
 
 export async function getFulfillmentOrderById(orgId: string, id: string) {
-  const order = await prisma.fulfillmentOrder.findFirst({
-    where: { id, organizationId: orgId },
+  let order = await prisma.fulfillmentOrder.findFirst({
+    where: {
+      OR: [{ id }, { quotationId: id }],
+      organizationId: orgId,
+    },
     include: {
       quotation: {
         include: {
@@ -136,13 +922,39 @@ export async function getFulfillmentOrderById(orgId: string, id: string) {
   });
 
   if (!order) {
-    throw new AppError(404, "NOT_FOUND", "Fulfillment order not found.");
+    const quotation = await prisma.quotation.findFirst({
+      where: { id, organizationId: orgId },
+      include: {
+        customer: true,
+        lines: { include: { product: true, variant: true } },
+      },
+    });
+
+    if (!quotation) {
+      throw new AppError(404, "NOT_FOUND", "Fulfillment order or quotation not found.");
+    }
+
+    return {
+      id: `pending-${quotation.id}`,
+      fulfillmentNumber: `FUL-PENDING-${quotation.quoteNumber}`,
+      quotationId: quotation.id,
+      organizationId: orgId,
+      status: FulfillmentStatus.PENDING,
+      shippingAddress: quotation.customer?.shippingAddress || quotation.customer?.billingAddress || "Default Delivery Address",
+      notes: "Pending initial warehouse auto-split allocation",
+      quotation,
+      shipments: [],
+      backorders: [],
+      createdAt: quotation.createdAt,
+      updatedAt: quotation.updatedAt,
+    };
   }
+
   return order;
 }
 
 // =============================================================================
-// Greedy Split Preview Engine
+// Split Preview Engine
 // =============================================================================
 
 export async function previewSplit(orgId: string, fulfillmentOrderId: string) {
@@ -157,10 +969,14 @@ export async function previewSplit(orgId: string, fulfillmentOrderId: string) {
     id: w.id,
     name: w.name,
     code: w.code,
-    shippingCostWeight: w.shippingCostWeight,
+    shippingCostWeight: w.shippingCostWeight ?? 1.0,
   }));
 
-  const productIds = fulfillmentOrder.quotation.lines.map((l) => l.productId);
+  const hardwareLines = fulfillmentOrder.quotation.lines.filter(
+    (l) => l.itemType === CategoryType.HARDWARE
+  );
+
+  const productIds = hardwareLines.map((l) => l.productId);
   const stockLevels = await prisma.stockLevel.findMany({
     where: {
       warehouseId: { in: warehouses.map((w) => w.id) },
@@ -168,7 +984,6 @@ export async function previewSplit(orgId: string, fulfillmentOrderId: string) {
     },
   });
 
-  // Map of warehouseId -> available quantity per product
   const stockByProductAndWarehouse = new Map<string, Record<string, number>>();
   for (const sl of stockLevels) {
     if (!stockByProductAndWarehouse.has(sl.productId)) {
@@ -205,7 +1020,7 @@ export async function previewSplit(orgId: string, fulfillmentOrderId: string) {
 
   const lineResults = [];
 
-  for (const line of fulfillmentOrder.quotation.lines) {
+  for (const line of hardwareLines) {
     const productStock = stockByProductAndWarehouse.get(line.productId) || {};
     const split = splitLine(line.quantity, warehouseCandidates, productStock);
 
@@ -228,7 +1043,7 @@ export async function previewSplit(orgId: string, fulfillmentOrderId: string) {
         warehouseShipmentMap.set(alloc.warehouseId, {
           warehouseId: wh.id,
           warehouseName: wh.name,
-          shippingCostWeight: wh.shippingCostWeight,
+          shippingCostWeight: wh.shippingCostWeight ?? 1.0,
           lines: [],
           estimatedCost: 0,
         });
@@ -244,7 +1059,6 @@ export async function previewSplit(orgId: string, fulfillmentOrderId: string) {
       });
       shipmentPreview.estimatedCost += alloc.shippingCostContribution;
 
-      // Deduct from in-memory pool so subsequent lines evaluate remaining capacity
       productStock[alloc.warehouseId] = Math.max(
         0,
         (productStock[alloc.warehouseId] ?? 0) - alloc.quantity
@@ -276,111 +1090,6 @@ export async function previewSplit(orgId: string, fulfillmentOrderId: string) {
 }
 
 // =============================================================================
-// Accept Split (Single Atomic Transaction with Stock Reservation)
-// =============================================================================
-
-export async function acceptSplit(orgId: string, fulfillmentOrderId: string) {
-  const fulfillmentOrder = await getFulfillmentOrderById(orgId, fulfillmentOrderId);
-
-  if (
-    fulfillmentOrder.status === FulfillmentStatus.FULFILLED ||
-    fulfillmentOrder.shipments.length > 0
-  ) {
-    throw new AppError(
-      400,
-      "ALREADY_ACCEPTED",
-      "This fulfillment order has already been split and accepted."
-    );
-  }
-
-  const preview = await previewSplit(orgId, fulfillmentOrderId);
-
-  if (preview.shipments.length === 0 && preview.backorders.length === 0) {
-    throw new AppError(400, "EMPTY_ORDER", "No items available to fulfill or backorder.");
-  }
-
-  const year = new Date().getFullYear();
-
-  return prisma.$transaction(async (tx) => {
-    let shipmentCounter = 1;
-
-    // 1. Create Shipments and ShipmentLines + Reserve Stock
-    for (const shipPreview of preview.shipments) {
-      const shipmentNumber = `SHP-${year}-${fulfillmentOrder.fulfillmentNumber.replace("FUL-", "")}-${String.fromCharCode(64 + shipmentCounter++)}`;
-
-      const shipment = await tx.shipment.create({
-        data: {
-          shipmentNumber,
-          fulfillmentOrderId: fulfillmentOrder.id,
-          warehouseId: shipPreview.warehouseId,
-          shippingCost: shipPreview.estimatedCost,
-          status: ShipmentStatus.PENDING,
-        },
-      });
-
-      for (const line of shipPreview.lines) {
-        await tx.shipmentLine.create({
-          data: {
-            shipmentId: shipment.id,
-            quotationLineId: line.quotationLineId,
-            productId: line.productId,
-            quantity: line.quantity,
-          },
-        });
-
-        // Reserve stock in the originating warehouse via adjustStock
-        await adjustStock({
-          organizationId: orgId,
-          warehouseId: shipPreview.warehouseId,
-          productId: line.productId,
-          reservedDelta: line.quantity,
-          movementType: StockMovementType.ORDER_RESERVED,
-          referenceId: shipment.shipmentNumber,
-          notes: `Reservation for shipment ${shipment.shipmentNumber}`,
-          tx,
-        });
-      }
-    }
-
-    // 2. Create Backorder records for any shortage remainder
-    for (const bo of preview.backorders) {
-      await tx.backorder.create({
-        data: {
-          fulfillmentOrderId: fulfillmentOrder.id,
-          quotationLineId: bo.quotationLineId,
-          productId: bo.productId,
-          quantityBackordered: bo.quantityBackordered,
-          status: BackorderStatus.PENDING_REPLENISHMENT,
-          notes: `Unfulfilled remainder for ${bo.productName}`,
-        },
-      });
-    }
-
-    // 3. Update overall FulfillmentOrder status
-    const newStatus =
-      preview.backorders.length > 0
-        ? FulfillmentStatus.PARTIALLY_FULFILLED
-        : FulfillmentStatus.PENDING;
-
-    return tx.fulfillmentOrder.update({
-      where: { id: fulfillmentOrder.id },
-      data: { status: newStatus },
-      include: {
-        shipments: {
-          include: {
-            warehouse: true,
-            lines: { include: { product: true } },
-          },
-        },
-        backorders: {
-          include: { product: true },
-        },
-      },
-    });
-  });
-}
-
-// =============================================================================
 // Shipment Status Progression & Physical Stock Deduction
 // =============================================================================
 
@@ -392,7 +1101,9 @@ export async function updateShipmentStatus(
   const shipment = await prisma.shipment.findFirst({
     where: { id: shipmentId },
     include: {
-      fulfillmentOrder: true,
+      fulfillmentOrder: {
+        include: { quotation: true },
+      },
       lines: { include: { product: true } },
       warehouse: true,
     },
@@ -420,6 +1131,83 @@ export async function updateShipmentStatus(
           referenceId: shipment.shipmentNumber,
           notes: `Dispatched shipment ${shipment.shipmentNumber}`,
           tx,
+        });
+      }
+
+      // Automatically generate billing invoice for dispatched shipment items
+      const existingInv = await tx.invoice.findFirst({
+        where: {
+          quotationId: shipment.fulfillmentOrder.quotationId,
+          organizationId: orgId,
+          notes: { contains: shipment.shipmentNumber },
+        },
+      });
+
+      if (!existingInv) {
+        const invCount = await tx.invoice.count();
+        const year = new Date().getFullYear();
+        const rand = Math.floor(1000 + Math.random() * 9000);
+        const invoiceNumber = `INV-${year}-${String(invCount + 1).padStart(4, "0")}-${rand}`;
+        const net30DueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+        let subtotal = 0;
+        let discountTotal = 0;
+
+        const quotation = await tx.quotation.findFirst({
+          where: { id: shipment.fulfillmentOrder.quotationId },
+          include: { lines: true, customer: true },
+        });
+
+        const invoiceLinesData = [];
+        for (const shipLine of shipment.lines) {
+          const qLine = quotation?.lines.find(
+            (ql) => ql.id === shipLine.quotationLineId || ql.productId === shipLine.productId
+          );
+          const unitPrice = qLine?.unitPrice ?? 0;
+          const discountPercent = qLine?.discountPercent ?? 0;
+          const gross = unitPrice * shipLine.quantity;
+          const discount = gross * (discountPercent / 100);
+          const net = gross - discount;
+
+          subtotal += gross;
+          discountTotal += discount;
+
+          invoiceLinesData.push({
+            quotationLineId: shipLine.quotationLineId,
+            productId: shipLine.productId,
+            variantId: shipLine.variantId,
+            description: `[Dispatched from ${shipment.warehouse.name}] ${shipLine.product.name} (Shipment: ${shipment.shipmentNumber})`,
+            quantity: shipLine.quantity,
+            unitPrice,
+            discountPercent,
+            totalAmount: Math.round(net * 100) / 100,
+            isRecurring: false,
+          });
+        }
+
+        const totalAmount = Math.round((subtotal - discountTotal) * 100) / 100;
+
+        await tx.invoice.create({
+          data: {
+            invoiceNumber,
+            quotationId: shipment.fulfillmentOrder.quotationId,
+            customerId: shipment.fulfillmentOrder.quotation.customerId,
+            organizationId: orgId,
+            status: "ISSUED" as any,
+            issueDate: new Date(),
+            dueDate: net30DueDate,
+            paymentTerms: "Net 30",
+            subtotal: Math.round(subtotal * 100) / 100,
+            discountTotal: Math.round(discountTotal * 100) / 100,
+            taxTotal: 0.0,
+            totalAmount,
+            amountPaid: 0.0,
+            amountRemaining: totalAmount,
+            notes: `Fulfillment-triggered invoice for dispatched package ${shipment.shipmentNumber} from warehouse ${shipment.warehouse.name}.`,
+            lines: {
+              create: invoiceLinesData,
+            },
+          },
         });
       }
     }
@@ -454,14 +1242,25 @@ export async function updateShipmentStatus(
       },
     });
 
-    const allDelivered = allShipments.every(
-      (s) => s.status === ShipmentStatus.DELIVERED
-    );
+    const allDispatchedOrDelivered =
+      allShipments.length > 0 &&
+      allShipments.every(
+        (s) => s.id === shipment.id ? (nextStatus === ShipmentStatus.SHIPPED || nextStatus === ShipmentStatus.DELIVERED) : (s.status === ShipmentStatus.SHIPPED || s.status === ShipmentStatus.DELIVERED)
+      );
 
-    if (allDelivered && openBackorders === 0) {
+    if (allDispatchedOrDelivered && openBackorders === 0) {
       await tx.fulfillmentOrder.update({
         where: { id: shipment.fulfillmentOrderId },
         data: { status: FulfillmentStatus.FULFILLED },
+      });
+    } else if (
+      allShipments.some(
+        (s) => s.id === shipment.id ? (nextStatus === ShipmentStatus.SHIPPED || nextStatus === ShipmentStatus.DELIVERED) : (s.status === ShipmentStatus.SHIPPED || s.status === ShipmentStatus.DELIVERED)
+      )
+    ) {
+      await tx.fulfillmentOrder.update({
+        where: { id: shipment.fulfillmentOrderId },
+        data: { status: FulfillmentStatus.PARTIALLY_FULFILLED },
       });
     }
 
@@ -548,6 +1347,7 @@ export async function consolidateBackorder(orgId: string, backorderId: string) {
           shipmentId: shipment.id,
           quotationLineId: backorder.quotationLineId,
           productId: backorder.productId,
+          variantId: backorder.variantId,
           quantity: alloc.quantity,
         },
       });
@@ -556,6 +1356,7 @@ export async function consolidateBackorder(orgId: string, backorderId: string) {
         organizationId: orgId,
         warehouseId: alloc.warehouseId,
         productId: backorder.productId,
+        variantId: backorder.variantId ?? undefined,
         reservedDelta: alloc.quantity,
         movementType: StockMovementType.ORDER_RESERVED,
         referenceId: shipment.shipmentNumber,
@@ -589,30 +1390,4 @@ export async function consolidateBackorder(orgId: string, backorderId: string) {
       allocations: split.allocations,
     };
   });
-}
-
-/**
- * Consolidates all open backorders for a specific product across an organization.
- */
-export async function consolidateProductBackorders(orgId: string, productId: string) {
-  const pendingBackorders = await prisma.backorder.findMany({
-    where: {
-      productId,
-      status: BackorderStatus.PENDING_REPLENISHMENT,
-      fulfillmentOrder: { organizationId: orgId },
-    },
-    orderBy: { createdAt: "asc" },
-  });
-
-  const results = [];
-  for (const bo of pendingBackorders) {
-    const res = await consolidateBackorder(orgId, bo.id);
-    results.push(res);
-  }
-
-  return {
-    productId,
-    processedCount: pendingBackorders.length,
-    results,
-  };
 }

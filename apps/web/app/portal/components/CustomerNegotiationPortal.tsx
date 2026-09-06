@@ -46,6 +46,14 @@ import {
   History,
   CornerDownRight,
   Users,
+  CreditCard,
+  Truck,
+  Package,
+  Box,
+  RotateCcw,
+  Download,
+  Receipt,
+  Printer,
 } from "lucide-react";
 import { BrandLogo } from "@repo/ui";
 
@@ -146,6 +154,12 @@ export function CustomerNegotiationPortal({
 
   // 1-Click Confirm state
   const [isConfirmingOneClick, setIsConfirmingOneClick] = useState<boolean>(false);
+
+  // Invoice Modal & Portal Payment State
+  const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<any | null>(null);
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState<boolean>(false);
+  const [isPayingInvoice, setIsPayingInvoice] = useState<boolean>(false);
+  const [portalPaymentMethod, setPortalPaymentMethod] = useState<string>("ACH_TRANSFER");
 
   // Feedback Notification Banner
   const [notification, setNotification] = useState<{
@@ -310,11 +324,13 @@ export function CustomerNegotiationPortal({
 
   // Handler: Switch Quotation within Authenticated Session
   const handleSelectToken = (selectedToken: string) => {
+    if (!selectedToken) return;
     hasLoadedQuotationRef.current = false;
     setToken(selectedToken);
     setTokenInput(selectedToken);
     setShowTokenSelector(false);
     setViewMode("detail");
+    fetchQuotationData(selectedToken, false);
   };
 
   // Handler: Submit Counter-Proposal
@@ -519,13 +535,13 @@ export function CustomerNegotiationPortal({
           const comments = (prev.comments || []).map((c: any) =>
             c.id === optimisticComment.id
               ? {
-                  id: resJson.data.id,
-                  message: resJson.data.message,
-                  authorRole: resJson.data.authorRole || "CUSTOMER",
-                  authorName: resJson.data.author?.name || authorName,
-                  quotationLineId: resJson.data.quotationLineId,
-                  createdAt: resJson.data.createdAt,
-                }
+                id: resJson.data.id,
+                message: resJson.data.message,
+                authorRole: resJson.data.authorRole || "CUSTOMER",
+                authorName: resJson.data.author?.name || authorName,
+                quotationLineId: resJson.data.quotationLineId,
+                createdAt: resJson.data.createdAt,
+              }
               : c
           );
           return { ...prev, comments };
@@ -658,6 +674,49 @@ export function CustomerNegotiationPortal({
       });
     } finally {
       setIsSigning(false);
+    }
+  };
+
+  // Handler: Customer Portal Invoice Settlement
+  const handlePortalPayInvoice = async (invoiceId: string) => {
+    setIsPayingInvoice(true);
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/portal/${encodeURIComponent(effectiveApiToken)}/invoices/${encodeURIComponent(invoiceId)}/pay`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-portal-token": effectiveApiToken,
+            ...(customerEmail ? { "x-customer-email": customerEmail } : {}),
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            paymentMethod: portalPaymentMethod,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.message || "Invoice settlement failed.");
+      }
+
+      setNotification({
+        type: "success",
+        message: `Invoice ${selectedInvoiceForModal?.invoiceNumber || ""} successfully paid & reconciled!`,
+      });
+
+      setIsInvoiceModalOpen(false);
+      setSelectedInvoiceForModal(null);
+      await fetchQuotationData(token, true);
+    } catch (err: any) {
+      setNotification({
+        type: "error",
+        message: err.message || "Failed to process payment. Please try again.",
+      });
+    } finally {
+      setIsPayingInvoice(false);
     }
   };
 
@@ -889,11 +948,10 @@ export function CustomerNegotiationPortal({
           <div className="flex items-center bg-slate-100 border border-slate-200 p-1 rounded-xl shadow-inner">
             <button
               onClick={() => setActiveTab("quotation")}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === "quotation"
+              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === "quotation"
                   ? "bg-white text-slate-900 shadow-sm border border-slate-200/80"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-              }`}
+                }`}
             >
               <FileText size={14} className={activeTab === "quotation" ? "text-[#ff5e3a]" : ""} />
               <span>My Quotations</span>
@@ -906,11 +964,10 @@ export function CustomerNegotiationPortal({
 
             <button
               onClick={() => setActiveTab("trails")}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === "trails"
+              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === "trails"
                   ? "bg-white text-slate-900 shadow-sm border border-slate-200/80"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-              }`}
+                }`}
             >
               <MessageSquare size={14} className={activeTab === "trails" ? "text-[#ff5e3a]" : ""} />
               <span>Trails &amp; Messages</span>
@@ -923,11 +980,10 @@ export function CustomerNegotiationPortal({
 
             <button
               onClick={() => setActiveTab("profile")}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === "profile"
+              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === "profile"
                   ? "bg-white text-slate-900 shadow-sm border border-slate-200/80"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
-              }`}
+                }`}
             >
               <User size={14} className={activeTab === "profile" ? "text-[#ff5e3a]" : ""} />
               <span>Company Profile</span>
@@ -967,31 +1023,40 @@ export function CustomerNegotiationPortal({
                   </div>
 
                   <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
-                    {customerQuotations.map((item) => (
-                      <button
-                        key={item.id || item.portalToken || item.quoteNumber}
-                        onClick={() => handleSelectToken(item.portalToken || item.quoteNumber)}
-                        className={`w-full text-left p-2 rounded-xl text-xs flex flex-col gap-0.5 transition cursor-pointer ${
-                          token === item.portalToken || token === item.quoteNumber
-                            ? "bg-orange-50 border border-orange-200 text-[#ff5e3a]"
-                            : "hover:bg-slate-50 text-slate-700"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-slate-900">{item.quoteNumber}</span>
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100">
-                            {item.stage}
+                    {customerQuotations.map((item) => {
+                      const itemToken = item.quoteNumber || item.portalToken || item.id;
+                      const isActive =
+                        token === item.quoteNumber ||
+                        token === item.portalToken ||
+                        token === item.id ||
+                        quotation?.quoteNumber === item.quoteNumber ||
+                        quotation?.portalToken === item.portalToken;
+
+                      return (
+                        <button
+                          key={item.id || item.portalToken || item.quoteNumber}
+                          onClick={() => handleSelectToken(itemToken)}
+                          className={`w-full text-left p-2.5 rounded-xl text-xs flex flex-col gap-0.5 transition cursor-pointer ${isActive
+                              ? "bg-orange-50 border border-orange-200 text-[#ff5e3a]"
+                              : "hover:bg-slate-50 text-slate-700"
+                            }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-900">{item.quoteNumber}</span>
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100">
+                              {item.stage}
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-slate-500 truncate">{item.title}</span>
+                          <span className="text-[11px] font-bold text-[#ff5e3a]">
+                            ₹
+                            {Number(item.grandTotal || 0).toLocaleString("en-IN", {
+                              minimumFractionDigits: 2,
+                            })}
                           </span>
-                        </div>
-                        <span className="text-[11px] text-slate-500 truncate">{item.title}</span>
-                        <span className="text-[11px] font-bold text-[#ff5e3a]">
-                          ₹
-                          {Number(item.grandTotal || 0).toLocaleString("en-IN", {
-                            minimumFractionDigits: 2,
-                          })}
-                        </span>
-                      </button>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
 
                   <div className="pt-2 border-t border-slate-100 flex gap-1.5">
@@ -1040,13 +1105,12 @@ export function CustomerNegotiationPortal({
       {/* ── NOTIFICATION BANNER ── */}
       {notification && (
         <div
-          className={`px-6 py-2.5 text-xs font-semibold flex items-center justify-between transition-all ${
-            notification.type === "success"
+          className={`px-6 py-2.5 text-xs font-semibold flex items-center justify-between transition-all ${notification.type === "success"
               ? "bg-emerald-50 border-b border-emerald-200 text-emerald-800"
               : notification.type === "error"
-              ? "bg-red-50 border-b border-red-200 text-red-800"
-              : "bg-blue-50 border-b border-blue-200 text-blue-800"
-          }`}
+                ? "bg-red-50 border-b border-red-200 text-red-800"
+                : "bg-blue-50 border-b border-blue-200 text-blue-800"
+            }`}
         >
           <div className="flex items-center gap-2 max-w-7xl mx-auto w-full">
             {notification.type === "success" && (
@@ -1164,22 +1228,20 @@ export function CustomerNegotiationPortal({
                       <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
                         <button
                           onClick={() => setDisplayLayout("grid")}
-                          className={`p-1.5 rounded-lg transition ${
-                            displayLayout === "grid"
+                          className={`p-1.5 rounded-lg transition ${displayLayout === "grid"
                               ? "bg-white text-slate-900 shadow-xs"
                               : "text-slate-500 hover:text-slate-900"
-                          }`}
+                            }`}
                           title="Grid View"
                         >
                           <LayoutGrid size={15} />
                         </button>
                         <button
                           onClick={() => setDisplayLayout("table")}
-                          className={`p-1.5 rounded-lg transition ${
-                            displayLayout === "table"
+                          className={`p-1.5 rounded-lg transition ${displayLayout === "table"
                               ? "bg-white text-slate-900 shadow-xs"
                               : "text-slate-500 hover:text-slate-900"
-                          }`}
+                            }`}
                           title="Table View"
                         >
                           <List size={15} />
@@ -1668,20 +1730,294 @@ export function CustomerNegotiationPortal({
                         </form>
                       </div>
                     ) : (
-                      <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between text-xs text-slate-600">
-                        <div className="flex items-center gap-2">
-                          <Lock size={15} className="text-slate-400" />
-                          <span>
-                            Commercial adjustments are finalized for this quotation. Further
-                            counter-proposals are locked.
-                          </span>
+                      <div className="space-y-6 animate-in fade-in duration-200">
+                        {/* 1. Execution & E-Sign Stamp Banner */}
+                        <div className="p-5 bg-linear-to-r from-emerald-500/10 via-emerald-500/5 to-transparent border border-emerald-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div className="flex items-center gap-3.5">
+                            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 shadow-2xs">
+                              <ShieldCheck size={22} className="text-emerald-600" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-extrabold text-slate-900 text-sm">
+                                  Commercial Agreement Executed &amp; Bound
+                                </span>
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  VERIFIED
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                Signed by{" "}
+                                <strong>{quotation.signature?.signedByName || quotation.customer?.name}</strong>{" "}
+                                ({quotation.signature?.signedByEmail || quotation.customer?.email})
+                                {quotation.signature?.signedAt && (
+                                  <> on {new Date(quotation.signature.signedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</>
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => window.print()}
+                              className="px-3.5 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                            >
+                              <Printer size={13} />
+                              <span>Print Agreement</span>
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          onClick={() => setActiveTab("trails")}
-                          className="font-bold text-[#ff5e3a] hover:underline cursor-pointer"
-                        >
-                          View Discussion &amp; Trails &rarr;
-                        </button>
+
+                        {/* 2. Grid of Invoices, Subscriptions & Logistics */}
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                          {/* Card A: Invoices & Receipts Ledger */}
+                          <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden flex flex-col">
+                            <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <CreditCard size={15} className="text-[#ff5e3a]" />
+                                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                                  Invoices &amp; Billing
+                                </h4>
+                              </div>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono">
+                                {quotation.invoices?.length || 0} Issued
+                              </span>
+                            </div>
+
+                            <div className="p-4 flex-1 space-y-3">
+                              {(!quotation.invoices || quotation.invoices.length === 0) ? (
+                                <div className="text-center py-6 text-slate-400 text-xs">
+                                  <Receipt size={24} className="mx-auto text-slate-300 mb-2" />
+                                  <span>Invoices will be generated upon shipment dispatch or contract activation.</span>
+                                </div>
+                              ) : (
+                                quotation.invoices.map((inv: any) => {
+                                  const isPaid = inv.status === "PAID";
+                                  return (
+                                    <div
+                                      key={inv.id}
+                                      className="p-3.5 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-2.5 hover:border-[#ff5e3a]/40 transition"
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <span className="font-mono font-bold text-xs text-slate-900">
+                                          {inv.invoiceNumber}
+                                        </span>
+                                        <span
+                                          className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                                            isPaid
+                                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                              : "bg-amber-50 text-amber-700 border-amber-200"
+                                          }`}
+                                        >
+                                          {inv.status}
+                                        </span>
+                                      </div>
+
+                                      <div className="flex items-center justify-between text-xs">
+                                        <span className="text-slate-500 text-[11px]">
+                                          Due {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "Net 30"}
+                                        </span>
+                                        <span className="font-extrabold text-slate-900 font-mono">
+                                          ₹{Number(inv.totalAmount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                                        </span>
+                                      </div>
+
+                                      <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedInvoiceForModal(inv);
+                                            setIsInvoiceModalOpen(true);
+                                          }}
+                                          className="text-[11px] font-bold text-[#ff5e3a] hover:underline cursor-pointer flex items-center gap-1"
+                                        >
+                                          <span>View Statement</span>
+                                          <ChevronRight size={11} />
+                                        </button>
+
+                                        {!isPaid && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedInvoiceForModal(inv);
+                                              setIsInvoiceModalOpen(true);
+                                            }}
+                                            className="px-2.5 py-1 rounded-lg bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-[10px] font-bold shadow-2xs transition cursor-pointer"
+                                          >
+                                            Pay Now
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Card B: Active Subscriptions */}
+                          <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden flex flex-col">
+                            <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <TrendingUp size={15} className="text-[#ff5e3a]" />
+                                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                                  Active Subscriptions
+                                </h4>
+                              </div>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono">
+                                {quotation.subscriptions?.length || 0} Schedule(s)
+                              </span>
+                            </div>
+
+                            <div className="p-4 flex-1 space-y-3">
+                              {(!quotation.subscriptions || quotation.subscriptions.length === 0) ? (
+                                <div className="text-center py-6 text-slate-400 text-xs">
+                                  <Layers size={24} className="mx-auto text-slate-300 mb-2" />
+                                  <span>No recurring subscription lines attached to this contract.</span>
+                                </div>
+                              ) : (
+                                quotation.subscriptions.map((sub: any) => {
+                                  const planName = sub.lines?.[0]?.product?.name || sub.notes || "Recurring SaaS Plan";
+                                  const seats = sub.lines?.[0]?.quantity || 1;
+                                  return (
+                                    <div
+                                      key={sub.id}
+                                      className="p-3.5 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-2.5"
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <span className="font-bold text-xs text-slate-900 truncate max-w-[150px]">
+                                          {planName}
+                                        </span>
+                                        <span
+                                          className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                                            sub.status === "ACTIVE"
+                                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                              : sub.status === "PAUSED"
+                                              ? "bg-amber-50 text-amber-700 border-amber-200"
+                                              : "bg-rose-50 text-rose-700 border-rose-200"
+                                          }`}
+                                        >
+                                          {sub.status}
+                                        </span>
+                                      </div>
+
+                                      <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600">
+                                        <div>
+                                          <span className="text-slate-400 block text-[10px] uppercase font-semibold">Cadence</span>
+                                          <span className="font-semibold text-slate-800 capitalize">{sub.billingInterval?.toLowerCase() || "Monthly"}</span>
+                                        </div>
+                                        <div>
+                                          <span className="text-slate-400 block text-[10px] uppercase font-semibold">Allocated Seats</span>
+                                          <span className="font-semibold text-slate-800">{seats} user license(s)</span>
+                                        </div>
+                                      </div>
+
+                                      <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px]">
+                                        <span className="text-slate-500">
+                                          Next Renewal: {sub.nextBillingDate ? new Date(sub.nextBillingDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Active Cycle"}
+                                        </span>
+                                        <span className="font-bold text-emerald-600 font-mono">
+                                          ₹{Number(sub.currentMrr || 0).toLocaleString("en-IN")}/mo
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Card C: Fulfillment Logistics & Shipments */}
+                          <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden flex flex-col">
+                            <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Truck size={15} className="text-[#ff5e3a]" />
+                                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                                  Delivery &amp; Tracking
+                                </h4>
+                              </div>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono">
+                                {quotation.fulfillmentOrder?.shipments?.length || 0} Package(s)
+                              </span>
+                            </div>
+
+                            <div className="p-4 flex-1 space-y-3">
+                              {(!quotation.fulfillmentOrder?.shipments || quotation.fulfillmentOrder.shipments.length === 0) ? (
+                                <div className="text-center py-6 text-slate-400 text-xs">
+                                  <Box size={24} className="mx-auto text-slate-300 mb-2" />
+                                  <span>No physical hardware items requiring logistics dispatch.</span>
+                                </div>
+                              ) : (
+                                quotation.fulfillmentOrder.shipments.map((shipment: any) => {
+                                  return (
+                                    <div
+                                      key={shipment.id}
+                                      className="p-3.5 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-2.5"
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <span className="font-mono font-bold text-xs text-slate-900">
+                                          {shipment.shipmentNumber}
+                                        </span>
+                                        <span
+                                          className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                                            shipment.status === "DELIVERED"
+                                              ? "bg-sky-50 text-sky-700 border-sky-200"
+                                              : shipment.status === "SHIPPED"
+                                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                              : "bg-amber-50 text-amber-700 border-amber-200"
+                                          }`}
+                                        >
+                                          {shipment.status}
+                                        </span>
+                                      </div>
+
+                                      <div className="text-[11px] text-slate-600 space-y-1">
+                                        <div className="flex justify-between">
+                                          <span className="text-slate-400">Depot:</span>
+                                          <span className="font-semibold text-slate-800">{shipment.warehouse?.name || "Main Warehouse"}</span>
+                                        </div>
+                                        {shipment.trackingNumber && (
+                                          <div className="flex justify-between font-mono">
+                                            <span className="text-slate-400">Tracking #:</span>
+                                            <span className="font-bold text-[#ff5e3a]">{shipment.trackingNumber}</span>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* Dispatched Lines */}
+                                      {shipment.lines && shipment.lines.length > 0 && (
+                                        <div className="pt-2 border-t border-slate-200/60 text-[10px] text-slate-500 space-y-1">
+                                          {shipment.lines.map((l: any, idx: number) => (
+                                            <div key={l.id || idx} className="flex justify-between">
+                                              <span className="truncate max-w-[150px]">{l.product?.name || "Hardware Line"}</span>
+                                              <span className="font-bold font-mono text-slate-700">x{l.quantity}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })
+                              )}
+
+                              {/* Backorders notice if present */}
+                              {quotation.fulfillmentOrder?.backorders && quotation.fulfillmentOrder.backorders.length > 0 && (
+                                <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200 text-xs text-amber-900 space-y-1">
+                                  <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                                    <AlertTriangle size={13} className="text-amber-600" />
+                                    <span>Backordered Items</span>
+                                  </div>
+                                  {quotation.fulfillmentOrder.backorders.map((bo: any) => (
+                                    <div key={bo.id} className="flex justify-between text-[11px]">
+                                      <span>{bo.product?.name || "Hardware item"}</span>
+                                      <span className="font-bold font-mono">x{bo.quantityBackordered} awaiting stock</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1873,17 +2209,15 @@ export function CustomerNegotiationPortal({
 
                               {/* Message Bubble */}
                               <div
-                                className={`flex items-end gap-2 mt-1 ${
-                                  isCustomer ? "flex-row-reverse" : "flex-row"
-                                }`}
+                                className={`flex items-end gap-2 mt-1 ${isCustomer ? "flex-row-reverse" : "flex-row"
+                                  }`}
                               >
                                 {!isSameAuthor ? (
                                   <div
-                                    className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mb-0.5 ${
-                                      isCustomer
+                                    className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mb-0.5 ${isCustomer
                                         ? "bg-linear-to-br from-[#ff5e3a] to-[#ea4e28] text-white"
                                         : "bg-slate-200 text-slate-700"
-                                    }`}
+                                      }`}
                                   >
                                     {initials}
                                   </div>
@@ -1892,9 +2226,8 @@ export function CustomerNegotiationPortal({
                                 )}
 
                                 <div
-                                  className={`max-w-[75%] flex flex-col ${
-                                    isCustomer ? "items-end" : "items-start"
-                                  }`}
+                                  className={`max-w-[75%] flex flex-col ${isCustomer ? "items-end" : "items-start"
+                                    }`}
                                 >
                                   {!isSameAuthor && (
                                     <span className="text-[10px] font-semibold text-slate-500 mb-0.5 px-1">
@@ -1906,21 +2239,110 @@ export function CustomerNegotiationPortal({
                                   )}
 
                                   <div
-                                    className={`px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed ${
-                                      isCustomer
+                                    className={`px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed ${isCustomer
                                         ? "bg-[#ff5e3a] text-white rounded-br-sm shadow-sm shadow-[#ff5e3a]/20"
                                         : "bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-xs"
-                                    }`}
+                                      }`}
                                   >
-                                    {msg.quotationLineId && (
-                                      <div
-                                        className={`text-[10px] font-bold mb-1 opacity-80 ${
-                                          isCustomer ? "text-orange-100" : "text-slate-400"
-                                        }`}
-                                      >
-                                        📎 Attached to line item
-                                      </div>
-                                    )}
+                                    {(() => {
+                                      const attachedLine = msg.quotationLineId
+                                        ? (quotation.lines || []).find((l: any) => l.id === msg.quotationLineId)
+                                        : null;
+
+                                      if (!msg.quotationLineId) return null;
+
+                                      return (
+                                        <div
+                                          className={`mb-2.5 p-2.5 rounded-xl text-left transition-all ${isCustomer
+                                              ? "bg-black/20 border border-white/25 text-white shadow-2xs backdrop-blur-xs"
+                                              : "bg-slate-50 border border-slate-200/90 text-slate-800 shadow-2xs"
+                                            }`}
+                                        >
+                                          <div className="flex items-center justify-between gap-2 mb-1">
+                                            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider">
+                                              <span className={isCustomer ? "text-orange-100" : "text-slate-500"}>
+                                                📎 Attached Line Item
+                                              </span>
+                                              {attachedLine?.itemType && (
+                                                <span
+                                                  className={`px-1.5 py-0.2 rounded font-mono text-[9px] font-bold ${isCustomer
+                                                      ? "bg-white/20 text-white"
+                                                      : "bg-slate-200 text-slate-700"
+                                                    }`}
+                                                >
+                                                  {attachedLine.itemType}
+                                                </span>
+                                              )}
+                                            </div>
+                                            {attachedLine?.product?.sku && (
+                                              <span
+                                                className={`text-[9px] font-mono ${isCustomer ? "text-orange-200" : "text-slate-400"
+                                                  }`}
+                                              >
+                                                {attachedLine.product.sku}
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          {attachedLine ? (
+                                            <div className="space-y-1">
+                                              <div
+                                                className={`font-bold text-xs leading-snug ${isCustomer ? "text-white" : "text-slate-900"
+                                                  }`}
+                                              >
+                                                {attachedLine.product?.name || attachedLine.description || "Product Item"}
+                                              </div>
+                                              {attachedLine.description &&
+                                                attachedLine.description !== attachedLine.product?.name && (
+                                                  <div
+                                                    className={`text-[10px] truncate max-w-[280px] ${isCustomer ? "text-orange-100/80" : "text-slate-500"
+                                                      }`}
+                                                  >
+                                                    {attachedLine.description}
+                                                  </div>
+                                                )}
+                                              <div
+                                                className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] pt-1.5 mt-1 border-t ${isCustomer
+                                                    ? "border-white/15 text-orange-100"
+                                                    : "border-slate-200 text-slate-600"
+                                                  }`}
+                                              >
+                                                <span>
+                                                  Qty:{" "}
+                                                  <strong className={isCustomer ? "text-white font-bold" : "text-slate-900 font-bold"}>
+                                                    {attachedLine.quantity || 1}
+                                                  </strong>
+                                                </span>
+                                                <span>
+                                                  Unit:{" "}
+                                                  <strong className={isCustomer ? "text-white font-bold" : "text-slate-900 font-bold"}>
+                                                    ₹{Number(attachedLine.unitPrice || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                                                  </strong>
+                                                </span>
+                                                {Number(attachedLine.discountPercent || 0) > 0 && (
+                                                  <span>
+                                                    Disc:{" "}
+                                                    <strong className={isCustomer ? "text-white font-bold" : "text-emerald-600 font-bold"}>
+                                                      {attachedLine.discountPercent}%
+                                                    </strong>
+                                                  </span>
+                                                )}
+                                                <span>
+                                                  Net:{" "}
+                                                  <strong className={isCustomer ? "text-white font-black" : "text-slate-900 font-black"}>
+                                                    ₹{Number(attachedLine.netPrice || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                                                  </strong>
+                                                </span>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <div className={`text-[10px] ${isCustomer ? "text-orange-100" : "text-slate-500"}`}>
+                                              Line Item Ref: {msg.quotationLineId}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                     {msg.message}
                                   </div>
 
@@ -2244,9 +2666,47 @@ export function CustomerNegotiationPortal({
               </button>
             </div>
 
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/90 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-xs text-slate-900 leading-tight">
+                  {selectedLineForComment.product?.name || selectedLineForComment.description || "Quotation Line Item"}
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700 font-mono">
+                  {selectedLineForComment.itemType || "ITEM"}
+                </span>
+              </div>
+              {selectedLineForComment.description && selectedLineForComment.description !== selectedLineForComment.product?.name && (
+                <div className="text-[11px] text-slate-500">
+                  {selectedLineForComment.description}
+                </div>
+              )}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] pt-1.5 border-t border-slate-200">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase block">Quantity</span>
+                  <span className="font-bold text-slate-900">{selectedLineForComment.quantity || 1}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase block">Unit Price</span>
+                  <span className="font-bold text-slate-900">
+                    ₹{Number(selectedLineForComment.unitPrice || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase block">Discount</span>
+                  <span className="font-bold text-emerald-600">{selectedLineForComment.discountPercent || 0}%</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase block">Net Price</span>
+                  <span className="font-bold text-slate-900">
+                    ₹{Number(selectedLineForComment.netPrice || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+            </div>
+
             <form onSubmit={handleSubmitLineComment} className="space-y-4">
               <textarea
-                rows={4}
+                rows={3}
                 required
                 value={lineCommentMessage}
                 onChange={(e) => setLineCommentMessage(e.target.value)}
@@ -2354,22 +2814,20 @@ export function CustomerNegotiationPortal({
                     <button
                       type="button"
                       onClick={() => setSignatureMode("type")}
-                      className={`px-2.5 py-0.5 rounded-md ${
-                        signatureMode === "type"
+                      className={`px-2.5 py-0.5 rounded-md ${signatureMode === "type"
                           ? "bg-white font-bold text-slate-900 shadow-xs"
                           : "text-slate-600"
-                      }`}
+                        }`}
                     >
                       Typed
                     </button>
                     <button
                       type="button"
                       onClick={() => setSignatureMode("draw")}
-                      className={`px-2.5 py-0.5 rounded-md ${
-                        signatureMode === "draw"
+                      className={`px-2.5 py-0.5 rounded-md ${signatureMode === "draw"
                           ? "bg-white font-bold text-slate-900 shadow-xs"
                           : "text-slate-600"
-                      }`}
+                        }`}
                     >
                       Drawn
                     </button>
@@ -2449,6 +2907,164 @@ export function CustomerNegotiationPortal({
           </div>
         </div>
       )}
+
+      {/* ── INVOICE DETAIL & SETTLEMENT MODAL ── */}
+      {isInvoiceModalOpen && selectedInvoiceForModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-[#ff5e3a]/10 text-[#ff5e3a] flex items-center justify-center font-bold">
+                  <CreditCard size={16} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    Invoice Statement: {selectedInvoiceForModal.invoiceNumber}
+                  </h3>
+                  <p className="text-[10px] text-slate-500">
+                    Terms: {selectedInvoiceForModal.paymentTerms || "Net 30"} &bull; Due:{" "}
+                    {selectedInvoiceForModal.dueDate
+                      ? new Date(selectedInvoiceForModal.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                      : "Upon Receipt"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsInvoiceModalOpen(false);
+                  setSelectedInvoiceForModal(null);
+                }}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Line Items Table */}
+            <div className="space-y-2">
+              <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                Billed Items &amp; Charges
+              </div>
+              <div className="bg-slate-50 rounded-xl border border-slate-200/80 overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100/70 text-slate-500 font-semibold border-b border-slate-200/70 text-[10px] uppercase">
+                    <tr>
+                      <th className="py-2.5 px-3">Description</th>
+                      <th className="py-2.5 px-2 text-center">Qty</th>
+                      <th className="py-2.5 px-3 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200/60 font-medium">
+                    {selectedInvoiceForModal.lines && selectedInvoiceForModal.lines.length > 0 ? (
+                      selectedInvoiceForModal.lines.map((l: any, idx: number) => (
+                        <tr key={l.id || idx}>
+                          <td className="py-2.5 px-3 text-slate-800">{l.description || l.product?.name || "Billed item"}</td>
+                          <td className="py-2.5 px-2 text-center font-mono text-slate-600">{l.quantity}</td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                            ₹{Number(l.totalAmount || l.unitPrice * l.quantity).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={3} className="py-3 px-3 text-center text-slate-400">
+                          {selectedInvoiceForModal.notes || "Commercial invoice charges for confirmed quotation."}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Summary & Balance */}
+            <div className="p-3.5 bg-[#f8fafc] border border-slate-200 rounded-xl space-y-1.5 text-xs">
+              <div className="flex justify-between text-slate-600">
+                <span>Invoice Total:</span>
+                <span className="font-semibold text-slate-900 font-mono">
+                  ₹{Number(selectedInvoiceForModal.totalAmount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-600">
+                <span>Amount Settled / Paid:</span>
+                <span className="font-semibold text-emerald-600 font-mono">
+                  -₹{Number(selectedInvoiceForModal.amountPaid || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm font-extrabold text-slate-900 pt-1.5 border-t border-slate-200">
+                <span>Remaining Balance Due:</span>
+                <span className={selectedInvoiceForModal.status === "PAID" ? "text-emerald-600" : "text-[#ff5e3a]"}>
+                  ₹{Number(selectedInvoiceForModal.amountRemaining ?? (selectedInvoiceForModal.status === "PAID" ? 0 : selectedInvoiceForModal.totalAmount)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+
+            {/* Payment Options if unpaid */}
+            {selectedInvoiceForModal.status !== "PAID" ? (
+              <div className="space-y-3 pt-1">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">Payment Method</label>
+                  <select
+                    value={portalPaymentMethod}
+                    onChange={(e) => setPortalPaymentMethod(e.target.value)}
+                    className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 font-medium outline-none focus:border-[#ff5e3a]"
+                  >
+                    <option value="ACH_TRANSFER">Direct Corporate ACH (Instant Settlement)</option>
+                    <option value="CREDIT_CARD">Corporate Visa / Mastercard</option>
+                    <option value="WIRE_TRANSFER">Domestic / International Wire</option>
+                  </select>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsInvoiceModalOpen(false);
+                      setSelectedInvoiceForModal(null);
+                    }}
+                    className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePortalPayInvoice(selectedInvoiceForModal.id)}
+                    disabled={isPayingInvoice}
+                    className="px-5 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-[#ff5e3a]/20 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isPayingInvoice ? (
+                      <RefreshCw size={13} className="animate-spin" />
+                    ) : (
+                      <CreditCard size={13} />
+                    )}
+                    <span>Settle Invoice Online</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-800">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 size={16} className="text-emerald-600" />
+                  <span className="font-bold">This invoice has been settled in full.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsInvoiceModalOpen(false);
+                    setSelectedInvoiceForModal(null);
+                  }}
+                  className="font-bold text-emerald-700 hover:underline cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
 
       {/* ── FOOTER ── */}
       <footer className="border-t border-slate-200 py-4 px-6 bg-white text-center text-xs text-slate-500">

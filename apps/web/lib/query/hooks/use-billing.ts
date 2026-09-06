@@ -13,6 +13,8 @@ export interface InvoiceData {
   taxTotal: number;
   totalAmount: number;
   amountPaid: number;
+  amountRemaining?: number;
+  notes?: string | null;
   paymentTerms: string;
   issueDate: string;
   dueDate: string;
@@ -82,6 +84,14 @@ export interface SubscriptionData {
   };
   lines?: SubscriptionLineData[];
   invoices?: InvoiceData[];
+  creditNotes?: Array<{
+    id: string;
+    creditNoteNumber: string;
+    amount: number;
+    reason?: string | null;
+    status: string;
+    createdAt: string;
+  }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -241,11 +251,95 @@ export function useCancelSubscription() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
-      api.post(`/api/subscriptions/${id}/cancel`, { reason }),
+    mutationFn: ({ id, reason, refundRule }: { id: string; reason?: string; refundRule?: "PRORATED" | "FULL" | "NO_REFUND" }) =>
+      api.post(`/api/subscriptions/${id}/cancel`, { reason, refundRule }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.billing.subscriptionDetail(variables.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.billing.subscriptions() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.billing.all });
     },
   });
 }
+
+/**
+ * Mutation: Update subscription line seat quantity (mid-cycle proration)
+ */
+export function useUpdateSubscriptionLine() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      subscriptionId,
+      lineId,
+      quantity,
+    }: {
+      subscriptionId: string;
+      lineId: string;
+      quantity: number;
+    }) =>
+      api.patch(`/api/subscriptions/${subscriptionId}/lines/${lineId}`, { quantity }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.billing.subscriptionDetail(variables.subscriptionId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.billing.subscriptions() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.billing.invoices() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.billing.all });
+    },
+  });
+}
+
+/**
+ * Mutation: Generate decoupled hybrid billing for a quotation
+ */
+export function useGenerateHybridBilling() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body: { quotationId: string; billingInterval?: string; notes?: string }) =>
+      api.post("/api/billing/generate", body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.billing.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.quotations.all });
+    },
+  });
+}
+
+/**
+ * Mutation: Generate invoice on shipment dispatch
+ */
+export function useGenerateShipmentInvoice() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body: { shipmentId: string }) =>
+      api.post("/api/billing/shipment-invoice", body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.billing.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.fulfillment.all });
+    },
+  });
+}
+
+export interface CreditNoteData {
+  id: string;
+  creditNoteNumber: string;
+  customerId: string;
+  subscriptionId?: string | null;
+  invoiceId?: string | null;
+  status: "ISSUED" | "APPLIED" | "REFUNDED" | "VOID";
+  amount: number;
+  reason?: string | null;
+  customer?: { id: string; name: string; email: string };
+  createdAt: string;
+}
+
+/**
+ * Hook to fetch credit notes list
+ */
+export function useCreditNotes(filters?: { customerId?: string; subscriptionId?: string }) {
+  return useQuery({
+    queryKey: queryKeys.billing.creditNotes(filters?.customerId),
+    queryFn: () => api.get<CreditNoteData[]>("/api/credit-notes", { params: filters }),
+  });
+}
+
+

@@ -10,6 +10,7 @@
     "ignoreDeprecations": "6.0",
     "declaration": false,
     "declarationMap": false,
+    "ignoreDeprecations": "5.0",
     "baseUrl": ".",
     "paths": {
       "@/*": [

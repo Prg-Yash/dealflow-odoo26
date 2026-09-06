@@ -128,3 +128,26 @@ export async function signQuotation(
     next(error);
   }
 }
+
+export async function payInvoice(
+  req: PortalRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const { invoiceId } = req.params;
+    const result = await portalService.payPortalInvoice(
+      req.portalToken!,
+      invoiceId,
+      req.body
+    );
+    return res.status(200).json({
+      success: true,
+      message: "Invoice paid and recorded successfully.",
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+

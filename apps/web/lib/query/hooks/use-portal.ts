@@ -98,6 +98,72 @@ export interface PortalQuoteData {
     signedAt: string;
     signatureData?: string;
   } | null;
+  invoices?: Array<{
+    id: string;
+    invoiceNumber: string;
+    status: string;
+    subtotal: number;
+    discountTotal: number;
+    taxTotal: number;
+    totalAmount: number;
+    amountPaid: number;
+    dueDate: string;
+    issueDate: string;
+    lines?: Array<{
+      id: string;
+      description: string;
+      quantity: number;
+      unitPrice: number;
+      totalAmount: number;
+    }>;
+  }>;
+  subscriptions?: Array<{
+    id: string;
+    subscriptionNumber: string;
+    status: string;
+    billingInterval: string;
+    currentMrr: number;
+    currentArr: number;
+    nextBillingDate?: string | null;
+    autoRenew: boolean;
+    lines?: Array<{
+      id: string;
+      quantity: number;
+      unitPrice: number;
+      recurringAmount: number;
+      product?: { name: string; sku: string };
+    }>;
+    creditNotes?: Array<{
+      id: string;
+      creditNoteNumber: string;
+      amount: number;
+      reason?: string | null;
+    }>;
+  }>;
+  fulfillmentOrder?: {
+    id: string;
+    fulfillmentNumber: string;
+    status: string;
+    shipments?: Array<{
+      id: string;
+      shipmentNumber: string;
+      status: string;
+      carrier?: string | null;
+      trackingNumber?: string | null;
+      warehouse?: { name: string };
+      lines?: Array<{
+        id: string;
+        quantity: number;
+        product?: { name: string; sku: string };
+      }>;
+    }>;
+    backorders?: Array<{
+      id: string;
+      quantity: number;
+      status: string;
+      product?: { name: string; sku: string };
+    }>;
+  } | null;
 }
 
 export interface ActivePortalQuote {

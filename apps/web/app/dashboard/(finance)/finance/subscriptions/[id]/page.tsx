@@ -1,8 +1,8 @@
 "use client";
 
-import { use, useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Calendar,
@@ -20,39 +20,42 @@ import {
   Mail,
   RefreshCw,
   X,
+  Plus,
+  Receipt,
+  RotateCcw,
+  Check,
+  ExternalLink,
   CreditCard,
   Box,
-  ChevronRight,
-  Sparkles,
 } from "lucide-react";
 import { BrandLogo } from "@repo/ui";
 import { useDashboardAuth } from "../../../../layout";
 import {
   useSubscription,
   useModifySubscription,
+  useUpdateSubscriptionLine,
   useCancelSubscription,
   useScheduleReminder,
+  useQuotation,
   type SubscriptionData,
 } from "../../../../../../lib/query";
 import { INITIAL_SUBSCRIPTION_RECORDS } from "../../../../../../lib/finance-data";
 
-interface Props {
-  params: Promise<{ id: string }>;
-}
-
-export default function BillingDetailPage({ params }: Props) {
+export default function BillingDetailPage({ params }: { params?: { id?: string } }) {
   const router = useRouter();
-  const resolvedParams = use(params);
-  const subId = resolvedParams.id;
+  const routeParams = useParams();
+  const subId = ((routeParams?.id as string) || (params?.id as string) || "").trim();
 
   const { user } = useDashboardAuth();
 
   // Role Gate: Private to Finance Ops & Admin
-  const isAuthorized = user?.role === "FINANCE_OPS" || user?.role === "ADMIN" || !user?.role;
+  const isAuthorized = !user || user.role === "FINANCE_OPS" || user.role === "ADMIN";
 
   // Data fetching
   const { data: apiSub, isLoading, refetch } = useSubscription(subId);
+  const { data: originatingQuote } = useQuotation(apiSub?.quotationId || "");
   const modifyMutation = useModifySubscription();
+  const updateLineMutation = useUpdateSubscriptionLine();
   const cancelMutation = useCancelSubscription();
   const reminderMutation = useScheduleReminder();
 
@@ -71,7 +74,8 @@ export default function BillingDetailPage({ params }: Props) {
 
   // Cancel Modal State
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
-  const [cancelReason, setCancelReason] = useState("Customer requested contract cancellation");
+  const [cancelReason, setCancelReason] = useState("Customer requested cancellation");
+  const [refundRule, setRefundRule] = useState<"PRORATED" | "FULL" | "NO_REFUND">("PRORATED");
 
   // Fallback demo mock resolution if subscription is a sample ID or not found in DB
   const sub: SubscriptionData = useMemo(() => {
@@ -92,7 +96,7 @@ export default function BillingDetailPage({ params }: Props) {
       billingInterval: (sample.cycle.toUpperCase() === "QUARTERLY" ? "QUARTERLY" : sample.cycle.toUpperCase() === "ANNUALLY" ? "ANNUALLY" : "MONTHLY") as any,
       currentPeriodStart: new Date().toISOString(),
       currentPeriodEnd: new Date(Date.now() + 30 * 86400000).toISOString(),
-      nextBillingDate: sample.nextBillDate !== "-" ? new Date(Date.now() + 15 * 86400000).toISOString() : null,
+      nextBillingDate: sample.nextBillDate !== "-" ? new Date(Date.now() + 15 * 86400000).toISOString() : (null as any),
       currentMrr: sample.amount,
       currentArr: sample.amount * 12,
       autoRenew: true,
@@ -172,6 +176,27 @@ export default function BillingDetailPage({ params }: Props) {
             ],
           } as any)
         : undefined,
+      invoices: isAcme
+        ? [
+            {
+              id: "inv-sub-1",
+              invoiceNumber: "INV-1043",
+              status: "PAID",
+              subtotal: 46,
+              discountTotal: 0,
+              taxTotal: 0,
+              totalAmount: 46,
+              amountPaid: 46,
+              amountRemaining: 0,
+              paymentTerms: "Net 15",
+              issueDate: new Date().toISOString(),
+              dueDate: new Date(Date.now() + 15 * 86400000).toISOString(),
+              customerId: "cust-demo",
+              createdAt: new Date().toISOString(),
+            },
+          ]
+        : [],
+      creditNotes: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -179,15 +204,16 @@ export default function BillingDetailPage({ params }: Props) {
 
   // Extract one-time lines from originating quotation or fallback
   const oneTimeLines = useMemo(() => {
-    if (sub?.quotation?.lines && sub.quotation.lines.length > 0) {
-      const filtered = sub.quotation.lines.filter(
-        (l) => l.itemType === "HARDWARE" || l.itemType === "SERVICE"
+    const qLines = sub?.quotation?.lines || originatingQuote?.lines;
+    if (qLines && qLines.length > 0) {
+      const filtered = qLines.filter(
+        (l: any) => l.itemType === "HARDWARE" || l.itemType === "SERVICE"
       );
       if (filtered.length > 0) return filtered;
     }
 
     // Realistic fallback for Wireframe 10 demo if quotation has no attached hardware lines
-    if (sub.customer?.name?.includes("Acme") || sub.notes?.includes("Care Plan 2yr")) {
+    if (sub?.customer?.name?.includes("Acme") || sub?.notes?.includes("Care Plan 2yr")) {
       return [
         {
           id: "demo-hw-1",
@@ -209,7 +235,7 @@ export default function BillingDetailPage({ params }: Props) {
     }
 
     return [];
-  }, [sub]);
+  }, [sub, originatingQuote]);
 
   // Extract recurring lines
   const recurringLines = useMemo(() => {
@@ -218,6 +244,29 @@ export default function BillingDetailPage({ params }: Props) {
     }
     return [];
   }, [sub]);
+
+  // Live Proration Calculation for modal preview
+  const activeLine = recurringLines[0];
+  const oldQty = activeLine?.quantity || 1;
+  const deltaQty = editQuantity - oldQty;
+
+  const { daysRemaining, totalDays, estProration } = useMemo(() => {
+    const now = new Date();
+    const periodStart = sub?.currentPeriodStart ? new Date(sub.currentPeriodStart) : new Date();
+    const periodEnd = sub?.currentPeriodEnd
+      ? new Date(sub.currentPeriodEnd)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const total = Math.max(1, Math.round((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24)));
+    const remaining = Math.max(0, Math.round((periodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+    const fraction = Math.max(0, Math.min(1, remaining / total));
+    const prorationAmount = Math.round(deltaQty * (activeLine?.unitPrice || editUnitPrice || 46) * fraction * 100) / 100;
+
+    return { daysRemaining: remaining, totalDays: total, estProration: prorationAmount };
+  }, [sub, deltaQty, activeLine, editUnitPrice]);
+
+  // Extract Invoices and Credit Notes
+  const subInvoices = sub?.invoices || [];
+  const subCreditNotes = sub?.creditNotes || [];
 
   // Open Modify Modal
   const handleOpenModify = () => {
@@ -235,10 +284,22 @@ export default function BillingDetailPage({ params }: Props) {
     setIsModifyModalOpen(true);
   };
 
-  // Submit Modify
+  // Submit Modify (Triggers backend mid-cycle proration if quantity changed)
   const handleSaveModify = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const primaryLine = sub?.lines?.[0];
+
+      // 1. If seat quantity changed, invoke the proration engine
+      if (primaryLine && primaryLine.id && primaryLine.quantity !== editQuantity) {
+        await updateLineMutation.mutateAsync({
+          subscriptionId: subId,
+          lineId: primaryLine.id,
+          quantity: editQuantity,
+        });
+      }
+
+      // 2. Update general subscription schedule details
       await modifyMutation.mutateAsync({
         id: sub.id,
         body: {
@@ -253,9 +314,14 @@ export default function BillingDetailPage({ params }: Props) {
       });
 
       setIsModifyModalOpen(false);
-      setFeedback({ type: "success", text: "Subscription schedule modified and synchronized." });
+      setFeedback({
+        type: "success",
+        text: primaryLine && primaryLine.quantity !== editQuantity
+          ? `Seat adjustment applied (${editQuantity > primaryLine.quantity ? `+${editQuantity - primaryLine.quantity} seats: Prorated Invoice issued` : `${editQuantity - primaryLine.quantity} seats: Prorated Credit Note issued`}).`
+          : "Subscription schedule modified and synchronized.",
+      });
       refetch();
-      setTimeout(() => setFeedback(null), 4000);
+      setTimeout(() => setFeedback(null), 5000);
     } catch (err: any) {
       // In sample demo mode, update gracefully
       setIsModifyModalOpen(false);
@@ -264,18 +330,22 @@ export default function BillingDetailPage({ params }: Props) {
     }
   };
 
-  // Submit Cancel
+  // Submit Cancel (Triggers refund rule & proration credit note)
   const handleConfirmCancel = async () => {
     try {
       await cancelMutation.mutateAsync({
         id: sub.id,
         reason: cancelReason,
+        refundRule,
       });
 
       setIsCancelModalOpen(false);
-      setFeedback({ type: "success", text: "Subscription has been cancelled. Recurring billing stopped." });
+      setFeedback({
+        type: "success",
+        text: `Subscription cancelled with ${refundRule} refund policy. Recurring schedule halted.`,
+      });
       refetch();
-      setTimeout(() => setFeedback(null), 4000);
+      setTimeout(() => setFeedback(null), 5000);
     } catch (err: any) {
       // In sample demo mode, simulate cancellation gracefully
       setIsCancelModalOpen(false);
@@ -331,9 +401,9 @@ export default function BillingDetailPage({ params }: Props) {
     );
   }
 
-  const customerName = sub.customer?.name || sub.customer?.companyName || "Acme Corp";
-  const primaryPlanName = sub.lines?.[0]?.product?.name || sub.notes || "Care Plan 2yr";
-  const nextBillDateFormatted = sub.nextBillingDate
+  const customerName = sub?.customer?.name || sub?.customer?.companyName || "Acme Corp";
+  const primaryPlanName = sub?.lines?.[0]?.product?.name || sub?.notes || "Care Plan 2yr";
+  const nextBillDateFormatted = sub?.nextBillingDate
     ? new Date(sub.nextBillingDate).toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
@@ -521,7 +591,7 @@ export default function BillingDetailPage({ params }: Props) {
                 <tr className="bg-slate-50/80 text-slate-500 font-bold uppercase tracking-wider text-[11px] border-b border-slate-100">
                   <th className="py-3.5 px-6">Plan</th>
                   <th className="py-3.5 px-4 text-center w-28">Cycle</th>
-                  <th className="py-3.5 px-6 text-center w-36">Next Bill Date</th>
+                  <th className="py-3.5 px-4 text-center w-36">Next Bill Date</th>
                   <th className="py-3.5 px-6 text-right w-36">Amount</th>
                 </tr>
               </thead>
@@ -555,7 +625,90 @@ export default function BillingDetailPage({ params }: Props) {
           </div>
         </div>
 
-        {/* ── SECTION 3: BULLMQ RENEWAL REMINDER TELEMETRY ── */}
+        {/* ── SECTION 3: PRORATION INVOICES & CREDIT NOTES HISTORY ── */}
+        {(subInvoices.length > 0 || subCreditNotes.length > 0) && (
+          <div className="space-y-3">
+            <h2 className="text-sm font-bold text-sky-700 tracking-tight flex items-center gap-2">
+              <Receipt size={16} className="text-emerald-600" />
+              <span>Proration Invoices &amp; Credit Ledger</span>
+            </h2>
+
+            <div className="bg-white rounded-2xl border border-black/[0.06] shadow-xs overflow-hidden divide-y divide-slate-100">
+              {/* Invoices */}
+              {subInvoices.length > 0 && (
+                <div className="p-4 space-y-2">
+                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Issued Invoices</div>
+                  <div className="space-y-2">
+                    {subInvoices.map((inv) => (
+                      <div
+                        key={inv.id}
+                        className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="font-bold text-slate-900 flex items-center gap-2">
+                            <span>{inv.invoiceNumber}</span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                                inv.status === "PAID"
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                  : "bg-amber-50 text-amber-700 border-amber-200"
+                              }`}
+                            >
+                              {inv.status}
+                            </span>
+                          </div>
+                          <p className="text-slate-500 text-[11px]">
+                            Due {new Date(inv.dueDate).toLocaleDateString()} &bull; Total: ₹{Number(inv.totalAmount).toLocaleString()}
+                          </p>
+                        </div>
+
+                        <Link
+                          href={`/dashboard/finance/invoices/${inv.id}`}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-[#ff5e3a] hover:underline transition"
+                        >
+                          <span>View Invoice &rarr;</span>
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Credit Notes */}
+              {subCreditNotes.length > 0 && (
+                <div className="p-4 space-y-2">
+                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Credit Notes (Prorated Adjustments)</div>
+                  <div className="space-y-2">
+                    {subCreditNotes.map((cn) => (
+                      <div
+                        key={cn.id}
+                        className="p-3 rounded-xl bg-amber-50/60 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="font-bold text-amber-900 flex items-center gap-2">
+                            <RotateCcw size={13} />
+                            <span>{cn.creditNoteNumber}</span>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">
+                              CREDIT: ₹{Number(cn.amount).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-slate-600 text-[11px]">
+                            {cn.reason || "Prorated mid-cycle adjustment"}
+                          </p>
+                        </div>
+                        <span className="text-[11px] text-slate-500 font-mono">
+                          {new Date(cn.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── SECTION 4: BULLMQ RENEWAL REMINDER TELEMETRY ── */}
         <div className="p-4 bg-orange-50/60 border border-orange-200/80 rounded-2xl shadow-2xs space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
@@ -699,6 +852,35 @@ export default function BillingDetailPage({ params }: Props) {
                 </div>
               </div>
 
+              {/* Live Proration Preview Card */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mid-Cycle Proration Schedule:</div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-600 font-medium">Days Remaining:</span>
+                  <span className="text-slate-900 font-mono font-bold">
+                    {daysRemaining} / {totalDays} days in cycle
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-600 font-medium">Seat Delta:</span>
+                  <span className={deltaQty >= 0 ? "text-emerald-600 font-mono font-bold" : "text-amber-600 font-mono font-bold"}>
+                    {deltaQty >= 0 ? `+${deltaQty} seats` : `${deltaQty} seats`}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-600 font-medium">Adjustment Type:</span>
+                  <span className="text-slate-900 font-mono font-bold">
+                    {deltaQty > 0 ? "Prorated INVOICE" : deltaQty < 0 ? "Prorated CREDIT NOTE" : "No Change"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs font-bold pt-1 border-t border-slate-200">
+                  <span className="text-slate-600">Estimated Adjustment:</span>
+                  <span className="font-mono text-xs text-sky-600 font-bold">
+                    {estProration >= 0 ? `+₹${estProration.toLocaleString()}` : `-₹${Math.abs(estProration).toLocaleString()}`}
+                  </span>
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   Next Billing Date
@@ -733,10 +915,10 @@ export default function BillingDetailPage({ params }: Props) {
                 </button>
                 <button
                   type="submit"
-                  disabled={modifyMutation.isPending}
+                  disabled={modifyMutation.isPending || updateLineMutation.isPending}
                   className="px-5 py-2 rounded-full bg-[#ff5e3a] hover:bg-[#ff4e26] text-white text-xs font-bold transition shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
-                  {modifyMutation.isPending && <Loader2 size={13} className="animate-spin" />}
+                  {(modifyMutation.isPending || updateLineMutation.isPending) && <Loader2 size={13} className="animate-spin" />}
                   <span>Save Changes</span>
                 </button>
               </div>
@@ -765,17 +947,34 @@ export default function BillingDetailPage({ params }: Props) {
               Future recurring invoices and automated BullMQ reminders will be stopped immediately.
             </div>
 
-            <div className="space-y-1 text-xs">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                Cancellation Reason
-              </label>
-              <input
-                type="text"
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                placeholder="Reason for cancellation..."
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 outline-none focus:border-rose-500"
-              />
+            <div className="space-y-3 text-xs">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Refund Calculation Rule
+                </label>
+                <select
+                  value={refundRule}
+                  onChange={(e) => setRefundRule(e.target.value as any)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-semibold outline-none focus:border-rose-500 cursor-pointer"
+                >
+                  <option value="PRORATED">PRORATED - Unused cycle days credited</option>
+                  <option value="FULL">FULL - Full cycle fee refunded</option>
+                  <option value="NO_REFUND">NO_REFUND - Immediate cancellation without credit</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Cancellation Reason
+                </label>
+                <input
+                  type="text"
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="Reason for cancellation..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 outline-none focus:border-rose-500"
+                />
+              </div>
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">

@@ -63,12 +63,19 @@ export default function AdminOverviewPage() {
         : "₹";
 
   // Normalized Array Safe Guards
-  const membersList = Array.isArray(apiMembers) ? apiMembers : [];
-  const invitationsList = Array.isArray(apiInvitations)
+  const rawMembers = Array.isArray(apiMembers)
+    ? apiMembers
+    : Array.isArray((apiMembers as any)?.members)
+      ? (apiMembers as any).members
+      : [];
+  const membersList = rawMembers.filter((m: any) => m.role && m.role !== "CUSTOMER");
+
+  const rawInvitations = Array.isArray(apiInvitations)
     ? apiInvitations
     : Array.isArray((apiInvitations as any)?.invitations)
       ? (apiInvitations as any).invitations
       : [];
+  const invitationsList = rawInvitations.filter((i: any) => i?.role !== "CUSTOMER");
   const productsList = Array.isArray(apiProducts) ? apiProducts : [];
   const categoriesList = Array.isArray(apiCategories) ? apiCategories : [];
   const warehousesList = Array.isArray(apiWarehouses) ? apiWarehouses : [];

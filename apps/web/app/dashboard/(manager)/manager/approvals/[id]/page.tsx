@@ -70,7 +70,7 @@ export default function ManagerApprovalDetailPage() {
           <div className="flex items-center gap-3 shrink-0">
             <Link
               href="/dashboard/manager"
-              className="text-xs font-semibold text-slate-600 hover:text-slate-900 px-3.5 h-8 rounded-full border border-slate-200 bg-white hover:bg-slate-50 transition flex items-center gap-1.5 shrink-0"
+              className="text-xs font-semibold text-slate-600 hover:text-slate-900 px-3.5 h-8 rounded-full border border-slate-200 bg-white hover:bg-slate-50 transition flex items-center gap-1.5 shrink-0 cursor-pointer"
             >
               <ArrowLeft size={13} />
               <span>Back to Approvals</span>

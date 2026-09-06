@@ -121,7 +121,10 @@ export const listMembers = asyncHandler(async (req: AuthRequest, res: Response) 
   const orgId = req.user!.organizationId!;
 
   const members = await prisma.user.findMany({
-    where: { organizationId: orgId },
+    where: {
+      organizationId: orgId,
+      role: { not: UserRole.CUSTOMER },
+    },
     select: {
       id: true,
       name: true,

@@ -227,17 +227,6 @@ export const MOCK_ADMIN_MEMBERS: AdminMember[] = [
     approvalThreshold: 100.0,
     joinedAt: "2026-01-20",
   },
-  {
-    id: "usr-cust-01",
-    name: "Johnathan Ward",
-    email: "buyer@acmecorp.com",
-    role: "CUSTOMER",
-    department: "Acme Corp Procurement",
-    avatarInitials: "JW",
-    emailVerified: true,
-    status: "ACTIVE",
-    joinedAt: "2026-02-15",
-  },
 ];
 
 export const MOCK_ADMIN_INVITATIONS: AdminInvitation[] = [

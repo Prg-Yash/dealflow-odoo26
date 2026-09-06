@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -22,12 +22,13 @@ import {
 import { useDashboardAuth } from "../../layout";
 import { BrandLogo, ProfileModal } from "@repo/ui";
 import {
-  INITIAL_MANAGER_APPROVALS,
-  INITIAL_DEAL_ANOMALIES,
-  INITIAL_REP_METRICS,
   type ManagerApprovalRequest,
   type DealAnomalyRecord,
   type ApprovalStatus,
+  type TeamRepMetric,
+  INITIAL_MANAGER_APPROVALS,
+  INITIAL_DEAL_ANOMALIES,
+  INITIAL_REP_METRICS,
 } from "../../../../lib/manager-data";
 import {
   useQuotations,
@@ -37,159 +38,390 @@ import {
   useNudgeAction,
   useMembers,
   useUpdateQuotationStage,
+  useApproveStep,
+  useRejectStep,
   useApproveQuotation,
   useRejectQuotation,
 } from "../../../../lib/query";
 import { toast } from "sonner";
 
 export default function ManagerDashboardPage() {
-  const { signOut } = useDashboardAuth();
+  const { user, signOut } = useDashboardAuth();
   const router = useRouter();
   const [activeView, setActiveView] = useState<"approvals" | "telemetry" | "team">("approvals");
   const [profileOpen, setProfileOpen] = useState(false);
 
-  // Live TanStack Query Hooks
-  const { data: apiQuotes } = useQuotations({ stage: "PENDING_APPROVAL" });
-  const { data: apiAnomalies } = useDealAnomalies();
+  const currentUserName = user?.name || "Elena Vance";
+  const currentUserInitials = (user?.name || "EV")
+    .split(" ")
+    .map((s) => s[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  // Live TanStack Query Hooks (Database Driven)
+  const { data: allQuotes, isLoading: isLoadingQuotes, refetch: refetchQuotes } = useQuotations();
+  const { data: apiAnomalies, isLoading: isLoadingAnomalies, refetch: refetchAnomalies } = useDealAnomalies();
   const { data: apiStalled } = useStalledQuotations();
   const { data: apiSlippage } = useFulfillmentSlippage();
-  const { data: apiMembers } = useMembers();
+  const { data: apiMembers, isLoading: isLoadingMembers } = useMembers();
   const updateStageMutation = useUpdateQuotationStage();
-  const nudgeMutation = useNudgeAction();
+  const approveStepMutation = useApproveStep();
+  const rejectStepMutation = useRejectStep();
   const approveQuotationMutation = useApproveQuotation();
   const rejectQuotationMutation = useRejectQuotation();
+  const nudgeMutation = useNudgeAction();
 
-  const initialApprovals: ManagerApprovalRequest[] = apiQuotes && apiQuotes.length > 0
-    ? apiQuotes.map((q) => {
-        const step1 = q.approvalRequest?.steps?.find((s: any) => s.stepNumber === 1);
-        const isStep1Approved = step1?.status === "APPROVED";
-        const isPending = step1 ? step1.status === "PENDING" : q.stage === "PENDING_APPROVAL";
-        const hasFinanceStep = q.requiresFinanceApproval || q.approvalRequest?.steps?.some((s: any) => s.level === "FINANCE");
+  const approvals: ManagerApprovalRequest[] = useMemo(() => {
+    if (!allQuotes || allQuotes.length === 0) return INITIAL_MANAGER_APPROVALS;
+    return allQuotes.map((q) => {
+      const discountPct =
+        q.discountPercent ??
+        (q.subtotal > 0 && q.discountTotal ? Math.round((q.discountTotal / q.subtotal) * 100) : 0);
+      const marginPct =
+        q.grossMarginPercent ??
+        (q.grandTotal > 0 && q.grossMargin ? Math.round((q.grossMargin / q.grandTotal) * 100) : 40);
 
-        return {
-          id: q.id,
-          quoteId: q.quoteNumber || q.id,
-          account: q.customer?.name || "Enterprise Account",
-          accountTier: (((q.customer as any)?.tier?.name as any) || "Gold") as any,
-          repName: q.salesRep?.user?.name || "Account Executive",
-          repInitials: (q.salesRep?.user?.name || "AE").split(" ").map((s: string) => s[0]).join("").slice(0, 2).toUpperCase(),
-          dealSize: q.grandTotal || 0,
-          discountRequested: q.discountPercent || 15,
-          thresholdMax: 10,
-          marginProjected: q.grossMarginPercent || 40,
-          targetMargin: 45,
-          reason: q.notes || "Volume discount exception requested.",
-          status: (isPending ? "PENDING" : isStep1Approved || q.stage === "APPROVED" ? "APPROVED" : q.stage === "CANCELLED" ? "REJECTED" : "PENDING") as ApprovalStatus,
-          submittedAt: new Date(q.createdAt).toLocaleDateString(),
-          slaHoursLeft: 24,
-          blendedRiskScore: q.blendedRiskScore || 15,
-          escalationLevel: hasFinanceStep ? "SALES_MANAGER_AND_FINANCE" : "SALES_MANAGER",
-          pdfFileName: `${q.quoteNumber || "Quote"}-Exec.pdf`,
-          pdfFileSize: "1.4 MB",
-          pdfHash: "sha256-verified",
-          lineItems: [],
-          workflowSteps: [],
-          auditLogs: [],
-        };
-      })
-    : INITIAL_MANAGER_APPROVALS;
+      const isExplicitlyApproved =
+        q.stage === "APPROVED" ||
+        q.stage === "CONFIRMED" ||
+        q.approvalStatus === "APPROVED";
 
-  const anomaliesList = apiAnomalies?.alerts || (Array.isArray(apiAnomalies) ? apiAnomalies : []);
-  const stalledList = apiStalled?.alerts || [];
-  const slippageList = apiSlippage?.alerts || [];
+      const isExplicitlyRejected =
+        q.stage === "CANCELLED" ||
+        q.approvalStatus === "REJECTED";
 
-  // Unified alert list merging all 3 sources
-  const allAlerts: DealAnomalyRecord[] = [
-    ...anomaliesList.map((a: any) => ({
-      id: a.quotationId || a.id || "anom-" + Math.random(),
-      quoteId: a.quoteNumber || "",
-      quotationId: a.quotationId,
-      account: a.customerName || "Strategic Account",
-      accountInitials: (a.customerName || "SA").slice(0, 2).toUpperCase(),
-      repName: a.salesRepName || a.repName || "Account Rep",
-      dealValue: a.dealSize || 0,
-      riskGaugePercent: a.blendedRiskScore || 25,
-      riskLevel: (a.severity === "HIGH" || a.severity === "CRITICAL" ? "high" : a.severity === "LOW" ? "low" : "medium") as "high" | "medium" | "low",
-      anomalyType: "Discount Breach" as const,
-      idleDays: a.daysSinceLastActivity || 0,
-      actionStatus: "flagged" as const,
-      details: a.recommendation || `Discount +${a.excessPercent?.toFixed(1) || 0}% above rep baseline (${a.repBaselinePercent?.toFixed(1) || 0}%)`,
-    })),
-    ...stalledList.map((s: any) => ({
-      id: s.quotationId || "stall-" + Math.random(),
-      quoteId: s.quoteNumber || "",
-      quotationId: s.quotationId,
-      account: s.customerName || "Strategic Account",
-      accountInitials: (s.customerName || "SA").slice(0, 2).toUpperCase(),
-      repName: s.salesRepName || "Account Rep",
-      dealValue: s.grandTotal || 0,
-      riskGaugePercent: s.severity === "HIGH" ? 80 : s.severity === "MEDIUM" ? 50 : 25,
-      riskLevel: (s.severity === "HIGH" ? "high" : s.severity === "MEDIUM" ? "medium" : "low") as "high" | "medium" | "low",
-      anomalyType: "Stalled Deal" as const,
-      idleDays: s.daysInactive || 0,
-      actionStatus: "flagged" as const,
-      details: `Inactive for ${s.daysInactive || 0} days (+${Math.max(0, (s.daysInactive || 0) - (s.thresholdDays || 7))} days over ${s.thresholdDays || 7}d limit) — Stage: ${s.stage}`,
-    })),
-    ...slippageList.map((sl: any) => ({
-      id: sl.fulfillmentOrderId || "slip-" + Math.random(),
-      quoteId: sl.fulfillmentNumber || "",
-      quotationId: sl.quotationId,
-      account: sl.fulfillmentNumber || "Fulfillment",
-      accountInitials: "SL",
-      repName: "Fulfillment Ops",
-      dealValue: 0,
-      riskGaugePercent: 70,
-      riskLevel: "high" as const,
-      anomalyType: "SLA Alert" as const,
-      idleDays: sl.daysOverdue || 0,
-      actionStatus: "flagged" as const,
-      details: `Delivery ${sl.daysOverdue || 0} days past SLA — ${sl.reason || "No shipment dispatched"}`,
-    })),
-  ];
+      const isRevisionRequested =
+        q.approvalStatus === "REVISION_REQUESTED";
+
+      // Multi-hop approval step check for Sales Manager
+      const managerStep = (q as any).approvalRequest?.steps?.find(
+        (s: any) => s.level === "SALES_MANAGER"
+      );
+
+      let status: ApprovalStatus = "PENDING";
+      if (isExplicitlyApproved || (managerStep && managerStep.status === "APPROVED")) {
+        status = "APPROVED";
+      } else if (isExplicitlyRejected || (managerStep && managerStep.status === "REJECTED")) {
+        status = "REJECTED";
+      } else if (isRevisionRequested || (managerStep && managerStep.status === "REVISION_REQUESTED")) {
+        status = "REVISION_REQUESTED";
+      } else if (q.stage === "PENDING_APPROVAL" || (managerStep && managerStep.status === "PENDING") || (q.approvalStatus === "PENDING" && q.requiresManagerApproval)) {
+        status = "PENDING";
+      } else if (q.stage === "DRAFT") {
+        status = "PENDING";
+      } else {
+        status = "APPROVED";
+      }
+
+      const hasFinanceStep = q.requiresFinanceApproval || q.approvalRequest?.steps?.some((s: any) => s.level === "FINANCE");
+      const customerName = q.customer?.name || (q.customer as any)?.company || (q.customer as any)?.companyName || "Enterprise Account";
+      const repDisplayName = q.salesRep?.user?.name || "Account Executive";
+      const repInitials = repDisplayName
+        .split(" ")
+        .map((s: string) => s[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase();
+
+      return {
+        id: q.id,
+        quoteId: q.quoteNumber || q.id,
+        account: customerName,
+        accountTier: (((q.customer as any)?.tier?.name as any) || "Gold") as any,
+        repName: repDisplayName,
+        repInitials,
+        dealSize: q.grandTotal || 0,
+        discountRequested: discountPct,
+        thresholdMax: (q.customer as any)?.tier?.discountCeiling ?? 15,
+        marginProjected: marginPct,
+        targetMargin: 45,
+        reason: q.notes || "Commercial discount exception requested.",
+        status,
+        submittedAt: new Date(q.createdAt).toLocaleDateString(),
+        slaHoursLeft: 24,
+        blendedRiskScore: q.blendedRiskScore || 15,
+        escalationLevel: hasFinanceStep ? "SALES_MANAGER_AND_FINANCE" : "SALES_MANAGER",
+        pdfFileName: `${q.quoteNumber || "Quote"}-Exec.pdf`,
+        pdfFileSize: "1.2 MB",
+        pdfHash: "sha256-verified",
+        lineItems: (q.lines || []).map((l: any, idx: number) => ({
+          id: l.id || `line-${idx}`,
+          sku: l.product?.sku || `SKU-${idx + 1}`,
+          name: l.product?.name || l.description || "Product Item",
+          category: (l.itemType === "HARDWARE" ? "Hardware" : l.itemType === "SERVICE" ? "Services" : "SaaS License") as any,
+          quantity: l.quantity || 1,
+          listPrice: l.unitPrice || 0,
+          appliedDiscountPercent: l.discountPercent || 0,
+          policyCapPercent: l.categoryCeiling || 15,
+          netPrice: l.netPrice || (l.unitPrice ? l.unitPrice * (1 - (l.discountPercent || 0) / 100) * (l.quantity || 1) : 0),
+          isBreached: l.isCeilingBreached ?? ((l.discountPercent || 0) > (l.categoryCeiling || 15)),
+          breachDelta: Math.max(0, (l.discountPercent || 0) - (l.categoryCeiling || 15)),
+        })),
+        workflowSteps: (q as any).approvalRequest?.steps && (q as any).approvalRequest.steps.length > 0
+          ? [
+              {
+                id: `ws-rep-${q.id}`,
+                stepNumber: 1,
+                nodeTitle: "Node 01 · Sales Rep Submit",
+                role: "Sales Rep" as const,
+                assigneeName: q.salesRep?.user?.name || "Account Executive",
+                status: "completed" as const,
+                actionedAt: new Date(q.createdAt).toLocaleDateString(),
+                actionNote: "Submitted for approval",
+              },
+              ...(q as any).approvalRequest.steps.map((s: any, idx: number) => ({
+                id: s.id || `ws-${idx + 2}`,
+                stepNumber: idx + 2,
+                nodeTitle: s.level === "SALES_MANAGER" ? "Node 02 · Sales Manager" : "Node 03 · VP Finance",
+                role: (s.level === "SALES_MANAGER" ? "Sales Manager" : "VP Finance") as any,
+                assigneeName: s.reviewer?.name || (s.level === "SALES_MANAGER" ? "Elena Vance" : "Fiona Ops"),
+                status: (s.status === "APPROVED" ? "completed" : s.status === "PENDING" ? "active" : "pending") as any,
+                actionedAt: s.actionedAt ? new Date(s.actionedAt).toLocaleDateString() : undefined,
+                actionNote: s.comments || (s.status === "APPROVED" ? "Approved exception" : s.status === "REJECTED" ? "Rejected" : "Pending signoff"),
+              })),
+            ]
+          : [
+              {
+                id: "ws-1",
+                stepNumber: 1,
+                nodeTitle: "Node 01 · Sales Rep Submit",
+                role: "Sales Rep" as const,
+                assigneeName: q.salesRep?.user?.name || "Account Executive",
+                status: "completed" as const,
+                actionedAt: new Date(q.createdAt).toLocaleDateString(),
+                actionNote: "Submitted for approval",
+              },
+              {
+                id: "ws-2",
+                stepNumber: 2,
+                nodeTitle: "Node 02 · Sales Manager",
+                role: "Sales Manager" as const,
+                assigneeName: "Elena Vance",
+                status: (status === "APPROVED" ? "completed" : "active") as any,
+                actionedAt: status !== "PENDING" ? "Recently" : undefined,
+                actionNote: status === "APPROVED" ? "Approved exception" : status === "REJECTED" ? "Rejected" : "Pending signoff",
+              },
+              ...(hasFinanceStep
+                ? [
+                    {
+                      id: "ws-3",
+                      stepNumber: 3,
+                      nodeTitle: "Node 03 · VP Finance",
+                      role: "VP Finance" as const,
+                      assigneeName: "Fiona Ops",
+                      status: (status === "APPROVED" ? "active" : "pending") as any,
+                      actionNote: "Pending second-level margin signoff (>15% exception)",
+                    },
+                  ]
+                : []),
+            ],
+        auditLogs: (q as any).auditLogs && (q as any).auditLogs.length > 0
+          ? (q as any).auditLogs.map((al: any) => ({
+              id: al.id,
+              actor: al.actor?.name || "User",
+              role: al.actorRole?.replace("_", " ") || "Reviewer",
+              action: al.action,
+              timestamp: new Date(al.createdAt).toLocaleDateString(),
+              note: al.reason || "",
+            }))
+          : [
+              {
+                id: `log-${q.id}`,
+                actor: q.salesRep?.user?.name || "Account Executive",
+                role: "Sales Rep",
+                action: "SUBMITTED",
+                timestamp: new Date(q.createdAt).toLocaleDateString(),
+                note: `Submitted quote ${q.quoteNumber || q.id} for commercial signoff.`,
+              },
+            ],
+      };
+    });
+  }, [allQuotes]);
+
+  // Anomaly & Telemetry Data Processing
+  const anomaliesList = (apiAnomalies as any)?.anomalies || (apiAnomalies as any)?.alerts || (Array.isArray(apiAnomalies) ? apiAnomalies : []);
+  const stalledList = (apiStalled as any)?.alerts || (Array.isArray(apiStalled) ? apiStalled : []);
+  const slippageList = (apiSlippage as any)?.alerts || (Array.isArray(apiSlippage) ? apiSlippage : []);
+
+  // Unified alert list merging all 3 sources (Discount Breaches, Stalled Quotes, SLA Slippage)
+  const allAlerts: DealAnomalyRecord[] = useMemo(() => {
+    const list: DealAnomalyRecord[] = [];
+
+    if (anomaliesList && anomaliesList.length > 0) {
+      anomaliesList.forEach((a: any) => {
+        list.push({
+          id: a.quotationId || a.id || "anom-" + Math.random(),
+          quoteId: a.quoteNumber || "QT-1042",
+          quotationId: a.quotationId,
+          account: a.customerName || "Strategic Account",
+          accountInitials: (a.customerName || "SA").slice(0, 2).toUpperCase(),
+          repName: a.salesRepName || a.repName || "Account Rep",
+          dealValue: a.dealSize || 75000,
+          riskGaugePercent: a.blendedRiskScore || 25,
+          riskLevel: (a.severity === "HIGH" || a.severity === "CRITICAL" ? "high" : a.severity === "LOW" ? "low" : "medium") as "high" | "medium" | "low",
+          anomalyType: "Discount Breach" as const,
+          idleDays: a.daysSinceLastActivity || 3,
+          actionStatus: "flagged" as const,
+          details: a.recommendation || `Discount +${a.excessPercent?.toFixed(1) || 5}% above rep baseline (${a.repBaselinePercent?.toFixed(1) || 10}%)`,
+        });
+      });
+    }
+
+    if (stalledList && stalledList.length > 0) {
+      stalledList.forEach((s: any) => {
+        list.push({
+          id: s.quotationId || s.id || "stall-" + Math.random(),
+          quoteId: s.quoteNumber || "QT-1043",
+          quotationId: s.quotationId,
+          account: s.customerName || "Strategic Account",
+          accountInitials: (s.customerName || "SA").slice(0, 2).toUpperCase(),
+          repName: s.salesRepName || "Account Rep",
+          dealValue: s.grandTotal || 50000,
+          riskGaugePercent: s.severity === "HIGH" ? 80 : s.severity === "MEDIUM" ? 50 : 25,
+          riskLevel: (s.severity === "HIGH" ? "high" : s.severity === "MEDIUM" ? "medium" : "low") as "high" | "medium" | "low",
+          anomalyType: "Stalled Deal" as const,
+          idleDays: s.daysInactive || 7,
+          actionStatus: "flagged" as const,
+          details: `Inactive for ${s.daysInactive || 0} days (+${Math.max(0, (s.daysInactive || 0) - (s.thresholdDays || 7))} days over ${s.thresholdDays || 7}d limit) — Stage: ${s.stage}`,
+        });
+      });
+    }
+
+    if (slippageList && slippageList.length > 0) {
+      slippageList.forEach((sl: any) => {
+        list.push({
+          id: sl.fulfillmentOrderId || sl.id || "slip-" + Math.random(),
+          quoteId: sl.fulfillmentNumber || "FO-101",
+          quotationId: sl.quotationId,
+          account: sl.customerName || sl.fulfillmentNumber || "Fulfillment Order",
+          accountInitials: "FO",
+          repName: "Logistics Ops",
+          dealValue: 0,
+          riskGaugePercent: 70,
+          riskLevel: "high" as const,
+          anomalyType: "SLA Alert" as const,
+          idleDays: sl.daysOverdue || 2,
+          actionStatus: "flagged" as const,
+          details: `Delivery ${sl.daysOverdue || 0} days past SLA — ${sl.reason || "No shipment dispatched"}`,
+        });
+      });
+    }
+
+    return list;
+  }, [anomaliesList, stalledList, slippageList]);
 
   const displayAnomalies: DealAnomalyRecord[] = allAlerts.length > 0 ? allAlerts : INITIAL_DEAL_ANOMALIES;
 
-  const [approvals, setApprovals] = useState<ManagerApprovalRequest[]>(initialApprovals);
+  // Team Quota Metrics
+  const teamReps = useMemo(() => {
+    const rawReps = (apiMembers || []).filter(
+      (m: any) => m.role === "SALES_REP" || m.salesRep
+    );
 
-  useEffect(() => {
-    if (apiQuotes && apiQuotes.length > 0) {
-      setApprovals(
-        apiQuotes.map((q) => {
-          const step1 = q.approvalRequest?.steps?.find((s: any) => s.stepNumber === 1);
-          const isStep1Approved = step1?.status === "APPROVED";
-          const isPending = step1 ? step1.status === "PENDING" : q.stage === "PENDING_APPROVAL";
-          const hasFinanceStep = q.requiresFinanceApproval || q.approvalRequest?.steps?.some((s: any) => s.level === "FINANCE");
+    if (rawReps.length > 0) {
+      return rawReps.map((m: any, idx: number) => {
+        const repName = m.name || m.user?.name || "Account Executive";
+        const repEmail = m.email || m.user?.email || "rep@dealflow.ai";
+        const initials = repName
+          .split(" ")
+          .map((s: string) => s[0])
+          .join("")
+          .slice(0, 2)
+          .toUpperCase();
 
-          return {
-            id: q.id,
-            quoteId: q.quoteNumber || q.id,
-            account: q.customer?.name || "Enterprise Account",
-            accountTier: (((q.customer as any)?.tier?.name as any) || "Gold") as any,
-            repName: q.salesRep?.user?.name || "Account Executive",
-            repInitials: (q.salesRep?.user?.name || "AE").split(" ").map((s: string) => s[0]).join("").slice(0, 2).toUpperCase(),
-            dealSize: q.grandTotal || 0,
-            discountRequested: q.discountPercent || 15,
-            thresholdMax: 10,
-            marginProjected: q.grossMarginPercent || 40,
-            targetMargin: 45,
-            reason: q.notes || "Volume discount exception requested.",
-            status: (isPending ? "PENDING" : isStep1Approved || q.stage === "APPROVED" ? "APPROVED" : q.stage === "CANCELLED" ? "REJECTED" : "PENDING") as ApprovalStatus,
-            submittedAt: new Date(q.createdAt).toLocaleDateString(),
-            slaHoursLeft: 24,
-            blendedRiskScore: q.blendedRiskScore || 15,
-            escalationLevel: hasFinanceStep ? "SALES_MANAGER_AND_FINANCE" : "SALES_MANAGER",
-            pdfFileName: `${q.quoteNumber || "Quote"}-Exec.pdf`,
-            pdfFileSize: "1.4 MB",
-            pdfHash: "sha256-verified",
-            lineItems: [],
-            workflowSteps: [],
-            auditLogs: [],
-          };
-        })
-      );
+        const repQuotes = (allQuotes || []).filter(
+          (q) =>
+            q.salesRepId === m.id ||
+            q.salesRepId === m.salesRep?.id ||
+            q.salesRep?.id === m.id ||
+            q.salesRep?.id === m.salesRep?.id ||
+            (q.salesRep as any)?.userId === m.id ||
+            (q.salesRep as any)?.userId === (m as any).userId ||
+            q.salesRep?.user?.name === repName
+        );
+
+        const closed = repQuotes
+          .filter((q) => q.stage === "CONFIRMED" || q.stage === "APPROVED")
+          .reduce((sum, q) => sum + (q.grandTotal || 0), 0);
+
+        const pipeline = repQuotes
+          .filter(
+            (q) =>
+              q.stage === "DRAFT" ||
+              q.stage === "PENDING_APPROVAL" ||
+              q.stage === "NEGOTIATION"
+          )
+          .reduce((sum, q) => sum + (q.grandTotal || 0), 0);
+
+        const activeDeals = repQuotes.filter(
+          (q) =>
+            q.stage === "DRAFT" ||
+            q.stage === "PENDING_APPROVAL" ||
+            q.stage === "NEGOTIATION"
+        ).length;
+
+        const totalQuotesWithDiscount = repQuotes.filter(
+          (q) => q.discountPercent !== undefined && q.discountPercent > 0
+        );
+        const historicalAvgDiscount =
+          m.salesRep?.historicalAvgDiscount ??
+          (totalQuotesWithDiscount.length > 0
+            ? Math.round(
+                totalQuotesWithDiscount.reduce(
+                  (sum, q) => sum + (q.discountPercent || 0),
+                  0
+                ) / totalQuotesWithDiscount.length
+              )
+            : 10);
+
+        const quota = m.salesRep?.targetQuota || (m as any).quotaTarget || 500000;
+        const pacing = quota > 0 ? Math.round((closed / quota) * 100) : 0;
+        const commissionRate = m.salesRep?.commissionRate ?? 10;
+
+        const bgColors = [
+          "bg-indigo-600",
+          "bg-emerald-600",
+          "bg-sky-600",
+          "bg-amber-600",
+          "bg-purple-600",
+          "bg-rose-600",
+        ];
+        const avatarBg = bgColors[idx % bgColors.length];
+
+        return {
+          id: m.id,
+          name: repName,
+          email: repEmail,
+          initials,
+          avatarBg,
+          closed,
+          pipeline,
+          activeDeals,
+          historicalAvgDiscount,
+          quota,
+          pacing,
+          commissionRate,
+        };
+      });
     }
-  }, [apiQuotes]);
 
+    // Fallback to sample rep metrics for demo presentation
+    return INITIAL_REP_METRICS.map((rep) => ({
+      id: rep.id,
+      name: rep.name,
+      email: rep.email,
+      initials: rep.initials,
+      avatarBg: rep.avatarBg || "bg-indigo-600",
+      closed: rep.closed,
+      pipeline: rep.pipeline,
+      activeDeals: rep.activeDeals,
+      historicalAvgDiscount: rep.historicalAvgDiscount,
+      quota: rep.quota,
+      pacing: rep.pacing,
+      commissionRate: rep.commissionRate,
+    }));
+  }, [apiMembers, allQuotes]);
 
   const [approvalFilter, setApprovalFilter] = useState<"pending" | "all">("pending");
   const [searchQuery, setSearchQuery] = useState("");
@@ -251,49 +483,41 @@ export default function ManagerDashboardPage() {
         : "REVISION_REQUESTED";
 
     try {
-      if (request.id) {
-        if (type === "approve") {
-          await approveQuotationMutation.mutateAsync({
-            id: request.id,
-            comments: modalReason,
-          });
-        } else if (type === "reject") {
-          await rejectQuotationMutation.mutateAsync({
-            id: request.id,
-            reason: modalReason,
-          });
-        } else {
+      const targetQuoteId = request.id || request.quoteId;
+      if (type === "approve") {
+        await approveStepMutation.mutateAsync({
+          quotationId: targetQuoteId,
+          comments: modalReason,
+        });
+      } else if (type === "reject") {
+        await rejectStepMutation.mutateAsync({
+          quotationId: targetQuoteId,
+          comments: modalReason,
+        });
+      } else {
+        await updateStageMutation.mutateAsync({
+          id: targetQuoteId,
+          stage: "DRAFT" as any,
+        });
+      }
+      await refetchQuotes();
+      await refetchAnomalies();
+    } catch (err: any) {
+      console.warn("Approval mutation fallback:", err);
+      // Fallback update stage if approval step routing is in custom state
+      try {
+        const targetQuoteId = request.id || request.quoteId;
+        if (targetQuoteId) {
           await updateStageMutation.mutateAsync({
-            id: request.id,
-            stage: "DRAFT" as any,
+            id: targetQuoteId,
+            stage: newStatus === "APPROVED" ? "APPROVED" : "DRAFT",
           });
         }
+      } catch (innerErr) {
+        console.warn("Stage update fallback error:", innerErr);
       }
-    } catch (err) {
-      console.warn("Approval decision error:", err);
+      await refetchQuotes();
     }
-
-    setApprovals((prev) =>
-      prev.map((item) =>
-        item.id === request.id
-          ? {
-              ...item,
-              status: newStatus,
-              auditLogs: [
-                ...item.auditLogs,
-                {
-                  id: `log-${Date.now()}`,
-                  actor: "E. Vance",
-                  role: "Sales Director",
-                  action: newStatus,
-                  timestamp: "Just now",
-                  note: modalReason,
-                },
-              ],
-            }
-          : item
-      )
-    );
 
     const isDual = request.escalationLevel === "SALES_MANAGER_AND_FINANCE";
     setModalSuccessMsg(
@@ -308,15 +532,12 @@ export default function ManagerDashboardPage() {
   };
 
   const handleAnomalyAction = (id: string, actionType: "escalate" | "nudge") => {
-    setAnomalies((prev) =>
-      prev.map((a) =>
-        a.id === id
-          ? {
-              ...a,
-              actionStatus: actionType === "escalate" ? "escalated" : "nudged",
-            }
-          : a
-      )
+    nudgeMutation.mutate(
+      { quotationId: id, type: actionType },
+      {
+        onSuccess: () => toast.success(`Action '${actionType}' registered for anomaly`),
+        onError: () => toast.error(`Failed to register action`),
+      }
     );
   };
 
@@ -399,11 +620,11 @@ export default function ManagerDashboardPage() {
               className="flex items-center gap-2.5 pl-2.5 sm:border-l sm:border-slate-200 cursor-pointer"
             >
               <div className="w-8 h-8 rounded-full bg-[#ff5e3a] text-white text-xs font-extrabold flex items-center justify-center shadow-sm hover:scale-105 transition-transform">
-                EV
+                {currentUserInitials}
               </div>
               <div className="hidden md:flex flex-col text-left">
                 <span className="text-xs font-bold text-slate-900 leading-tight truncate max-w-[120px]">
-                  Elena Vance
+                  {currentUserName}
                 </span>
                 <span className="text-[10px] text-slate-500 font-medium truncate max-w-[120px]">
                   Sales Director
@@ -411,13 +632,13 @@ export default function ManagerDashboardPage() {
               </div>
             </button>
             <ProfileModal
-                onSignOut={signOut}
-                open={profileOpen}
+              onSignOut={signOut}
+              open={profileOpen}
               onClose={() => setProfileOpen(false)}
               user={{
-                name: "Elena Vance",
-                email: "elena@dealflow360.com",
-                initials: "EV",
+                name: currentUserName,
+                email: user?.email || "elena@dealflow360.com",
+                initials: currentUserInitials,
                 role: "manager",
               }}
             />
@@ -467,9 +688,23 @@ export default function ManagerDashboardPage() {
                   </div>
                 </div>
                 <div className="mt-3">
-                  <div className="text-3xl font-black text-[#0f172a] tracking-tight">112.4%</div>
+                  <div className="text-3xl font-black text-[#0f172a] tracking-tight">
+                    {allQuotes && allQuotes.length > 0
+                      ? `${(
+                          ((allQuotes
+                            .filter((q) => q.stage === "CONFIRMED" || q.stage === "APPROVED")
+                            .reduce((sum, q) => sum + (q.grandTotal || 0), 0)) /
+                            1500000) *
+                          100
+                        ).toFixed(1)}%`
+                      : "0.0%"}
+                  </div>
                   <div className="text-xs text-emerald-600 font-semibold mt-1">
-                    +₹544,700 closed this quarter
+                    ₹{((allQuotes || [])
+                      .filter((q) => q.stage === "CONFIRMED" || q.stage === "APPROVED")
+                      .reduce((sum, q) => sum + (q.grandTotal || 0), 0))
+                      .toLocaleString()}{" "}
+                    closed to date
                   </div>
                 </div>
               </div>
@@ -488,7 +723,7 @@ export default function ManagerDashboardPage() {
                     ₹{totalExceptionsValue.toLocaleString()}
                   </div>
                   <div className="text-xs text-slate-500 font-medium mt-1">
-                    Across {pendingApprovals.length} pending bids • Avg 20.0% concession
+                    Across {pendingApprovals.length} pending bids
                   </div>
                 </div>
               </div>
@@ -503,9 +738,15 @@ export default function ManagerDashboardPage() {
                   </div>
                 </div>
                 <div className="mt-3">
-                  <div className="text-3xl font-black text-emerald-600 tracking-tight">49.2%</div>
+                  <div className="text-3xl font-black text-emerald-600 tracking-tight">
+                    {(allQuotes && allQuotes.length > 0
+                      ? allQuotes.reduce((sum, q) => sum + (q.grossMarginPercent || 40), 0) / allQuotes.length
+                      : 45.0
+                    ).toFixed(1)}
+                    %
+                  </div>
                   <div className="text-xs text-slate-500 font-medium mt-1">
-                    Above 45.0% enterprise policy floor
+                    Company gross margin average
                   </div>
                 </div>
               </div>
@@ -569,7 +810,7 @@ export default function ManagerDashboardPage() {
                     <div className="space-y-2 max-w-xl">
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
-                          href={`/dashboard/manager/approvals/${item.quoteId}`}
+                          href={`/dashboard/manager/approvals/${item.id || item.quoteId}`}
                           className="font-mono text-xs font-bold text-[#ff5e3a] hover:underline"
                         >
                           {item.quoteId}
@@ -660,7 +901,7 @@ export default function ManagerDashboardPage() {
                             <span>Reject</span>
                           </button>
                           <Link
-                            href={`/dashboard/manager/approvals/${item.quoteId}`}
+                            href={`/dashboard/manager/approvals/${item.id || item.quoteId}`}
                             className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition"
                             title="Open Deep Determination Workspace"
                           >
@@ -681,7 +922,7 @@ export default function ManagerDashboardPage() {
                             {item.status.replace("_", " ")}
                           </span>
                           <Link
-                            href={`/dashboard/manager/approvals/${item.quoteId}`}
+                            href={`/dashboard/manager/approvals/${item.id || item.quoteId}`}
                             className="text-xs text-[#ff5e3a] hover:underline font-semibold"
                           >
                             View Audit &rarr;
@@ -711,220 +952,221 @@ export default function ManagerDashboardPage() {
               </div>
             </div>
 
-              {/* Action & Filter Bar */}
-              <div className="flex flex-wrap items-center gap-3">
-                {/* Timeframe Select */}
-                <div className="bg-white rounded-full shadow-xs border border-slate-200 px-3.5 py-1.5 flex items-center gap-2 text-xs">
-                  <Calendar size={14} className="text-slate-400" />
-                  <select
-                    value={timeframe}
-                    onChange={(e) => setTimeframe(e.target.value)}
-                    className="bg-transparent text-slate-800 font-semibold outline-none cursor-pointer pr-1"
-                  >
-                    <option>Last 30 Days</option>
-                    <option>Last 14 Days</option>
-                    <option>Quarter to Date</option>
-                  </select>
-                </div>
-
-                {/* Risk Level Select */}
-                <div className="bg-white rounded-full shadow-xs border border-slate-200 px-3.5 py-1.5 flex items-center gap-2 text-xs">
-                  <AlertTriangle size={14} className="text-slate-400" />
-                  <select
-                    value={riskFilter}
-                    onChange={(e) => setRiskFilter(e.target.value)}
-                    className="bg-transparent text-slate-800 font-semibold outline-none cursor-pointer pr-1"
-                  >
-                    <option>All Risks</option>
-                    <option>High Risk Only</option>
-                    <option>Medium &amp; High</option>
-                  </select>
-                </div>
-
-                {/* Rep Select */}
-                <div className="bg-white rounded-full shadow-xs border border-slate-200 px-3.5 py-1.5 flex items-center gap-2 text-xs">
-                  <Users size={14} className="text-slate-400" />
-                  <select
-                    value={repFilter}
-                    onChange={(e) => setRepFilter(e.target.value)}
-                    className="bg-transparent text-slate-800 font-semibold outline-none cursor-pointer pr-1"
-                  >
-                    <option>All Reps</option>
-                    {apiMembers && apiMembers.length > 0
-                      ? apiMembers.map((m) => (
-                          <option key={m.id} value={m.name || m.user?.name || ""}>
-                            {m.name || m.user?.name || "Rep"}
-                          </option>
-                        ))
-                      : (
-                          <>
-                            <option>Sarah Jenkins</option>
-                            <option>David Chen</option>
-                            <option>Alex Rivera</option>
-                          </>
-                        )}
-                  </select>
-                </div>
-
-                {/* Diagnostics Trigger */}
-                <button
-                  type="button"
-                  onClick={handleRunDiagnostics}
-                  className="bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs px-4 py-2 rounded-full border border-slate-200 shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+            {/* Action & Filter Bar */}
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Timeframe Select */}
+              <div className="bg-white rounded-full shadow-xs border border-slate-200 px-3.5 py-1.5 flex items-center gap-2 text-xs">
+                <Calendar size={14} className="text-slate-400" />
+                <select
+                  value={timeframe}
+                  onChange={(e) => setTimeframe(e.target.value)}
+                  className="bg-transparent text-slate-800 font-semibold outline-none cursor-pointer pr-1"
                 >
-                  <SlidersHorizontal size={13} className={diagnosticsRan ? "animate-spin text-[#ff5e3a]" : "text-slate-500"} />
-                  <span>{diagnosticsRan ? "Running..." : "Run Diagnostics"}</span>
-                </button>
+                  <option>Last 30 Days</option>
+                  <option>Last 14 Days</option>
+                  <option>Quarter to Date</option>
+                </select>
               </div>
 
-              {/* 3 KPI Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs">
-                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Stalled Deals</h3>
-                  <p className="text-2xl font-black text-[#0f172a]">
-                    {displayAnomalies.filter((a) => a.anomalyType === "Stalled Deal").length}{" "}
-                    <span className="text-sm font-medium text-slate-500">idle 7+ days</span>
-                  </p>
-                </div>
-                <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs">
-                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Discount Anomalies</h3>
-                  <p className="text-2xl font-black text-[#0f172a]">
-                    {displayAnomalies.filter((a) => a.anomalyType === "Discount Breach").length}{" "}
-                    <span className="text-sm font-medium text-slate-500">above rep avg</span>
-                  </p>
-                </div>
-                <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs">
-                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">SLA Slippage</h3>
-                  <p className="text-2xl font-black text-[#0f172a]">
-                    {displayAnomalies.filter((a) => a.anomalyType === "SLA Alert").length}{" "}
-                    <span className="text-sm font-medium text-slate-500">past delivery date</span>
-                  </p>
-                </div>
+              {/* Risk Level Select */}
+              <div className="bg-white rounded-full shadow-xs border border-slate-200 px-3.5 py-1.5 flex items-center gap-2 text-xs">
+                <AlertTriangle size={14} className="text-slate-400" />
+                <select
+                  value={riskFilter}
+                  onChange={(e) => setRiskFilter(e.target.value)}
+                  className="bg-transparent text-slate-800 font-semibold outline-none cursor-pointer pr-1"
+                >
+                  <option>All Risks</option>
+                  <option>High Risk Only</option>
+                  <option>Medium &amp; High</option>
+                </select>
               </div>
 
-              {/* Table */}
-              <div className="bg-white rounded-2xl border border-black/[0.06] shadow-xs overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-50/80 border-b border-slate-100 font-semibold">
-                      <th className="py-4 px-6 rounded-tl-2xl">Deal</th>
-                      <th className="py-4 px-4">Issue</th>
-                      <th className="py-4 px-4">Risk</th>
-                      <th className="py-4 px-6 rounded-tr-2xl">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
-                    {filteredAnomalies.length > 0 ? (
-                      filteredAnomalies.map((a: any) => {
-                        const quotationHref = a.quotationId
-                          ? `/dashboard/manager/approvals/${a.quotationId}`
-                          : null;
-                        return (
-                          <tr
-                            key={a.id}
-                            className={`hover:bg-orange-50/40 transition-colors group ${quotationHref ? "cursor-pointer" : ""}`}
-                            onClick={() => quotationHref && router.push(quotationHref)}
-                          >
-                            <td className="py-4 px-6 font-bold text-slate-900">
-                              <div className="flex items-center gap-2">
-                                <div>
-                                  <div className={quotationHref ? "group-hover:text-[#ff5e3a] transition-colors" : ""}>{a.account}</div>
-                                  <div className="text-[11px] font-mono text-slate-400">{a.quoteId} • {a.repName}</div>
-                                </div>
-                                {quotationHref && (
-                                  <ArrowUpRight size={13} className="text-slate-300 group-hover:text-[#ff5e3a] transition-colors flex-shrink-0" />
-                                )}
-                              </div>
-                            </td>
-                            <td className="py-4 px-4 max-w-xs">
-                              <div className={`font-semibold text-xs ${a.riskLevel === "high" ? "text-rose-600" : "text-slate-700"}`}>
-                                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold mr-2 ${
-                                  a.anomalyType === "Stalled Deal" ? "bg-amber-50 text-amber-700" :
-                                  a.anomalyType === "Discount Breach" ? "bg-rose-50 text-rose-700" :
-                                  "bg-purple-50 text-purple-700"
-                                }`}>{a.anomalyType}</span>
-                                {a.details}
-                              </div>
-                            </td>
-                            <td className="py-4 px-4">
-                              <div className="flex items-center gap-2">
-                                <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                  <div
-                                    className={`h-full rounded-full ${
-                                      a.riskLevel === "high" ? "bg-rose-500" : a.riskLevel === "medium" ? "bg-amber-400" : "bg-emerald-400"
-                                    }`}
-                                    style={{ width: `${a.riskGaugePercent}%` }}
-                                  />
-                                </div>
-                                <span className="text-[11px] font-mono text-slate-500">{a.riskGaugePercent}%</span>
-                              </div>
-                            </td>
-                            <td className="py-4 px-6">
-                              {a.quotationId ? (
-                                <div
-                                  className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <button
-                                    onClick={() =>
-                                      nudgeMutation.mutate(
-                                        { quotationId: a.quotationId, type: "nudge" },
-                                        { onSuccess: () => toast.success(`Nudge sent for ${a.quoteId || a.account}`), onError: () => toast.error("Failed to send nudge") }
-                                      )
-                                    }
-                                    className="px-2.5 py-1 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-700 text-[10px] font-bold border border-sky-200 cursor-pointer transition"
-                                  >
-                                    Nudge
-                                  </button>
-                                  <button
-                                    onClick={() =>
-                                      nudgeMutation.mutate(
-                                        { quotationId: a.quotationId, type: "escalate" },
-                                        { onSuccess: () => toast.success(`Escalated ${a.quoteId || a.account}`), onError: () => toast.error("Failed to escalate") }
-                                      )
-                                    }
-                                    className="px-2.5 py-1 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-bold border border-rose-200 cursor-pointer transition"
-                                  >
-                                    Escalate
-                                  </button>
-                                </div>
-                              ) : (
-                                <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-50 text-slate-500 border border-slate-200">Flagged</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    ) : (
-                      <tr>
-                        <td colSpan={4} className="py-8 text-center text-slate-400">
-                          No deal anomalies or stalled quotations detected. All deals healthy. ✅
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-               </table>
+              {/* Rep Select */}
+              <div className="bg-white rounded-full shadow-xs border border-slate-200 px-3.5 py-1.5 flex items-center gap-2 text-xs">
+                <Users size={14} className="text-slate-400" />
+                <select
+                  value={repFilter}
+                  onChange={(e) => setRepFilter(e.target.value)}
+                  className="bg-transparent text-slate-800 font-semibold outline-none cursor-pointer pr-1"
+                >
+                  <option>All Reps</option>
+                  {teamReps && teamReps.length > 0 ? (
+                    teamReps.map((rep) => (
+                      <option key={rep.id} value={rep.name}>
+                        {rep.name}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option>Sarah Jenkins</option>
+                      <option>David Chen</option>
+                      <option>Alex Rivera</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              {/* Diagnostics Trigger */}
+              <button
+                type="button"
+                onClick={handleRunDiagnostics}
+                className="bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs px-4 py-2 rounded-full border border-slate-200 shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <SlidersHorizontal size={13} className={diagnosticsRan ? "animate-spin text-[#ff5e3a]" : "text-slate-500"} />
+                <span>{diagnosticsRan ? "Running..." : "Run Diagnostics"}</span>
+              </button>
             </div>
-          </div>
-        )}
 
-        {/* VIEW 3: TEAM QUOTA PACING & DIRECT REPORTS */}
-        {activeView === "team" && (
-          <div className="space-y-8">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-black/[0.06] pb-5">
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0f172a] tracking-tight">
-                  Team Quota Attainment &amp; Rep Pacing
-                </h1>
-                <p className="text-xs text-slate-500 mt-1">
-                  Track direct reports quota progress, commission structures, and deal health baselines.
+            {/* 3 KPI Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+              <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs">
+                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Stalled Deals</h3>
+                <p className="text-2xl font-black text-[#0f172a]">
+                  {displayAnomalies.filter((a) => a.anomalyType === "Stalled Deal").length}{" "}
+                  <span className="text-sm font-medium text-slate-500">idle 7+ days</span>
+                </p>
+              </div>
+              <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs">
+                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Discount Anomalies</h3>
+                <p className="text-2xl font-black text-[#0f172a]">
+                  {displayAnomalies.filter((a) => a.anomalyType === "Discount Breach").length}{" "}
+                  <span className="text-sm font-medium text-slate-500">above rep avg</span>
+                </p>
+              </div>
+              <div className="bg-white rounded-2xl p-6 border border-black/[0.06] shadow-xs">
+                <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">SLA Slippage</h3>
+                <p className="text-2xl font-black text-[#0f172a]">
+                  {displayAnomalies.filter((a) => a.anomalyType === "SLA Alert").length}{" "}
+                  <span className="text-sm font-medium text-slate-500">past delivery date</span>
                 </p>
               </div>
             </div>
 
-            {/* Team Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {INITIAL_REP_METRICS.map((rep) => (
+            {/* Table */}
+            <div className="bg-white rounded-2xl border border-black/[0.06] shadow-xs overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-50/80 border-b border-slate-100 font-semibold">
+                    <th className="py-4 px-6 rounded-tl-2xl">Deal</th>
+                    <th className="py-4 px-4">Issue</th>
+                    <th className="py-4 px-4">Risk</th>
+                    <th className="py-4 px-6 rounded-tr-2xl">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {filteredAnomalies.length > 0 ? (
+                    filteredAnomalies.map((a: any) => {
+                      const quotationHref = a.quotationId
+                        ? `/dashboard/manager/approvals/${a.quotationId}`
+                        : null;
+                      return (
+                        <tr
+                          key={a.id}
+                          className={`hover:bg-orange-50/40 transition-colors group ${quotationHref ? "cursor-pointer" : ""}`}
+                          onClick={() => quotationHref && router.push(quotationHref)}
+                        >
+                          <td className="py-4 px-6 font-bold text-slate-900">
+                            <div className="flex items-center gap-2">
+                              <div>
+                                <div className={quotationHref ? "group-hover:text-[#ff5e3a] transition-colors" : ""}>{a.account}</div>
+                                <div className="text-[11px] font-mono text-slate-400">{a.quoteId} • {a.repName}</div>
+                              </div>
+                              {quotationHref && (
+                                <ArrowUpRight size={13} className="text-slate-300 group-hover:text-[#ff5e3a] transition-colors flex-shrink-0" />
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-4 px-4 max-w-xs">
+                            <div className={`font-semibold text-xs ${a.riskLevel === "high" ? "text-rose-600" : "text-slate-700"}`}>
+                              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold mr-2 ${
+                                a.anomalyType === "Stalled Deal" ? "bg-amber-50 text-amber-700" :
+                                a.anomalyType === "Discount Breach" ? "bg-rose-50 text-rose-700" :
+                                "bg-purple-50 text-purple-700"
+                              }`}>{a.anomalyType}</span>
+                              {a.details}
+                            </div>
+                          </td>
+                          <td className="py-4 px-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${
+                                    a.riskLevel === "high" ? "bg-rose-500" : a.riskLevel === "medium" ? "bg-amber-400" : "bg-emerald-400"
+                                  }`}
+                                  style={{ width: `${a.riskGaugePercent}%` }}
+                                />
+                              </div>
+                              <span className="text-[11px] font-mono text-slate-500">{a.riskGaugePercent}%</span>
+                            </div>
+                          </td>
+                          <td className="py-4 px-6">
+                            {a.quotationId ? (
+                              <div
+                                className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  onClick={() =>
+                                    nudgeMutation.mutate(
+                                      { quotationId: a.quotationId, type: "nudge" },
+                                      { onSuccess: () => toast.success(`Nudge sent for ${a.quoteId || a.account}`), onError: () => toast.error("Failed to send nudge") }
+                                    )
+                                  }
+                                  className="px-2.5 py-1 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-700 text-[10px] font-bold border border-sky-200 cursor-pointer transition"
+                                >
+                                  Nudge
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    nudgeMutation.mutate(
+                                      { quotationId: a.quotationId, type: "escalate" },
+                                      { onSuccess: () => toast.success(`Escalated ${a.quoteId || a.account}`), onError: () => toast.error("Failed to escalate") }
+                                    )
+                                  }
+                                  className="px-2.5 py-1 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-bold border border-rose-200 cursor-pointer transition"
+                                >
+                                  Escalate
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-50 text-slate-500 border border-slate-200">Flagged</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-slate-400">
+                        No deal anomalies or stalled quotations detected. All deals healthy. ✅
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+             </table>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW 3: TEAM QUOTA PACING & DIRECT REPORTS */}
+      {activeView === "team" && (
+        <div className="space-y-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-black/[0.06] pb-5">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0f172a] tracking-tight">
+                Team Quota Attainment &amp; Rep Pacing
+              </h1>
+              <p className="text-xs text-slate-500 mt-1">
+                Track direct reports quota progress, commission structures, and deal health baselines.
+              </p>
+            </div>
+          </div>
+
+          {/* Team Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {teamReps && teamReps.length > 0 ? (
+              teamReps.map((rep) => (
                 <div
                   key={rep.id}
                   className="bg-white rounded-2xl border border-black/[0.06] shadow-xs p-6 flex flex-col justify-between space-y-5"
@@ -989,112 +1231,119 @@ export default function ManagerDashboardPage() {
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </main>
-
-      {/* QUICK DECISION MODAL */}
-      {activeModalRequest && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full border border-black/[0.08] shadow-2xl p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-white ${
-                    activeModalRequest.type === "approve"
-                      ? "bg-emerald-600"
-                      : activeModalRequest.type === "revise"
-                      ? "bg-amber-600"
-                      : "bg-rose-600"
-                  }`}
-                >
-                  {activeModalRequest.type === "approve" ? (
-                    <Check size={16} strokeWidth={3} />
-                  ) : activeModalRequest.type === "revise" ? (
-                    <RotateCcw size={14} />
-                  ) : (
-                    <XCircle size={16} />
-                  )}
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 text-base capitalize">
-                    {activeModalRequest.type === "revise" ? "Return for Revision" : `${activeModalRequest.type} Concession`}
-                  </h3>
-                  <p className="text-[11px] text-slate-400 font-mono">
-                    {activeModalRequest.request.quoteId} • {activeModalRequest.request.account}
-                  </p>
-                </div>
+              ))
+            ) : (
+              <div className="col-span-full py-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-100">
+                <Users size={32} className="mx-auto mb-2 text-slate-300" />
+                <p className="font-semibold text-slate-700">No Sales Representatives Registered</p>
+                <p className="text-xs text-slate-400 mt-0.5">Team members will appear here once added to the organization.</p>
               </div>
-
-              <button
-                type="button"
-                onClick={() => setActiveModalRequest(null)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                &times;
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs text-slate-600">
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/70 space-y-1">
-                <div className="flex justify-between font-bold text-slate-800">
-                  <span>Deal Size: ₹{activeModalRequest.request.dealSize.toLocaleString()}</span>
-                  <span className="text-amber-600">
-                    Requested Concession: {activeModalRequest.request.discountRequested}%
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500">
-                  Rep: {activeModalRequest.request.repName} • Margin: {activeModalRequest.request.marginProjected}%
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="font-bold text-slate-700">Executive Determination Note:</label>
-                <textarea
-                  value={modalReason}
-                  onChange={(e) => setModalReason(e.target.value)}
-                  rows={3}
-                  className="w-full p-3 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-[#ff5e3a]/30 focus:border-[#ff5e3a]"
-                  placeholder="Enter audit rationale, counter-terms, or revision requirements..."
-                />
-              </div>
-
-              {modalSuccessMsg && (
-                <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2">
-                  <Check size={14} />
-                  <span>{modalSuccessMsg}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setActiveModalRequest(null)}
-                className="px-4 py-2 rounded-full border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDecision}
-                className={`px-5 py-2 rounded-full text-white text-xs font-bold shadow-xs transition cursor-pointer flex items-center gap-1.5 ${
-                  activeModalRequest.type === "approve"
-                    ? "bg-emerald-600 hover:bg-emerald-700"
-                    : activeModalRequest.type === "revise"
-                    ? "bg-amber-600 hover:bg-amber-700"
-                    : "bg-rose-600 hover:bg-rose-700"
-                }`}
-              >
-                <Send size={13} />
-                <span>Confirm &amp; Register Audit</span>
-              </button>
-            </div>
+            )}
           </div>
         </div>
       )}
-    </div>
-  );
+    </main>
+
+    {/* QUICK DECISION MODAL */}
+    {activeModalRequest && (
+      <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl max-w-lg w-full border border-black/[0.08] shadow-2xl p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-white ${
+                  activeModalRequest.type === "approve"
+                    ? "bg-emerald-600"
+                    : activeModalRequest.type === "revise"
+                    ? "bg-amber-600"
+                    : "bg-rose-600"
+                }`}
+              >
+                {activeModalRequest.type === "approve" ? (
+                  <Check size={16} strokeWidth={3} />
+                ) : activeModalRequest.type === "revise" ? (
+                  <RotateCcw size={14} />
+                ) : (
+                  <XCircle size={16} />
+                )}
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-base capitalize">
+                  {activeModalRequest.type === "revise" ? "Return for Revision" : `${activeModalRequest.type} Concession`}
+                </h3>
+                <p className="text-[11px] text-slate-400 font-mono">
+                  {activeModalRequest.request.quoteId} • {activeModalRequest.request.account}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveModalRequest(null)}
+              className="text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              &times;
+            </button>
+          </div>
+
+          <div className="space-y-3 text-xs text-slate-600">
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/70 space-y-1">
+              <div className="flex justify-between font-bold text-slate-800">
+                <span>Deal Size: ₹{activeModalRequest.request.dealSize.toLocaleString()}</span>
+                <span className="text-amber-600">
+                  Requested Concession: {activeModalRequest.request.discountRequested}%
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Rep: {activeModalRequest.request.repName} • Margin: {activeModalRequest.request.marginProjected}%
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="font-bold text-slate-700">Executive Determination Note:</label>
+              <textarea
+                value={modalReason}
+                onChange={(e) => setModalReason(e.target.value)}
+                rows={3}
+                className="w-full p-3 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-[#ff5e3a]/30 focus:border-[#ff5e3a]"
+                placeholder="Enter audit rationale, counter-terms, or revision requirements..."
+              />
+            </div>
+
+            {modalSuccessMsg && (
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2">
+                <Check size={14} />
+                <span>{modalSuccessMsg}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setActiveModalRequest(null)}
+              className="px-4 py-2 rounded-full border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDecision}
+              className={`px-5 py-2 rounded-full text-white text-xs font-bold shadow-xs transition cursor-pointer flex items-center gap-1.5 ${
+                activeModalRequest.type === "approve"
+                  ? "bg-emerald-600 hover:bg-emerald-700"
+                  : activeModalRequest.type === "revise"
+                  ? "bg-amber-600 hover:bg-amber-700"
+                  : "bg-rose-600 hover:bg-rose-700"
+              }`}
+            >
+              <Send size={13} />
+              <span>Confirm &amp; Register Audit</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+);
 }

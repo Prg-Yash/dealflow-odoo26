@@ -43,6 +43,7 @@ import {
   DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
   type RiskLineItem,
 } from "../../../lib/risk-engine";
+import { api } from "../../../lib/query/api-client";
 
 export interface QuotationDetailViewProps {
   quotation: any;
@@ -72,6 +73,18 @@ export function QuotationDetailView({
   const rawStage = (quotation?.stage || "DRAFT").toUpperCase();
   const approvalStatus = (quotation?.approvalStatus || "PENDING").toUpperCase();
 
+  // Active step evaluation for current approver
+  const activeApprovalRequest = quotation?.approvalRequest;
+  const currentStep =
+    activeApprovalRequest?.steps?.find(
+      (s: any) => s.stepNumber === activeApprovalRequest?.currentStep && s.status === "PENDING"
+    ) || activeApprovalRequest?.steps?.find((s: any) => s.status === "PENDING");
+
+  const isPendingReview =
+    rawStage === "PENDING_APPROVAL" ||
+    approvalStatus === "PENDING" ||
+    (activeApprovalRequest && activeApprovalRequest.status === "PENDING");
+
   // Editable stages for sales rep
   const isEditable =
     isSalesRep &&
@@ -80,20 +93,13 @@ export function QuotationDetailView({
       approvalStatus === "REVISION_REQUESTED" ||
       approvalStatus === "REJECTED");
 
-  const isPendingReview = rawStage === "PENDING_APPROVAL" && approvalStatus === "PENDING";
-
-  // Active step evaluation for current approver
-  const activeApprovalRequest = quotation?.approvalRequest;
-  const currentStep = activeApprovalRequest?.steps?.find(
-    (s: any) => s.stepNumber === activeApprovalRequest?.currentStep && s.status === "PENDING"
-  );
-
   const canApproveCurrentStep =
     isApprover &&
     isPendingReview &&
-    currentStep &&
-    ((currentStep.level === "SALES_MANAGER" && isSalesManager) ||
-      (currentStep.level === "FINANCE" && isFinanceOps));
+    (!currentStep ||
+      ((currentStep.level === "SALES_MANAGER" && isSalesManager) ||
+        (currentStep.level === "FINANCE" && isFinanceOps) ||
+        userRole === "ADMIN"));
 
   // Local state for line item edits
   const [lines, setLines] = useState<any[]>(() => quotation?.lines || []);
@@ -411,26 +417,15 @@ export function QuotationDetailView({
     setIsSubmitting(true);
 
     try {
-      const res = await fetch(`${apiUrl}/api/quotations/${quotation.id}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-      });
+      const resData = await api.post<any>(`/api/quotations/${quotation.id}/submit`);
+      const updatedQuote = resData?.data || resData;
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || "Failed to submit quotation");
-      }
-
-      const resData = await res.json();
-      const updatedQuote = resData.data || resData;
-
-      if (updatedQuote.stage === "APPROVED") {
+      if (updatedQuote?.stage === "APPROVED") {
         setActionSuccess(
           "Quotation Auto-Approved (Condition 1: 0 Hops). Terms are immediately available in the customer portal."
         );
       } else {
-        setActionSuccess("Quotation successfully submitted for management approval routing.");
+        setActionSuccess("Quotation successfully submitted for approval routing.");
       }
 
       if (onRefresh) onRefresh();
@@ -481,19 +476,11 @@ export function QuotationDetailView({
     setIsReviewing(true);
 
     try {
-      const res = await fetch(`${apiUrl}/api/approvals/${quotation.id}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ comments: "Approved in full compliance with deal policy." }),
+      await api.post(`/api/approvals/${quotation.id}/approve`, {
+        comments: "Approved in full compliance with deal policy.",
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || "Failed to approve step");
-      }
-
-      setActionSuccess("Approval step recorded successfully.");
+      setActionSuccess("Approval step confirmed and recorded successfully.");
       if (onRefresh) onRefresh();
     } catch (err: any) {
       setActionError(err.message || "Failed to approve step");
@@ -520,20 +507,10 @@ export function QuotationDetailView({
         })
       );
 
-      const res = await fetch(`${apiUrl}/api/approvals/${quotation.id}/reject`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          comments: rejectComments.trim(),
-          lineAdjustments,
-        }),
+      await api.post(`/api/approvals/${quotation.id}/reject`, {
+        comments: rejectComments.trim(),
+        lineAdjustments,
       });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || "Failed to reject step");
-      }
 
       setShowRejectModal(false);
       setActionSuccess("Quotation returned to Sales Representative for revision.");
@@ -555,6 +532,8 @@ export function QuotationDetailView({
       authorRole: string;
       message: string;
       lineDescription?: string;
+      attachedLine?: any;
+      quotationLineId?: string;
       proposedDiscount?: number;
       badgeClass: string;
       avatarBg: string;
@@ -580,6 +559,10 @@ export function QuotationDetailView({
         avatarBg = "bg-emerald-700 text-white";
       }
 
+      const attachedLine = c.quotationLineId
+        ? (quotation.lines || []).find((l: any) => l.id === c.quotationLineId)
+        : null;
+
       items.push({
         id: `c-${c.id}`,
         date: new Date(c.createdAt),
@@ -590,7 +573,9 @@ export function QuotationDetailView({
           "User",
         authorRole: role,
         message: c.message || c.content || "",
-        lineDescription: c.quotationLine?.description,
+        lineDescription: attachedLine?.product?.name || attachedLine?.description || c.quotationLine?.description,
+        attachedLine: attachedLine || null,
+        quotationLineId: c.quotationLineId || undefined,
         proposedDiscount: c.proposedDiscountPercent,
         badgeClass,
         avatarBg,
@@ -845,8 +830,10 @@ export function QuotationDetailView({
               <div className="flex items-center gap-2">
                 <ShieldCheck size={20} className="text-emerald-400" />
                 <h3 className="text-base font-black tracking-tight">
-                  Action Required: Step {currentStep.stepNumber} (
-                  {currentStep.level === "SALES_MANAGER" ? "Sales Manager" : "Finance Operations"}{" "}
+                  Action Required: Step {currentStep?.stepNumber || 1} (
+                  {currentStep?.level === "SALES_MANAGER" || isSalesManager
+                    ? "Sales Manager"
+                    : "Finance Operations"}{" "}
                   Review)
                 </h3>
               </div>
@@ -1399,13 +1386,57 @@ export function QuotationDetailView({
                           {msg.message}
                         </p>
 
-                        {/* Optional Line Reference Tag */}
-                        {msg.lineDescription && (
-                          <div className="pl-8 pt-0.5">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-semibold border border-slate-200">
-                              <Tag size={10} />
-                              <span>{msg.lineDescription}</span>
-                            </span>
+                        {/* Attached Line Item Details Card */}
+                        {(msg.attachedLine || msg.quotationLineId || msg.lineDescription) && (
+                          <div className="ml-8 mt-1 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 text-left space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                <span>📎 Attached Line Item</span>
+                                {msg.attachedLine?.itemType && (
+                                  <span className="px-1.5 py-0.2 rounded bg-slate-200 text-slate-700 font-mono text-[9px]">
+                                    {msg.attachedLine.itemType}
+                                  </span>
+                                )}
+                              </div>
+                              {msg.attachedLine?.product?.sku && (
+                                <span className="text-[9px] font-mono text-slate-400">
+                                  {msg.attachedLine.product.sku}
+                                </span>
+                              )}
+                            </div>
+
+                            {msg.attachedLine ? (
+                              <div className="space-y-1">
+                                <div className="font-bold text-xs text-slate-900 leading-snug">
+                                  {msg.attachedLine.product?.name || msg.attachedLine.description || "Product Item"}
+                                </div>
+                                {msg.attachedLine.description && msg.attachedLine.description !== msg.attachedLine.product?.name && (
+                                  <div className="text-[10px] text-slate-500 truncate max-w-[280px]">
+                                    {msg.attachedLine.description}
+                                  </div>
+                                )}
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-600 font-medium pt-1 border-t border-slate-200">
+                                  <span>
+                                    Qty: <strong className="text-slate-900 font-bold">{msg.attachedLine.quantity || 1}</strong>
+                                  </span>
+                                  <span>
+                                    Unit: <strong className="text-slate-900 font-bold">₹{Number(msg.attachedLine.unitPrice || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</strong>
+                                  </span>
+                                  {Number(msg.attachedLine.discountPercent || 0) > 0 && (
+                                    <span>
+                                      Disc: <strong className="text-emerald-600 font-bold">{msg.attachedLine.discountPercent}%</strong>
+                                    </span>
+                                  )}
+                                  <span>
+                                    Net: <strong className="text-slate-900 font-bold">₹{Number(msg.attachedLine.netPrice || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</strong>
+                                  </span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-[10px] text-slate-600 font-medium">
+                                {msg.lineDescription || `Line Item Ref: ${msg.quotationLineId}`}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

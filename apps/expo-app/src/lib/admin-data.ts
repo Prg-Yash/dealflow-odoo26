@@ -58,7 +58,6 @@ export const MOCK_ADMIN_MEMBERS: AdminMember[] = [
   { id: 'usr-rep-01', name: 'Alex Rivera', email: 'rep.alex@dealflow360.com', role: 'SALES_REP', department: 'Mid-Market', avatarInitials: 'AR', emailVerified: true, status: 'ACTIVE', targetQuota: 250000, managerName: 'Elena Rostova', joinedAt: '2026-02-01' },
   { id: 'usr-rep-02', name: 'Sarah Chen', email: 'rep.sarah@dealflow360.com', role: 'SALES_REP', department: 'Strategic Enterprise', avatarInitials: 'SC', emailVerified: true, status: 'ACTIVE', targetQuota: 300000, managerName: 'Elena Rostova', joinedAt: '2026-02-05' },
   { id: 'usr-fin-01', name: 'Marcus Vance', email: 'finance.marcus@dealflow360.com', role: 'FINANCE_OPS', department: 'Revenue Ops', avatarInitials: 'MV', emailVerified: true, status: 'ACTIVE', approvalThreshold: 100, joinedAt: '2026-01-20' },
-  { id: 'usr-cust-01', name: 'Johnathan Ward', email: 'buyer@acmecorp.com', role: 'CUSTOMER', department: 'Acme Corp Procurement', avatarInitials: 'JW', emailVerified: true, status: 'ACTIVE', joinedAt: '2026-02-15' },
 ];
 
 export const MOCK_ADMIN_INVITATIONS: AdminInvitation[] = [

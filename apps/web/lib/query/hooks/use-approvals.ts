@@ -243,3 +243,54 @@ export function useRejectQuotation() {
     },
   });
 }
+
+/**
+ * Mutation: Approve an active approval step on a quotation
+ */
+export function useApproveStep() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      quotationId,
+      comments = "Approved in full compliance with deal policy.",
+    }: {
+      quotationId: string;
+      comments?: string;
+    }) => api.post<any>(`/api/approvals/${quotationId}/approve`, { comments }),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.quotations.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.approvals.all });
+      if (variables.quotationId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.quotations.detail(variables.quotationId) });
+      }
+    },
+  });
+}
+
+/**
+ * Mutation: Reject / Request revision on an approval step
+ */
+export function useRejectStep() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      quotationId,
+      comments,
+      lineAdjustments,
+    }: {
+      quotationId: string;
+      comments: string;
+      lineAdjustments?: Array<{ lineId: string; discountPercent?: number; unitPrice?: number; quantity?: number }>;
+    }) => api.post<any>(`/api/approvals/${quotationId}/reject`, { comments, lineAdjustments }),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.quotations.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.approvals.all });
+      if (variables.quotationId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.quotations.detail(variables.quotationId) });
+      }
+    },
+  });
+}
+

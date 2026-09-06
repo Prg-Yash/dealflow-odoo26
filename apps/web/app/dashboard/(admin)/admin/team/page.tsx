@@ -11,6 +11,7 @@ import {
   Sparkles,
   Send,
   Loader2,
+  AlertCircle,
 } from "lucide-react";
 import {
   type AdminMember,
@@ -40,24 +41,48 @@ export default function AdminTeamPage() {
     ? (apiMembers as any).members
     : [];
 
-  const membersList: AdminMember[] = rawMembers.map((m: any) => {
-    const name = m.name || m.user?.name || "Staff Member";
-    const initials = name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase() || "ST";
-    return {
-      id: m.id,
-      name,
-      email: m.email || m.user?.email || "staff@example.com",
-      role: m.role as AdminUserRole,
-      department: "Sales Operations",
-      avatarInitials: initials,
-      emailVerified: true,
-      status: "ACTIVE" as const,
-      joinedAt: new Date(m.createdAt || Date.now()).toLocaleDateString(),
-      targetQuota: m.salesRep?.targetQuota ?? undefined,
-      commissionRate: m.salesRep?.commissionRate ?? undefined,
-      approvalThreshold: m.salesManager?.maxApprovalDiscount ?? undefined,
-    };
-  });
+  const membersList: AdminMember[] = rawMembers
+    .filter((m: any) => m.role && m.role !== "CUSTOMER")
+    .map((m: any) => {
+      const name = m.name || m.user?.name || "Staff Member";
+      const initials =
+        name
+          .split(" ")
+          .map((n: string) => n[0])
+          .filter(Boolean)
+          .join("")
+          .slice(0, 2)
+          .toUpperCase() || "ST";
+
+      const department =
+        m.department ||
+        m.salesManager?.department ||
+        m.financeOpsUser?.department ||
+        (m.role === "SALES_REP"
+          ? "Sales Operations"
+          : m.role === "SALES_MANAGER"
+          ? "Enterprise Sales"
+          : m.role === "FINANCE_OPS"
+          ? "Finance & Operations"
+          : "Executive Operations");
+
+      return {
+        id: m.id,
+        name,
+        email: m.email || m.user?.email || "staff@example.com",
+        role: m.role as AdminUserRole,
+        department,
+        avatarInitials: initials,
+        emailVerified: true,
+        status: "ACTIVE" as const,
+        joinedAt: new Date(m.createdAt || Date.now()).toLocaleDateString(),
+        targetQuota: m.salesRep?.targetQuota ?? undefined,
+        commissionRate: m.salesRep?.commissionRate ?? undefined,
+        approvalThreshold: m.salesManager?.approvalThreshold ?? undefined,
+        historicalAvgDiscount: m.salesRep?.historicalAvgDiscount ?? undefined,
+        managerName: m.salesRep?.manager?.user?.name ?? undefined,
+      };
+    });
 
   const rawInvitations = Array.isArray(apiInvitations)
     ? apiInvitations
@@ -65,17 +90,20 @@ export default function AdminTeamPage() {
     ? (apiInvitations as any).invitations
     : [];
 
-  const initialInvitations: AdminInvitation[] = rawInvitations.map((inv: any) => ({
-    id: inv.id,
-    email: inv.email,
-    role: inv.role as AdminUserRole,
-    token: inv.token,
-    status: inv.status as AdminInvitationStatus,
-    department: inv.department || "Sales Operations",
-    invitedBy: inv.invitedBy?.name || "Administrator",
-    expiresAt: new Date(inv.expiresAt || Date.now()).toLocaleDateString(),
-    createdAt: new Date(inv.createdAt || Date.now()).toLocaleDateString(),
-  }));
+  const initialInvitations: AdminInvitation[] = rawInvitations
+    .filter((inv: any) => inv.role && inv.role !== "CUSTOMER")
+    .map((inv: any) => ({
+      id: inv.id,
+      email: inv.email,
+      role: inv.role as AdminUserRole,
+      token: inv.token,
+      status: inv.status as AdminInvitationStatus,
+      department: inv.metadata?.department || inv.department || "Sales Operations",
+      assignedTerritory: inv.metadata?.territory || inv.assignedTerritory || undefined,
+      invitedBy: inv.invitedBy?.name || "Administrator",
+      expiresAt: new Date(inv.expiresAt || Date.now()).toLocaleDateString(),
+      createdAt: new Date(inv.createdAt || Date.now()).toLocaleDateString(),
+    }));
 
   const [localInvitations, setLocalInvitations] = useState<AdminInvitation[] | null>(null);
   const invitationsList: AdminInvitation[] = localInvitations || initialInvitations;
@@ -88,6 +116,8 @@ export default function AdminTeamPage() {
   const [inviteDept, setInviteDept] = useState("Enterprise Sales");
   const [inviteTerritory, setInviteTerritory] = useState("");
   const [inviteExpiryDays, setInviteExpiryDays] = useState<number>(7);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -134,41 +164,76 @@ export default function AdminTeamPage() {
 
   const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inviteEmail.trim()) return;
+    const normalizedInputEmail = inviteEmail.trim().toLowerCase();
+    if (!normalizedInputEmail) return;
 
-    const newInvite: AdminInvitation = {
-      id: `inv-${Date.now()}`,
-      email: inviteEmail.trim().toLowerCase(),
-      role: inviteRole,
-      token: `inv-tok-${Date.now().toString(36)}`,
-      status: "PENDING",
-      department: inviteDept.trim() || "Sales Operations",
-      invitedBy: "System Administrator",
-      expiresAt: new Date(Date.now() + inviteExpiryDays * 24 * 60 * 60 * 1000).toLocaleDateString(),
-      createdAt: new Date().toLocaleDateString(),
-    };
+    // 1. Check if the user is already a member in this organization
+    const isAlreadyMember = membersList.some(
+      (m) => m.email.trim().toLowerCase() === normalizedInputEmail
+    );
+
+    if (isAlreadyMember) {
+      const errorMsg = `The email '${inviteEmail.trim()}' is already a member of this team.`;
+      setInviteError(errorMsg);
+      showToast(errorMsg);
+      return;
+    }
+
+    // 2. Check if an invitation is already pending for this email
+    const isAlreadyInvited = invitationsList.some(
+      (inv) => inv.email.trim().toLowerCase() === normalizedInputEmail && inv.status === "PENDING"
+    );
+
+    if (isAlreadyInvited) {
+      const errorMsg = `An invitation is already pending for '${inviteEmail.trim()}'.`;
+      setInviteError(errorMsg);
+      showToast(errorMsg);
+      return;
+    }
+
+    setInviteError(null);
+    setIsSubmitting(true);
 
     try {
-      await createInviteMutation.mutateAsync({
-        email: newInvite.email,
-        role: newInvite.role,
-        department: newInvite.department,
+      const res = await createInviteMutation.mutateAsync({
+        email: normalizedInputEmail,
+        role: inviteRole,
+        department: inviteDept.trim() || undefined,
         territory: inviteTerritory.trim() || undefined,
         expiryDays: inviteExpiryDays,
       });
 
+      const newInvite: AdminInvitation = {
+        id: (res as any)?.invitation?.id || `inv-${Date.now()}`,
+        email: normalizedInputEmail,
+        role: inviteRole,
+        token: (res as any)?.invitation?.token || `inv-tok-${Date.now().toString(36)}`,
+        status: "PENDING",
+        department: inviteDept.trim() || "Sales Operations",
+        invitedBy: "System Administrator",
+        expiresAt: new Date(Date.now() + inviteExpiryDays * 24 * 60 * 60 * 1000).toLocaleDateString(),
+        createdAt: new Date().toLocaleDateString(),
+      };
+
       setLocalInvitations([newInvite, ...invitationsList]);
       setIsInviteModalOpen(false);
-      showToast(`Invitation sent to ${newInvite.email} with role ${newInvite.role}!`);
+      setInviteEmail("");
+      setInviteTerritory("");
+      setInviteDept("Enterprise Sales");
+      setInviteExpiryDays(7);
+      setInviteError(null);
+      showToast(`Invitation sent to ${normalizedInputEmail} with role ${inviteRole}!`);
     } catch (err: any) {
       console.error("Failed to invite member:", err);
-      showToast(err?.message || "Failed to send invitation. Please try again.");
+      const errMsg =
+        err?.data?.error?.message ||
+        err?.message ||
+        "Failed to send invitation. Please try again.";
+      setInviteError(errMsg);
+      showToast(errMsg);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    // Reset Form
-    setInviteEmail("");
-    setInviteTerritory("");
-    setInviteExpiryDays(7);
   };
 
   const pendingInvites = invitationsList.filter((i) => i.status === "PENDING");
@@ -205,7 +270,10 @@ export default function AdminTeamPage() {
 
         <button
           type="button"
-          onClick={() => setIsInviteModalOpen(true)}
+          onClick={() => {
+            setInviteError(null);
+            setIsInviteModalOpen(true);
+          }}
           className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-semibold shadow-sm shadow-[#ff5e3a]/25 transition cursor-pointer"
         >
           <UserPlus size={15} />
@@ -482,15 +550,27 @@ export default function AdminTeamPage() {
             </div>
 
             <form onSubmit={handleSendInvite} className="mt-5 space-y-4">
+              {inviteError && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-semibold text-red-800 flex items-start gap-2 animate-in fade-in slide-in-from-top-1">
+                  <AlertCircle size={15} className="text-red-600 shrink-0 mt-0.5" />
+                  <span>{inviteError}</span>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Email Address *</label>
                 <input
                   type="email"
                   required
                   value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
+                  onChange={(e) => {
+                    setInviteEmail(e.target.value);
+                    if (inviteError) setInviteError(null);
+                  }}
                   placeholder="colleague@dealflow360.com"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:border-[#ff5e3a]"
+                  className={`w-full px-3 py-2 rounded-xl border text-xs text-slate-900 focus:outline-none ${
+                    inviteError ? "border-red-400 focus:border-red-500 bg-red-50/20" : "border-slate-300 focus:border-[#ff5e3a]"
+                  }`}
                 />
               </div>
 
@@ -560,9 +640,11 @@ export default function AdminTeamPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-semibold shadow-sm shadow-[#ff5e3a]/25 cursor-pointer"
+                  disabled={isSubmitting}
+                  className="px-5 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-semibold shadow-sm shadow-[#ff5e3a]/25 cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
                 >
-                  Issue Invitation Token
+                  {isSubmitting && <Loader2 size={13} className="animate-spin" />}
+                  <span>{isSubmitting ? "Issuing Token..." : "Issue Invitation Token"}</span>
                 </button>
               </div>
             </form>
