@@ -83,6 +83,15 @@ export function CustomerNegotiationPortal({
     }
   }, [initialTab]);
 
+  // Sync initialToken when props change
+  useEffect(() => {
+    if (initialToken && initialToken !== token) {
+      setToken(initialToken);
+      setTokenInput(initialToken);
+      hasLoadedQuotationRef.current = false;
+    }
+  }, [initialToken]);
+
   const handleSignOut = async () => {
     setLoggingOut(true);
     try {

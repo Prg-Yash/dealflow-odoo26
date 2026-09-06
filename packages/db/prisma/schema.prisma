@@ -243,7 +243,7 @@ model CustomerTier {
   updatedAt       DateTime     @updatedAt
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   customers       Customer[]
-  price_lists     PriceList[]  @relation("CustomerTierToPriceList")
+  priceLists      PriceList[]  @relation("CustomerTierToPriceList")
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -404,7 +404,7 @@ model PriceList {
   updatedAt      DateTime        @updatedAt
   items          PriceListItem[]
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customer_tiers CustomerTier[]  @relation("CustomerTierToPriceList")
+  customerTiers  CustomerTier[]  @relation("CustomerTierToPriceList")
 
   @@index([organizationId])
   @@map("price_lists")

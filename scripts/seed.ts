@@ -729,7 +729,7 @@ export async function main() {
         name: "Enterprise Global Contract Schedule",
         currency: orgConf.currency,
         isDefault: false,
-        customer_tiers: {
+        customerTiers: {
           connect: [{ id: tiersMap.get("PLATINUM").id }, { id: tiersMap.get("GOLD").id }],
         },
       },

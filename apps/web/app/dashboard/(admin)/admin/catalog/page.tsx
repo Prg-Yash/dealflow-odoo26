@@ -956,7 +956,7 @@ export default function AdminCatalogPage() {
               }`}
             >
               <DollarSign size={14} />
-              <span>Manage Price fields</span>
+              <span>Price Lists</span>
             </button>
 
             <button
@@ -2391,7 +2391,7 @@ export default function AdminCatalogPage() {
                                   No price lists configured yet.
                                 </p>
                                 <p className="text-[11px] text-slate-400">
-                                  Configure price lists in "Manage Price fields" to calculate customer rates automatically.
+                                  Configure price lists in "Price Lists" tab to calculate customer rates automatically.
                                 </p>
                               </div>
                             </td>

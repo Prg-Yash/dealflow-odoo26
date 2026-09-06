@@ -156,14 +156,17 @@ export async function portalAuth(
       throw new AppError(404, "NOT_FOUND", "No quotation found for this customer account. Please contact your sales representative.");
     }
 
-    // 7. Security verification: If user is authenticated as customer, verify quotation belongs to their organization
-    if (customerEmail && quotation.customer?.email) {
+    // 7. Security verification: If user is authenticated as a customer without a valid explicit token, verify quotation belongs to their organization
+    const userDomain = customerEmail ? customerEmail.split("@")[1] : undefined;
+    const isStaff = userDomain === "dealflow360.com" || (req.customerUser && req.customerUser.role !== "CUSTOMER");
+    const hasValidToken = Boolean(token && (token === quotation.portalToken || token === quotation.quoteNumber || token === quotation.id));
+
+    if (!isStaff && !hasValidToken && customerEmail && quotation.customer?.email) {
       const qEmail = quotation.customer.email.toLowerCase().trim();
-      const userDomain = customerEmail.split("@")[1];
       const quoteDomain = qEmail.split("@")[1];
 
       // If customer logged in with different company domain, restrict cross-tenant access
-      if (customerEmail !== "admin@dealflow360.com" && userDomain && quoteDomain && userDomain !== quoteDomain && customerEmail !== qEmail) {
+      if (userDomain && quoteDomain && userDomain !== quoteDomain && customerEmail !== qEmail) {
         throw new AppError(403, "FORBIDDEN", "You are not authorized to view quotations belonging to another client organization.");
       }
     }

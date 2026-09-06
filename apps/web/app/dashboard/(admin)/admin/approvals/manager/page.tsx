@@ -94,9 +94,11 @@ export default function ManagerDashboardPage() {
       })
     : INITIAL_MANAGER_APPROVALS;
 
-  const anomaliesList = apiAnomalies?.alerts || (Array.isArray(apiAnomalies) ? apiAnomalies : []);
-  const stalledList = apiStalled?.alerts || [];
-  const slippageList = apiSlippage?.alerts || [];
+  const [actionedAnomalies, setActionedAnomalies] = useState<Record<string, "escalated" | "nudged">>({});
+
+  const anomaliesList = (apiAnomalies as any)?.alerts || (apiAnomalies as any)?.anomalies || (Array.isArray(apiAnomalies) ? apiAnomalies : []);
+  const stalledList = (apiStalled as any)?.alerts || (apiStalled as any)?.stalledQuotes || (Array.isArray(apiStalled) ? apiStalled : []);
+  const slippageList = (apiSlippage as any)?.alerts || (apiSlippage as any)?.slippages || (Array.isArray(apiSlippage) ? apiSlippage : []);
 
   // Unified alert list merging all 3 sources
   const allAlerts: DealAnomalyRecord[] = [
@@ -147,7 +149,11 @@ export default function ManagerDashboardPage() {
     })),
   ];
 
-  const displayAnomalies: DealAnomalyRecord[] = allAlerts.length > 0 ? allAlerts : INITIAL_DEAL_ANOMALIES;
+  const rawAnomalies = allAlerts.length > 0 ? allAlerts : INITIAL_DEAL_ANOMALIES;
+  const displayAnomalies: DealAnomalyRecord[] = rawAnomalies.map((a) => ({
+    ...a,
+    actionStatus: (actionedAnomalies[a.id] as any) || a.actionStatus,
+  }));
 
   const [approvals, setApprovals] = useState<ManagerApprovalRequest[]>(initialApprovals);
 
@@ -308,16 +314,11 @@ export default function ManagerDashboardPage() {
   };
 
   const handleAnomalyAction = (id: string, actionType: "escalate" | "nudge") => {
-    setAnomalies((prev) =>
-      prev.map((a) =>
-        a.id === id
-          ? {
-              ...a,
-              actionStatus: actionType === "escalate" ? "escalated" : "nudged",
-            }
-          : a
-      )
-    );
+    setActionedAnomalies((prev) => ({
+      ...prev,
+      [id]: actionType === "escalate" ? "escalated" : "nudged",
+    }));
+    toast.success(`Deal anomaly ${actionType === "escalate" ? "escalated to executive review" : "nudged with rep reminder"}.`);
   };
 
   const handleRunDiagnostics = () => {

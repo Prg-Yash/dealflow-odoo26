@@ -605,14 +605,16 @@ export default function LoginPage() {
           {/* Quick Demo Credentials */}
           <div className="pt-3 border-t border-slate-100">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
-              Fast Demo Logins
+              Fast Demo Logins (Password: Password123!)
             </span>
             <div className="grid grid-cols-2 gap-1.5">
               {[
-                { id: "rep", label: "Sales Rep", email: "alex.rivera@dealflow360.com" },
-                { id: "mgr", label: "Sales Manager", email: "elena.vance@dealflow360.com" },
-                { id: "fin", label: "Finance Ops", email: "marcus.vance@dealflow360.com" },
-                { id: "adm", label: "Admin", email: "sarah.chen@dealflow360.com" },
+                { id: "cust", label: "Customer Portal", email: "apex-tech.procurement@acmecorp.com" },
+                { id: "cust-cobalt", label: "Customer (DF-Q1042)", email: "apex-tech.soc@cobaltcyber.com" },
+                { id: "rep", label: "Sales Rep", email: "rep@dealflow360.com" },
+                { id: "mgr", label: "Sales Manager", email: "manager@dealflow360.com" },
+                { id: "fin", label: "Finance Ops", email: "finance@dealflow360.com" },
+                { id: "adm", label: "Admin", email: "admin@dealflow360.com" },
               ].map((item) => (
                 <button
                   key={item.id}

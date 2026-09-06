@@ -112,7 +112,7 @@ export default function AdminOverviewPage() {
     productsList.reduce((acc: number, p: any) => acc + (p.costPrice || 0) * 35, 0);
 
   // Unique system roles
-  const distinctRolesCount = new Set(membersList.map((m) => m.role)).size || 1;
+  const distinctRolesCount = new Set(membersList.map((m: any) => m.role)).size || 1;
 
   // Helper to derive effective discount percentage across lines/totals
   const getDiscountPercent = (q: any) => {
