@@ -21,6 +21,12 @@ model User {
   updatedAt                 DateTime             @updatedAt
   organizationId            String?
   role                      UserRole             @default(CUSTOMER)
+  twoFactorEnabled          Boolean?             @default(false)
+  twoFactor                 TwoFactor[]
+  whatsappPhoneNumber       String?
+  whatsapp2FAEnabled        Boolean              @default(false)
+  whatsappVerified          Boolean              @default(false)
+  whatsAppOtps              WhatsAppOtp[]
   accounts                  Account[]
   approvalAuditLogs         ApprovalAuditLog[]
   reviewedApprovalSteps     ApprovalStep[]
@@ -93,6 +99,40 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+/// Model: TwoFactor
+/// Use Case: Better Auth two-factor authentication credentials (TOTP secret and backup recovery codes).
+model TwoFactor {
+  id                      String    @id @default(cuid())
+  secret                  String
+  backupCodes             String
+  userId                  String
+  verified                Boolean   @default(false)
+  failedVerificationCount Int       @default(0)
+  lockedUntil             DateTime?
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("two_factor")
+}
+
+/// Model: WhatsAppOtp
+/// Use Case: Ephemeral WhatsApp OTP verification challenges for phone verification and 2FA logins.
+model WhatsAppOtp {
+  id          String   @id @default(cuid())
+  userId      String
+  phoneNumber String
+  otpHash     String
+  purpose     String   @default("LOGIN_2FA")
+  attempts    Int      @default(0)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@index([phoneNumber])
+  @@map("whatsapp_otps")
 }
 
 /// Model: Organization
