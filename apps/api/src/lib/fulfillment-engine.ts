@@ -1,9 +1,11 @@
-export interface WarehouseCandidate {
-  id: string;
-  name?: string | null;
-  code?: string | null;
-  shippingCostWeight: number;
-}
+import {
+  type WarehouseCandidate,
+  type StockMap,
+  scoreAndSortWarehouses,
+  getAvailableStockFromMap,
+} from "./warehouse-scoring.js";
+
+export { type WarehouseCandidate } from "./warehouse-scoring.js";
 
 export interface LineAllocation {
   warehouseId: string;
@@ -21,40 +23,27 @@ export interface SplitLineResult {
   estimatedShipmentCount: number;
 }
 
-export type StockByWarehouseInput =
-  | Record<string, number>
-  | Map<string, number>
-  | Array<{ warehouseId: string; availableQuantity: number }>;
-
-function getAvailableStock(stockByWarehouse: StockByWarehouseInput, warehouseId: string): number {
-  if (stockByWarehouse instanceof Map) {
-    return stockByWarehouse.get(warehouseId) ?? 0;
-  }
-  if (Array.isArray(stockByWarehouse)) {
-    const entry = stockByWarehouse.find((s) => s.warehouseId === warehouseId);
-    return entry ? entry.availableQuantity : 0;
-  }
-  if (typeof stockByWarehouse === "object" && stockByWarehouse !== null) {
-    return stockByWarehouse[warehouseId] ?? 0;
-  }
-  return 0;
-}
+export type StockByWarehouseInput = StockMap;
 
 /**
- * Pure fulfillment greedy split engine.
+ * Pure Waterfall Allocation Engine for Hardware Quotation Lines.
  *
- * Evaluates required quantity across warehouses sorted ascending by shippingCostWeight.
- * Greedily allocates available inventory from the cheapest facility first.
- * Any unfulfilled remainder is flagged as a backorder.
+ * Evaluates required quantity across warehouses sorted via the multi-tier scoring hierarchy:
+ * 1. 100% Single-Shipment Capability first.
+ * 2. Lowest shippingCostWeight second.
+ * 3. Highest inventory capacity tie-breaker third.
  *
- * @param requiredQty - Number of units demanded
- * @param warehousesSortedByShippingCost - Facilities sorted by shipping cost weight
- * @param stockByWarehouse - Available inventory per facility
+ * Greedily allocates available unreserved inventory.
+ * Any unfulfilled remainder is flagged for backorder generation.
+ *
+ * @param requiredQty - Number of units demanded by the customer.
+ * @param candidateWarehouses - List of active warehouse candidates.
+ * @param stockByWarehouse - Unreserved stock availability per warehouse.
  * @returns SplitLineResult
  */
 export function splitLine(
   requiredQty: number,
-  warehousesSortedByShippingCost: WarehouseCandidate[],
+  candidateWarehouses: WarehouseCandidate[],
   stockByWarehouse: StockByWarehouseInput
 ): SplitLineResult {
   if (requiredQty <= 0) {
@@ -67,27 +56,33 @@ export function splitLine(
     };
   }
 
-  // Ensure deterministic ascending order by shipping cost weight
-  const sortedWarehouses = [...warehousesSortedByShippingCost].sort(
-    (a, b) => a.shippingCostWeight - b.shippingCostWeight
+  // Evaluate and sort warehouses using the multi-tier scoring engine
+  const sortedEvaluations = scoreAndSortWarehouses(
+    requiredQty,
+    candidateWarehouses,
+    stockByWarehouse
   );
 
   let remaining = requiredQty;
   const allocations: LineAllocation[] = [];
 
-  for (const wh of sortedWarehouses) {
+  for (const evalResult of sortedEvaluations) {
     if (remaining <= 0) break;
 
-    const available = Math.max(0, getAvailableStock(stockByWarehouse, wh.id));
+    const available = Math.max(
+      0,
+      getAvailableStockFromMap(stockByWarehouse, evalResult.warehouseId)
+    );
     if (available <= 0) continue;
 
     const allocated = Math.min(remaining, available);
     allocations.push({
-      warehouseId: wh.id,
-      warehouseName: wh.name,
+      warehouseId: evalResult.warehouseId,
+      warehouseName: evalResult.warehouseName,
       quantity: allocated,
-      shippingCostWeight: wh.shippingCostWeight,
-      shippingCostContribution: Math.round(allocated * wh.shippingCostWeight * 100) / 100,
+      shippingCostWeight: evalResult.shippingCostWeight,
+      shippingCostContribution:
+        Math.round(allocated * evalResult.shippingCostWeight * 100) / 100,
     });
 
     remaining -= allocated;

@@ -72,10 +72,18 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestOption
   }
 
   if (!response.ok || (data && typeof data === "object" && data.success === false)) {
-    const errorMessage =
-      data?.message
-      || (typeof data?.error === "string" ? data.error : data?.error?.message)
-      || `Request failed with status ${response.status}`;
+    let errorMessage = `Request failed with status ${response.status}`;
+    if (typeof data === "string" && data.trim()) {
+      errorMessage = data;
+    } else if (data && typeof data === "object") {
+      if (typeof data.message === "string" && data.message.trim()) {
+        errorMessage = data.message;
+      } else if (typeof data.error === "string" && data.error.trim()) {
+        errorMessage = data.error;
+      } else if (data.error && typeof data.error.message === "string" && data.error.message.trim()) {
+        errorMessage = data.error.message;
+      }
+    }
     throw new ApiError(errorMessage, response.status, data);
   }
 

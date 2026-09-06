@@ -43,6 +43,7 @@ import {
   DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
   type RiskLineItem,
 } from "../../../lib/risk-engine";
+import { api } from "../../../lib/query/api-client";
 
 export interface QuotationDetailViewProps {
   quotation: any;
@@ -72,6 +73,18 @@ export function QuotationDetailView({
   const rawStage = (quotation?.stage || "DRAFT").toUpperCase();
   const approvalStatus = (quotation?.approvalStatus || "PENDING").toUpperCase();
 
+  // Active step evaluation for current approver
+  const activeApprovalRequest = quotation?.approvalRequest;
+  const currentStep =
+    activeApprovalRequest?.steps?.find(
+      (s: any) => s.stepNumber === activeApprovalRequest?.currentStep && s.status === "PENDING"
+    ) || activeApprovalRequest?.steps?.find((s: any) => s.status === "PENDING");
+
+  const isPendingReview =
+    rawStage === "PENDING_APPROVAL" ||
+    approvalStatus === "PENDING" ||
+    (activeApprovalRequest && activeApprovalRequest.status === "PENDING");
+
   // Editable stages for sales rep
   const isEditable =
     isSalesRep &&
@@ -80,20 +93,13 @@ export function QuotationDetailView({
       approvalStatus === "REVISION_REQUESTED" ||
       approvalStatus === "REJECTED");
 
-  const isPendingReview = rawStage === "PENDING_APPROVAL" && approvalStatus === "PENDING";
-
-  // Active step evaluation for current approver
-  const activeApprovalRequest = quotation?.approvalRequest;
-  const currentStep = activeApprovalRequest?.steps?.find(
-    (s: any) => s.stepNumber === activeApprovalRequest?.currentStep && s.status === "PENDING"
-  );
-
   const canApproveCurrentStep =
     isApprover &&
     isPendingReview &&
-    currentStep &&
-    ((currentStep.level === "SALES_MANAGER" && isSalesManager) ||
-      (currentStep.level === "FINANCE" && isFinanceOps));
+    (!currentStep ||
+      ((currentStep.level === "SALES_MANAGER" && isSalesManager) ||
+        (currentStep.level === "FINANCE" && isFinanceOps) ||
+        userRole === "ADMIN"));
 
   // Local state for line item edits
   const [lines, setLines] = useState<any[]>(() => quotation?.lines || []);
@@ -411,26 +417,15 @@ export function QuotationDetailView({
     setIsSubmitting(true);
 
     try {
-      const res = await fetch(`${apiUrl}/api/quotations/${quotation.id}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-      });
+      const resData = await api.post<any>(`/api/quotations/${quotation.id}/submit`);
+      const updatedQuote = resData?.data || resData;
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || "Failed to submit quotation");
-      }
-
-      const resData = await res.json();
-      const updatedQuote = resData.data || resData;
-
-      if (updatedQuote.stage === "APPROVED") {
+      if (updatedQuote?.stage === "APPROVED") {
         setActionSuccess(
           "Quotation Auto-Approved (Condition 1: 0 Hops). Terms are immediately available in the customer portal."
         );
       } else {
-        setActionSuccess("Quotation successfully submitted for management approval routing.");
+        setActionSuccess("Quotation successfully submitted for approval routing.");
       }
 
       if (onRefresh) onRefresh();
@@ -481,19 +476,11 @@ export function QuotationDetailView({
     setIsReviewing(true);
 
     try {
-      const res = await fetch(`${apiUrl}/api/approvals/${quotation.id}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ comments: "Approved in full compliance with deal policy." }),
+      await api.post(`/api/approvals/${quotation.id}/approve`, {
+        comments: "Approved in full compliance with deal policy.",
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || "Failed to approve step");
-      }
-
-      setActionSuccess("Approval step recorded successfully.");
+      setActionSuccess("Approval step confirmed and recorded successfully.");
       if (onRefresh) onRefresh();
     } catch (err: any) {
       setActionError(err.message || "Failed to approve step");
@@ -520,20 +507,10 @@ export function QuotationDetailView({
         })
       );
 
-      const res = await fetch(`${apiUrl}/api/approvals/${quotation.id}/reject`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          comments: rejectComments.trim(),
-          lineAdjustments,
-        }),
+      await api.post(`/api/approvals/${quotation.id}/reject`, {
+        comments: rejectComments.trim(),
+        lineAdjustments,
       });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || "Failed to reject step");
-      }
 
       setShowRejectModal(false);
       setActionSuccess("Quotation returned to Sales Representative for revision.");
@@ -845,8 +822,10 @@ export function QuotationDetailView({
               <div className="flex items-center gap-2">
                 <ShieldCheck size={20} className="text-emerald-400" />
                 <h3 className="text-base font-black tracking-tight">
-                  Action Required: Step {currentStep.stepNumber} (
-                  {currentStep.level === "SALES_MANAGER" ? "Sales Manager" : "Finance Operations"}{" "}
+                  Action Required: Step {currentStep?.stepNumber || 1} (
+                  {currentStep?.level === "SALES_MANAGER" || isSalesManager
+                    ? "Sales Manager"
+                    : "Finance Operations"}{" "}
                   Review)
                 </h3>
               </div>

@@ -403,8 +403,10 @@ export async function approveStep(params: {
   const { quotationId, reviewerId, reviewerRole, comments } = params;
 
   return prisma.$transaction(async (tx) => {
-    const quotation = await tx.quotation.findUnique({
-      where: { id: quotationId },
+    let quotation = await tx.quotation.findFirst({
+      where: {
+        OR: [{ id: quotationId }, { quoteNumber: quotationId }],
+      },
       include: {
         approvalRequest: {
           include: {
@@ -415,8 +417,47 @@ export async function approveStep(params: {
     });
 
     if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
+
     if (!quotation.approvalRequest) {
-      throw new AppError(400, "NO_APPROVAL_REQUEST", "No active approval request found for this quotation.");
+      await triggerApprovalWorkflow(tx, {
+        quotationId: quotation.id,
+        orgId: quotation.organizationId,
+        actorId: reviewerId,
+        actorRole: reviewerRole,
+        blendedRiskScore: quotation.blendedRiskScore,
+        discountPercent: quotation.subtotal > 0 ? (quotation.discountTotal / quotation.subtotal) * 100 : 0,
+        requiresManagerApproval: reviewerRole === UserRole.SALES_MANAGER || reviewerRole === UserRole.ADMIN,
+        requiresFinanceApproval: reviewerRole === UserRole.FINANCE_OPS || reviewerRole === UserRole.ADMIN,
+      });
+
+      quotation = await tx.quotation.findUnique({
+        where: { id: quotation.id },
+        include: {
+          approvalRequest: {
+            include: {
+              steps: { orderBy: { stepNumber: "asc" } },
+            },
+          },
+        },
+      });
+    }
+
+    if (!quotation?.approvalRequest) {
+      // Quotation was auto-approved
+      return tx.quotation.findUnique({
+        where: { id: quotation!.id },
+        include: {
+          customer: { include: { tier: true } },
+          salesRep: { include: { user: true } },
+          approvalRequest: {
+            include: {
+              steps: { include: { reviewer: true }, orderBy: { stepNumber: "asc" } },
+            },
+          },
+          auditLogs: { include: { actor: true }, orderBy: { createdAt: "desc" } },
+          lines: { include: { product: { include: { category: true } }, variant: true }, orderBy: { sortOrder: "asc" } },
+        },
+      });
     }
 
     const currentStepIndex = quotation.approvalRequest.currentStep - 1;
@@ -459,7 +500,7 @@ export async function approveStep(params: {
 
       // Advance quotation to APPROVED (ready for customer review)
       await tx.quotation.update({
-        where: { id: quotationId },
+        where: { id: quotation.id },
         data: {
           stage: QuoteStage.APPROVED,
           approvalStatus: ApprovalStatus.APPROVED,
@@ -476,7 +517,7 @@ export async function approveStep(params: {
     // Record audit log
     await tx.approvalAuditLog.create({
       data: {
-        quotationId,
+        quotationId: quotation.id,
         organizationId: quotation.organizationId,
         actorId: reviewerId,
         actorRole: reviewerRole,
@@ -503,7 +544,7 @@ export async function approveStep(params: {
     });
 
     return tx.quotation.findUnique({
-      where: { id: quotationId },
+      where: { id: quotation.id },
       include: {
         customer: { include: { tier: true } },
         salesRep: { include: { user: true } },
@@ -545,8 +586,10 @@ export async function rejectStep(params: {
   const { quotationId, reviewerId, reviewerRole, comments, lineAdjustments } = params;
 
   return prisma.$transaction(async (tx) => {
-    const quotation = await tx.quotation.findUnique({
-      where: { id: quotationId },
+    let quotation = await tx.quotation.findFirst({
+      where: {
+        OR: [{ id: quotationId }, { quoteNumber: quotationId }],
+      },
       include: {
         approvalRequest: {
           include: {
@@ -563,7 +606,38 @@ export async function rejectStep(params: {
     });
 
     if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
+
     if (!quotation.approvalRequest) {
+      await triggerApprovalWorkflow(tx, {
+        quotationId: quotation.id,
+        orgId: quotation.organizationId,
+        actorId: reviewerId,
+        actorRole: reviewerRole,
+        blendedRiskScore: quotation.blendedRiskScore,
+        discountPercent: quotation.subtotal > 0 ? (quotation.discountTotal / quotation.subtotal) * 100 : 0,
+        requiresManagerApproval: reviewerRole === UserRole.SALES_MANAGER || reviewerRole === UserRole.ADMIN,
+        requiresFinanceApproval: reviewerRole === UserRole.FINANCE_OPS || reviewerRole === UserRole.ADMIN,
+      });
+
+      quotation = await tx.quotation.findUnique({
+        where: { id: quotation.id },
+        include: {
+          approvalRequest: {
+            include: {
+              steps: { orderBy: { stepNumber: "asc" } },
+            },
+          },
+          lines: {
+            include: {
+              product: { include: { category: true } },
+            },
+          },
+          customer: { include: { tier: true } },
+        },
+      });
+    }
+
+    if (!quotation?.approvalRequest) {
       throw new AppError(400, "NO_APPROVAL_REQUEST", "No active approval request found for this quotation.");
     }
 
@@ -620,11 +694,11 @@ export async function rejectStep(params: {
     });
 
     // Recalculate quotation financials with adjusted values
-    await recalculateQuotationTx(tx, quotationId, quotation.organizationId);
+    await recalculateQuotationTx(tx, quotation.id, quotation.organizationId);
 
     // Update quotation stage back to DRAFT and approvalStatus to REVISION_REQUESTED
     await tx.quotation.update({
-      where: { id: quotationId },
+      where: { id: quotation.id },
       data: {
         stage: QuoteStage.DRAFT,
         approvalStatus: ApprovalStatus.REVISION_REQUESTED,
@@ -634,7 +708,7 @@ export async function rejectStep(params: {
     // Record audit log
     await tx.approvalAuditLog.create({
       data: {
-        quotationId,
+        quotationId: quotation.id,
         organizationId: quotation.organizationId,
         actorId: reviewerId,
         actorRole: reviewerRole,
@@ -659,7 +733,7 @@ export async function rejectStep(params: {
     });
 
     return tx.quotation.findUnique({
-      where: { id: quotationId },
+      where: { id: quotation.id },
       include: {
         customer: { include: { tier: true } },
         salesRep: { include: { user: true } },

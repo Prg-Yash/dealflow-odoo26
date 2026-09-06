@@ -1,8 +1,8 @@
 "use client";
 
-import { use, useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Calendar,
@@ -32,26 +32,24 @@ import {
   useModifySubscription,
   useCancelSubscription,
   useScheduleReminder,
+  useQuotation,
   type SubscriptionData,
 } from "../../../../../../lib/query";
 import { INITIAL_SUBSCRIPTION_RECORDS } from "../../../../../../lib/finance-data";
 
-interface Props {
-  params: Promise<{ id: string }>;
-}
-
-export default function BillingDetailPage({ params }: Props) {
+export default function BillingDetailPage({ params }: { params?: { id?: string } }) {
   const router = useRouter();
-  const resolvedParams = use(params);
-  const subId = resolvedParams.id;
+  const routeParams = useParams();
+  const subId = ((routeParams?.id as string) || (params?.id as string) || "").trim();
 
   const { user } = useDashboardAuth();
 
   // Role Gate: Private to Finance Ops & Admin
-  const isAuthorized = user?.role === "FINANCE_OPS" || user?.role === "ADMIN" || !user?.role;
+  const isAuthorized = !user || user.role === "FINANCE_OPS" || user.role === "ADMIN";
 
   // Data fetching
   const { data: apiSub, isLoading, refetch } = useSubscription(subId);
+  const { data: originatingQuote } = useQuotation(apiSub?.quotationId || "");
   const modifyMutation = useModifySubscription();
   const cancelMutation = useCancelSubscription();
   const reminderMutation = useScheduleReminder();
@@ -71,7 +69,8 @@ export default function BillingDetailPage({ params }: Props) {
 
   // Cancel Modal State
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
-  const [cancelReason, setCancelReason] = useState("Customer requested contract cancellation");
+  const [cancelReason, setCancelReason] = useState("Customer requested cancellation");
+  const [refundRule, setRefundRule] = useState<"PRORATED" | "FULL" | "NO_REFUND">("PRORATED");
 
   // Fallback demo mock resolution if subscription is a sample ID or not found in DB
   const sub: SubscriptionData = useMemo(() => {
@@ -179,15 +178,16 @@ export default function BillingDetailPage({ params }: Props) {
 
   // Extract one-time lines from originating quotation or fallback
   const oneTimeLines = useMemo(() => {
-    if (sub?.quotation?.lines && sub.quotation.lines.length > 0) {
-      const filtered = sub.quotation.lines.filter(
-        (l) => l.itemType === "HARDWARE" || l.itemType === "SERVICE"
+    const qLines = sub?.quotation?.lines || originatingQuote?.lines;
+    if (qLines && qLines.length > 0) {
+      const filtered = qLines.filter(
+        (l: any) => l.itemType === "HARDWARE" || l.itemType === "SERVICE"
       );
       if (filtered.length > 0) return filtered;
     }
 
     // Realistic fallback for Wireframe 10 demo if quotation has no attached hardware lines
-    if (sub.customer?.name?.includes("Acme") || sub.notes?.includes("Care Plan 2yr")) {
+    if (sub?.customer?.name?.includes("Acme") || sub?.notes?.includes("Care Plan 2yr")) {
       return [
         {
           id: "demo-hw-1",
@@ -209,7 +209,7 @@ export default function BillingDetailPage({ params }: Props) {
     }
 
     return [];
-  }, [sub]);
+  }, [sub, originatingQuote]);
 
   // Extract recurring lines
   const recurringLines = useMemo(() => {
@@ -218,6 +218,12 @@ export default function BillingDetailPage({ params }: Props) {
     }
     return [];
   }, [sub]);
+
+  // Live Proration Calculation
+  const activeLine = recurringLines[0];
+  const oldQty = activeLine?.quantity || 1;
+  const deltaQty = editQuantity - oldQty;
+  const estProration = Math.round(deltaQty * (activeLine?.unitPrice || editUnitPrice || 46) * 0.5 * 100) / 100;
 
   // Open Modify Modal
   const handleOpenModify = () => {
@@ -270,6 +276,7 @@ export default function BillingDetailPage({ params }: Props) {
       await cancelMutation.mutateAsync({
         id: sub.id,
         reason: cancelReason,
+        refundRule,
       });
 
       setIsCancelModalOpen(false);
@@ -331,9 +338,9 @@ export default function BillingDetailPage({ params }: Props) {
     );
   }
 
-  const customerName = sub.customer?.name || sub.customer?.companyName || "Acme Corp";
-  const primaryPlanName = sub.lines?.[0]?.product?.name || sub.notes || "Care Plan 2yr";
-  const nextBillDateFormatted = sub.nextBillingDate
+  const customerName = sub?.customer?.name || sub?.customer?.companyName || "Acme Corp";
+  const primaryPlanName = sub?.lines?.[0]?.product?.name || sub?.notes || "Care Plan 2yr";
+  const nextBillDateFormatted = sub?.nextBillingDate
     ? new Date(sub.nextBillingDate).toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
@@ -521,7 +528,7 @@ export default function BillingDetailPage({ params }: Props) {
                 <tr className="bg-slate-50/80 text-slate-500 font-bold uppercase tracking-wider text-[11px] border-b border-slate-100">
                   <th className="py-3.5 px-6">Plan</th>
                   <th className="py-3.5 px-4 text-center w-28">Cycle</th>
-                  <th className="py-3.5 px-6 text-center w-36">Next Bill Date</th>
+                  <th className="py-3.5 px-4 text-center w-36">Next Bill Date</th>
                   <th className="py-3.5 px-6 text-right w-36">Amount</th>
                 </tr>
               </thead>
@@ -699,6 +706,29 @@ export default function BillingDetailPage({ params }: Props) {
                 </div>
               </div>
 
+              {/* Live Proration Preview Card */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mid-Cycle Proration Schedule:</div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-600 font-medium">Seat Delta:</span>
+                  <span className={deltaQty >= 0 ? "text-emerald-600 font-mono font-bold" : "text-amber-600 font-mono font-bold"}>
+                    {deltaQty >= 0 ? `+${deltaQty} seats` : `${deltaQty} seats`}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-600 font-medium">Adjustment Type:</span>
+                  <span className="text-slate-900 font-mono font-bold">
+                    {deltaQty > 0 ? "Prorated INVOICE" : deltaQty < 0 ? "Prorated CREDIT NOTE" : "No Change"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs font-bold pt-1 border-t border-slate-200">
+                  <span className="text-slate-600">Estimated Adjustment:</span>
+                  <span className="font-mono text-xs text-sky-600">
+                    {estProration >= 0 ? `+₹${estProration.toLocaleString()}` : `-₹${Math.abs(estProration).toLocaleString()}`}
+                  </span>
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   Next Billing Date
@@ -765,17 +795,34 @@ export default function BillingDetailPage({ params }: Props) {
               Future recurring invoices and automated BullMQ reminders will be stopped immediately.
             </div>
 
-            <div className="space-y-1 text-xs">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                Cancellation Reason
-              </label>
-              <input
-                type="text"
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                placeholder="Reason for cancellation..."
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 outline-none focus:border-rose-500"
-              />
+            <div className="space-y-3 text-xs">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Refund Calculation Rule
+                </label>
+                <select
+                  value={refundRule}
+                  onChange={(e) => setRefundRule(e.target.value as any)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-semibold outline-none focus:border-rose-500 cursor-pointer"
+                >
+                  <option value="PRORATED">PRORATED - Unused cycle days credited</option>
+                  <option value="FULL">FULL - Full cycle fee refunded</option>
+                  <option value="NO_REFUND">NO_REFUND - Immediate cancellation without credit</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Cancellation Reason
+                </label>
+                <input
+                  type="text"
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="Reason for cancellation..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 outline-none focus:border-rose-500"
+                />
+              </div>
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">

@@ -74,3 +74,31 @@ export const consolidateBackorder = asyncHandler(
     return res.json({ success: true, data: result });
   }
 );
+
+/**
+ * Phase 1: POST /api/fulfillment/auto-split
+ * Waterfall allocation engine for confirmed quotations
+ */
+export const autoSplit = asyncHandler(
+  async (req: TenantRequest, res: Response) => {
+    const result = await fulfillmentService.autoSplitFulfillment(
+      req.orgId,
+      req.body
+    );
+    return res.status(200).json({ success: true, data: result });
+  }
+);
+
+/**
+ * Phase 2: POST /api/fulfillment/override
+ * Manual adjustment of shipment line with strict stock validation
+ */
+export const manualOverride = asyncHandler(
+  async (req: TenantRequest, res: Response) => {
+    const result = await fulfillmentService.manualOverrideShipmentLine(
+      req.orgId,
+      req.body
+    );
+    return res.status(200).json({ success: true, data: result });
+  }
+);

@@ -60,6 +60,7 @@ export interface ManagerApprovalRequest {
 
 export interface DealAnomalyRecord {
   id: string;
+  quotationId?: string;
   quoteId: string;
   account: string;
   accountInitials: string;

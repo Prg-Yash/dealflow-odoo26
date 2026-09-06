@@ -426,8 +426,8 @@ export async function createQuotation(
           lineInput.unitPrice !== undefined
             ? lineInput.unitPrice
             : variant
-            ? product.basePrice + variant.extraPrice
-            : product.basePrice;
+              ? product.basePrice + variant.extraPrice
+              : product.basePrice;
 
         const costPrice = variant
           ? product.costPrice + variant.costPriceDelta

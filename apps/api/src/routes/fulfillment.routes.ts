@@ -16,6 +16,26 @@ const STAFF_ROLES = [
 const FINANCE_ADMIN_ROLES = [UserRole.ADMIN, UserRole.FINANCE_OPS];
 
 // =============================================================================
+// Direct Fulfillment Router (/fulfillment)
+// Phase 1: POST /fulfillment/auto-split
+// Phase 2: POST /fulfillment/override
+// =============================================================================
+export const fulfillmentRouter = Router();
+fulfillmentRouter.use(requireAuth, tenantMiddleware);
+
+fulfillmentRouter.post(
+  "/auto-split",
+  requireRole(...STAFF_ROLES),
+  controller.autoSplit
+);
+
+fulfillmentRouter.post(
+  "/override",
+  requireRole(...FINANCE_ADMIN_ROLES),
+  controller.manualOverride
+);
+
+// =============================================================================
 // Fulfillment Order Router (/fulfillment-orders)
 // =============================================================================
 export const fulfillmentOrderRouter = Router();
@@ -45,6 +65,16 @@ fulfillmentOrderRouter.post(
   "/:id/accept-split",
   requireRole(...FINANCE_ADMIN_ROLES),
   controller.acceptSplit
+);
+
+// Auto-split direct trigger on a fulfillment order
+fulfillmentOrderRouter.post(
+  "/:id/auto-split",
+  requireRole(...STAFF_ROLES),
+  async (req, res, next) => {
+    req.body = { ...req.body, fulfillmentOrderId: req.params.id };
+    controller.autoSplit(req, res, next);
+  }
 );
 
 // =============================================================================

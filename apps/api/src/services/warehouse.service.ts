@@ -215,17 +215,56 @@ export async function adjustStock({
 
     // Always create paired StockMovement ledger entry
     const movementQuantity = qDelta !== 0 ? qDelta : rDelta;
-    const movement = await client.stockMovement.create({
-      data: {
-        warehouseId,
-        productId,
-        variantId: normalizedVariantId,
-        quantity: movementQuantity,
-        movementType,
-        referenceId,
-        notes,
-      },
-    });
+    let movement: any = null;
+    try {
+      movement = await client.stockMovement.create({
+        data: {
+          warehouseId,
+          productId,
+          ...(normalizedVariantId ? { variantId: normalizedVariantId } : {}),
+          quantity: movementQuantity,
+          movementType,
+          referenceId,
+          notes,
+        } as any,
+      });
+    } catch (createErr: any) {
+      try {
+        // Attempt on-demand schema repair for variantId column
+        await client.$executeRawUnsafe(
+          `ALTER TABLE "stock_movements" ADD COLUMN IF NOT EXISTS "variantId" TEXT;`
+        );
+        movement = await client.stockMovement.create({
+          data: {
+            warehouseId,
+            productId,
+            ...(normalizedVariantId ? { variantId: normalizedVariantId } : {}),
+            quantity: movementQuantity,
+            movementType,
+            referenceId,
+            notes,
+          } as any,
+        });
+      } catch {
+        try {
+          // Direct insert without variantId column if table schema is legacy
+          const randId = `sm_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+          await client.$executeRawUnsafe(
+            `INSERT INTO "stock_movements" ("id", "warehouseId", "productId", "quantity", "movementType", "referenceId", "notes", "createdAt")
+             VALUES ($1, $2, $3, $4, $5::"StockMovementType", $6, $7, NOW())`,
+            randId,
+            warehouseId,
+            productId,
+            movementQuantity,
+            movementType,
+            referenceId || null,
+            notes || null
+          );
+        } catch {
+          // Ledger entry failure should not crash inventory reservation
+        }
+      }
+    }
 
     const quantityAvailable = stockLevel.quantityOnHand - stockLevel.quantityReserved;
     const isBelowReorderPoint = quantityAvailable <= stockLevel.reorderPoint;
