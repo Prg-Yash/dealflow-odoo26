@@ -10,7 +10,9 @@
     "db:generate": "turbo run db:generate",
     "db:push": "turbo run db:push",
     "db:migrate": "turbo run db:migrate",
-    "db:studio": "turbo run db:studio"
+    "db:studio": "turbo run db:studio",
+    "seed": "tsx scripts/seed.ts",
+    "db:seed": "tsx scripts/seed.ts"
   },
   "devDependencies": {
     "prettier": "3.9.6",
