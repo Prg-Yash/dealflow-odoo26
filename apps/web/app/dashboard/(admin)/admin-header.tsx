@@ -5,11 +5,13 @@ import { usePathname } from "next/navigation";
 import { AdminNav } from "@repo/ui";
 import { useSession } from "@/lib/auth-client";
 import { useCurrentOrg } from "@/lib/query";
+import { useDashboardAuth } from "../layout";
 
 export function AdminHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { data: currentOrg } = useCurrentOrg();
+  const { signOut } = useDashboardAuth();
 
   const adminName = session?.user?.name || "Administrator";
   const adminEmail = session?.user?.email || "";
@@ -32,6 +34,7 @@ export function AdminHeader() {
       adminEmail={adminEmail}
       adminInitials={adminInitials}
       orgName={orgName}
+      onSignOut={signOut}
       linkComponent={Link as any}
     />
   );

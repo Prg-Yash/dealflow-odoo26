@@ -32,3 +32,4 @@ export { QuotationBuilderSidebar, MODULAR_BLOCK_DEFINITIONS, type DocumentBlockD
 export { QuotationBuilderCanvas } from "./components/quotation-builder-canvas";
 export { ShareQuotationModal } from "./components/share-quotation-modal";
 export { AdminNav, type AdminNavProps, type AdminNavTabItem } from "./components/admin-nav";
+export { ProfileModal, type ProfileModalProps } from "./components/profile-modal";

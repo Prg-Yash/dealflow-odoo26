@@ -29,6 +29,7 @@ export const CreateCounterProposalSchema = z.object({
   message: z.string().optional().nullable(),
   authorName: z.string().optional(),
   authorEmail: z.string().optional(),
+  requestedDeliveryDate: z.string().optional().nullable(),
   lineDiscounts: z
     .array(
       z.object({

@@ -11,7 +11,8 @@ import {
   type RiskLineInput,
 } from "../lib/risk-engine.js";
 import { hashPassword } from "../lib/passwords.js";
-import { triggerApprovalWorkflow } from "./approval.service.js";
+import { triggerApprovalWorkflow, approveStep } from "./approval.service.js";
+import { getRedisConnection } from "../config/redis.js";
 import type {
   CreateQuotationInput,
   CreateQuotationLineInput,
@@ -568,7 +569,7 @@ export async function getQuotationById(
         orderBy: { createdAt: "desc" },
       },
       comments: {
-        include: { author: true },
+        include: { author: true, quotationLine: { select: { id: true, description: true } } },
         orderBy: { createdAt: "asc" },
       },
       lines: {
@@ -827,7 +828,18 @@ export async function submitQuotation(
         ? (freshQuotation.discountTotal / freshQuotation.subtotal) * 100
         : 0;
 
-    // 2. Trigger approval workflow (enforces Condition 1, 2, or 3)
+    // 2. If there was a pending counter-proposal from the customer, mark it as applied/accepted
+    await tx.counterProposal.updateMany({
+      where: { quotationId: quotation.id, status: "PENDING" },
+      data: {
+        status: "ACCEPTED",
+        respondedById: userId,
+        respondedAt: new Date(),
+        responseNotes: "Proposal updated and submitted by sales representative.",
+      },
+    });
+
+    // 3. Trigger approval workflow (enforces Condition 1, 2, or 3)
     await triggerApprovalWorkflow(tx, {
       quotationId: quotation.id,
       orgId,
@@ -859,7 +871,7 @@ export async function submitQuotation(
           orderBy: { createdAt: "desc" },
         },
         comments: {
-          include: { author: true },
+          include: { author: true, quotationLine: { select: { id: true, description: true } } },
           orderBy: { createdAt: "asc" },
         },
         lines: {
@@ -871,5 +883,188 @@ export async function submitQuotation(
         },
       },
     });
+  });
+}
+
+// =============================================================================
+// Quotation Discussion & Real-Time Messaging (Staff)
+// =============================================================================
+
+export async function addQuotationComment(
+  orgId: string,
+  userId: string,
+  userRole: UserRole,
+  quotationId: string,
+  input: {
+    message: string;
+    quotationLineId?: string | null;
+    proposedDiscountPercent?: number | null;
+  }
+) {
+  const quotation = await prisma.quotation.findFirst({
+    where: {
+      OR: [{ id: quotationId }, { quoteNumber: quotationId }],
+      organizationId: orgId,
+    },
+    include: { salesRep: true, lines: true },
+  });
+
+  if (!quotation) {
+    throw new AppError(404, "NOT_FOUND", "Quotation not found.");
+  }
+
+  if (input.quotationLineId) {
+    const lineExists = quotation.lines.some((l) => l.id === input.quotationLineId);
+    if (!lineExists) {
+      throw new AppError(400, "INVALID_LINE", "The specified quotation line does not exist on this quote.");
+    }
+  }
+
+  const comment = await prisma.quotationComment.create({
+    data: {
+      quotationId: quotation.id,
+      quotationLineId: input.quotationLineId || null,
+      authorId: userId,
+      authorRole: userRole,
+      message: input.message.trim(),
+      proposedDiscountPercent: input.proposedDiscountPercent ?? null,
+      isResolved: false,
+    },
+    include: {
+      author: {
+        select: { id: true, name: true, email: true, role: true },
+      },
+      quotationLine: {
+        select: { id: true, description: true },
+      },
+    },
+  });
+
+  // Safely publish to Redis pub/sub channel for real-time delivery
+  try {
+    const redis = getRedisConnection();
+    await redis.publish(
+      `quotation:${quotation.id}:comments`,
+      JSON.stringify({
+        type: "NEW_COMMENT",
+        quotationId: quotation.id,
+        comment: {
+          id: comment.id,
+          message: comment.message,
+          authorRole: comment.authorRole,
+          authorName: comment.author?.name || "User",
+          quotationLineId: comment.quotationLineId,
+          createdAt: comment.createdAt.toISOString(),
+        },
+      })
+    );
+  } catch (_err) {
+    // Gracefully handle Redis unavailability
+  }
+
+  return comment;
+}
+
+export async function approveQuotationStep(
+  orgId: string,
+  userId: string,
+  userRole: UserRole,
+  quotationId: string,
+  comments?: string
+) {
+  const quotation = await prisma.quotation.findFirst({
+    where: { id: quotationId, organizationId: orgId },
+    include: { approvalRequest: { include: { steps: true } } },
+  });
+  if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
+
+  if (quotation.approvalRequest) {
+    return approveStep({
+      quotationId,
+      reviewerId: userId,
+      reviewerRole: userRole,
+      comments,
+    });
+  }
+
+  return prisma.quotation.update({
+    where: { id: quotationId },
+    data: { stage: QuoteStage.APPROVED, approvalStatus: ApprovalStatus.APPROVED },
+    include: {
+      customer: { include: { tier: true } },
+      salesRep: { include: { user: true } },
+      approvalRequest: { include: { steps: true } },
+      lines: true,
+    },
+  });
+}
+
+export async function rejectQuotationStep(
+  orgId: string,
+  userId: string,
+  userRole: UserRole,
+  quotationId: string,
+  reason?: string
+) {
+  const quotation = await prisma.quotation.findFirst({
+    where: { id: quotationId, organizationId: orgId },
+    include: { approvalRequest: { include: { steps: true } } },
+  });
+  if (!quotation) throw new AppError(404, "NOT_FOUND", "Quotation not found.");
+
+  if (quotation.approvalRequest) {
+    await prisma.approvalRequest.update({
+      where: { id: quotation.approvalRequest.id },
+      data: { status: ApprovalStatus.REJECTED },
+    });
+  }
+
+  await prisma.approvalAuditLog.create({
+    data: {
+      quotationId,
+      organizationId: orgId,
+      actorId: userId,
+      actorRole: userRole,
+      action: "REJECTED",
+      reason: reason || "Quotation discount proposal rejected.",
+    },
+  });
+
+  return prisma.quotation.update({
+    where: { id: quotationId },
+    data: { stage: QuoteStage.CANCELLED, approvalStatus: ApprovalStatus.REJECTED },
+    include: {
+      customer: { include: { tier: true } },
+      salesRep: { include: { user: true } },
+      approvalRequest: { include: { steps: true } },
+      lines: true,
+    },
+  });
+}
+
+export async function updateQuotationStage(
+  orgId: string,
+  userId: string,
+  userRole: UserRole,
+  quotationId: string,
+  stage: QuoteStage,
+  reason?: string
+) {
+  if (stage === QuoteStage.APPROVED) {
+    return approveQuotationStep(orgId, userId, userRole, quotationId, reason);
+  }
+  if (stage === QuoteStage.CANCELLED) {
+    return rejectQuotationStep(orgId, userId, userRole, quotationId, reason);
+  }
+
+  return prisma.quotation.update({
+    where: { id: quotationId, organizationId: orgId },
+    data: { stage },
+    include: {
+      customer: { include: { tier: true } },
+      salesRep: { include: { user: true } },
+      approvalRequest: { include: { steps: true } },
+      lines: true,
+    },
   });
 }

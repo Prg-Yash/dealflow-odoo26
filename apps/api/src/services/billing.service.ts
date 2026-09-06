@@ -17,10 +17,14 @@ import {
   refund,
   calculateMrrArr,
 } from "../lib/billing-engine.js";
+import { enqueueSubscriptionReminder } from "../queues/subscription-reminder.queue.js";
 import type {
   ConfirmQuotationInput,
+  CreateSubscriptionInput,
+  ModifySubscriptionInput,
   UpdateSubscriptionLineInput,
   CancelSubscriptionInput,
+  ScheduleReminderInput,
   RecordPaymentInput,
   QueryInvoicesInput,
   QueryCreditNotesInput,
@@ -439,6 +443,203 @@ export async function generateShipmentInvoice(orgId: string, shipmentId: string)
       warehouseName: shipment.warehouse.name,
       dispatchedItemsCount: shipment.lines.length,
     },
+  };
+}
+
+export async function createSubscriptionPlan(
+  orgId: string,
+  input: CreateSubscriptionInput
+) {
+  const customer = await prisma.customer.findFirst({
+    where: { id: input.customerId, organizationId: orgId },
+  });
+  if (!customer) {
+    throw new AppError(404, "NOT_FOUND", "Customer not found.");
+  }
+
+  const product = await prisma.product.findFirst({
+    where: { id: input.productId, organizationId: orgId },
+  });
+  if (!product) {
+    throw new AppError(404, "NOT_FOUND", "Product not found.");
+  }
+
+  const subscriptionNumber = await generateSubscriptionNumber();
+  const startDate = input.startDate ?? new Date();
+  const billingInterval = input.billingInterval ?? BillingInterval.MONTHLY;
+  const endDate = calculateCycleEnd(startDate, billingInterval);
+
+  const quantity = input.quantity ?? 1;
+  const unitPrice = input.unitPrice ?? product.basePrice;
+  const discountPercent = input.discountPercent ?? 0;
+  const gross = unitPrice * quantity;
+  const discountAmount = gross * (discountPercent / 100);
+  const recurringAmount = gross - discountAmount;
+  const { mrr, arr } = calculateMrrArr(recurringAmount, billingInterval);
+
+  const planName = input.planName || product.name;
+
+  const subscription = await prisma.subscription.create({
+    data: {
+      subscriptionNumber,
+      customerId: customer.id,
+      organizationId: orgId,
+      status: SubscriptionStatus.ACTIVE,
+      billingInterval,
+      currentPeriodStart: startDate,
+      currentPeriodEnd: endDate,
+      nextBillingDate: endDate,
+      currentMrr: Math.round(mrr * 100) / 100,
+      currentArr: Math.round(arr * 100) / 100,
+      autoRenew: input.autoRenew ?? true,
+      notes: input.notes ?? `Plan created for ${customer.name}: ${planName}`,
+      lines: {
+        create: [
+          {
+            productId: product.id,
+            variantId: input.variantId ?? null,
+            quantity,
+            unitPrice,
+            discountPercent,
+            recurringAmount: Math.round(recurringAmount * 100) / 100,
+          },
+        ],
+      },
+    },
+    include: {
+      customer: true,
+      lines: { include: { product: true, variant: true } },
+    },
+  });
+
+  // Enqueue BullMQ automated reminder if enabled
+  if (input.enableReminder !== false) {
+    await enqueueSubscriptionReminder({
+      subscriptionId: subscription.id,
+      subscriptionNumber: subscription.subscriptionNumber,
+      organizationId: orgId,
+      customerId: customer.id,
+      customerName: customer.name,
+      customerEmail: customer.email,
+      planName,
+      billingInterval,
+      nextBillingDate: endDate.toISOString(),
+      amount: recurringAmount,
+      reminderDaysBefore: 7,
+      triggeredAt: new Date().toISOString(),
+    });
+  }
+
+  return subscription;
+}
+
+export async function modifySubscription(
+  orgId: string,
+  subscriptionId: string,
+  input: ModifySubscriptionInput
+) {
+  const subscription = await prisma.subscription.findFirst({
+    where: { id: subscriptionId, organizationId: orgId },
+    include: { customer: true, lines: true },
+  });
+
+  if (!subscription) {
+    throw new AppError(404, "NOT_FOUND", "Subscription not found.");
+  }
+
+  const dataToUpdate: any = {};
+  if (input.billingInterval) dataToUpdate.billingInterval = input.billingInterval;
+  if (input.status) dataToUpdate.status = input.status;
+  if (input.nextBillingDate) dataToUpdate.nextBillingDate = input.nextBillingDate;
+  if (typeof input.autoRenew === "boolean") dataToUpdate.autoRenew = input.autoRenew;
+  if (input.notes) dataToUpdate.notes = input.notes;
+
+  // If quantity or price updated on the line
+  if (
+    subscription.lines.length > 0 &&
+    (input.quantity || input.unitPrice || typeof input.discountPercent === "number")
+  ) {
+    const primaryLine = subscription.lines[0]!;
+    const newQty = input.quantity ?? primaryLine.quantity;
+    const newUnitPrice = input.unitPrice ?? primaryLine.unitPrice;
+    const newDiscount = input.discountPercent ?? primaryLine.discountPercent;
+    const gross = newUnitPrice * newQty;
+    const discountAmount = gross * (newDiscount / 100);
+    const newRecurringAmount = gross - discountAmount;
+
+    await prisma.subscriptionLine.update({
+      where: { id: primaryLine.id },
+      data: {
+        quantity: newQty,
+        unitPrice: newUnitPrice,
+        discountPercent: newDiscount,
+        recurringAmount: Math.round(newRecurringAmount * 100) / 100,
+      },
+    });
+
+    const interval = input.billingInterval ?? subscription.billingInterval;
+    const { mrr, arr } = calculateMrrArr(newRecurringAmount, interval);
+    dataToUpdate.currentMrr = Math.round(mrr * 100) / 100;
+    dataToUpdate.currentArr = Math.round(arr * 100) / 100;
+  } else if (input.billingInterval && input.billingInterval !== subscription.billingInterval) {
+    const totalAmount = subscription.lines.reduce((acc, l) => acc + l.recurringAmount, 0);
+    const { mrr, arr } = calculateMrrArr(totalAmount, input.billingInterval);
+    dataToUpdate.currentMrr = Math.round(mrr * 100) / 100;
+    dataToUpdate.currentArr = Math.round(arr * 100) / 100;
+  }
+
+  const updatedSubscription = await prisma.subscription.update({
+    where: { id: subscriptionId },
+    data: dataToUpdate,
+    include: {
+      customer: true,
+      lines: { include: { product: true, variant: true } },
+    },
+  });
+
+  return updatedSubscription;
+}
+
+export async function scheduleSubscriptionReminder(
+  orgId: string,
+  subscriptionId: string,
+  input?: ScheduleReminderInput
+) {
+  const subscription = await prisma.subscription.findFirst({
+    where: { id: subscriptionId, organizationId: orgId },
+    include: { customer: true, lines: { include: { product: true } } },
+  });
+
+  if (!subscription) {
+    throw new AppError(404, "NOT_FOUND", "Subscription not found.");
+  }
+
+  const planName = subscription.lines[0]?.product?.name || "Subscription Plan";
+  const amount = subscription.lines.reduce((acc, l) => acc + l.recurringAmount, 0);
+
+  const result = await enqueueSubscriptionReminder({
+    subscriptionId: subscription.id,
+    subscriptionNumber: subscription.subscriptionNumber,
+    organizationId: orgId,
+    customerId: subscription.customerId,
+    customerName: subscription.customer.name,
+    customerEmail: subscription.customer.email,
+    planName,
+    billingInterval: subscription.billingInterval,
+    nextBillingDate: subscription.nextBillingDate.toISOString(),
+    amount,
+    reminderDaysBefore: input?.reminderDaysBefore ?? 7,
+    manualTrigger: input?.manualTrigger ?? true,
+    triggeredAt: new Date().toISOString(),
+  });
+
+  return {
+    subscriptionId: subscription.id,
+    scheduled: result.success,
+    jobId: result.jobId,
+    message: result.success
+      ? `BullMQ renewal reminder scheduled for ${subscription.customer.email}.`
+      : `Queued locally (${result.error || "Redis offline in development"}).`,
   };
 }
 

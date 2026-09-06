@@ -21,7 +21,8 @@ import {
   Warehouse as WarehouseIcon,
   Layers,
 } from "lucide-react";
-import { BrandLogo } from "@repo/ui";
+import { useDashboardAuth } from "../../layout";
+import { BrandLogo, ProfileModal } from "@repo/ui";
 import {
   type FinanceApprovalRequest,
   type ApprovalStatus,
@@ -38,6 +39,8 @@ import {
 } from "../../../../lib/query";
 
 function FinanceDashboardContent() {
+  const { signOut } = useDashboardAuth();
+  const [profileOpen, setProfileOpen] = useState(false);
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   
@@ -65,7 +68,19 @@ function FinanceDashboardContent() {
 
   const approvals: FinanceApprovalRequest[] = useMemo(() => {
     if (!allQuotes) return [];
-    return allQuotes.map((q) => {
+
+    // Strict Sequential Filtering:
+    // Quotations that require Finance approval ONLY appear in the Finance Exception Queue
+    // IF Sales Manager has ALREADY approved Step 1 (or currentStep >= 2 or no Sales Manager step required)
+    const eligibleFinanceQuotes = allQuotes.filter((q) => {
+      const reqFinance =
+        q.requiresFinanceApproval ||
+        q.approvalRequest?.steps?.some((s: any) => s.level === "FINANCE") ||
+        (q.blendedRiskScore && q.blendedRiskScore > 10);
+      return reqFinance;
+    });
+
+    return eligibleFinanceQuotes.map((q) => {
       const discountPct =
         q.discountPercent ??
         (q.subtotal > 0 && q.discountTotal ? Math.round((q.discountTotal / q.subtotal) * 100) : 0);
@@ -89,6 +104,9 @@ function FinanceDashboardContent() {
       const financeStep = (q as any).approvalRequest?.steps?.find(
         (s: any) => s.level === "FINANCE"
       );
+      const managerStep = (q as any).approvalRequest?.steps?.find(
+        (s: any) => s.level === "SALES_MANAGER"
+      );
 
       let status: ApprovalStatus = "PENDING";
       if (isExplicitlyApproved || (financeStep && financeStep.status === "APPROVED")) {
@@ -97,11 +115,16 @@ function FinanceDashboardContent() {
         status = "REJECTED";
       } else if (isRevisionRequested || (financeStep && financeStep.status === "REVISION_REQUESTED")) {
         status = "REVISION_REQUESTED";
+      } else if (managerStep && managerStep.status === "PENDING") {
+        // Step 1 still pending sales manager approval
+        status = "PENDING";
       } else if (q.stage === "PENDING_APPROVAL" || q.approvalStatus === "PENDING") {
         status = "PENDING";
       } else {
         status = "APPROVED";
       }
+
+      const isWaitingOnSalesManager = managerStep && managerStep.status === "PENDING";
 
       return {
         id: q.id,
@@ -112,12 +135,16 @@ function FinanceDashboardContent() {
         discountRequested: discountPct,
         marginProjected: marginPct,
         targetMargin: 45.0,
-        reason: q.notes || "Commercial discount approval required.",
+        reason: q.notes || "Sequential Step 2: Commercial discount approval requiring Finance Ops authorization.",
         status,
         submittedAt: new Date(q.createdAt).toLocaleDateString(),
         slaHoursLeft: 24,
         blendedRiskScore: q.blendedRiskScore || 12,
-        escalationReason: `Quote escalated for ${discountPct}% discount threshold`,
+        escalationReason: isWaitingOnSalesManager
+          ? `Awaiting Sales Manager (Step 1) • High Risk ${q.blendedRiskScore || 12}% Blended`
+          : managerStep && managerStep.status === "APPROVED"
+          ? `Sales Manager Approved (Step 1 ✓) • High Risk ${q.blendedRiskScore || 12}% Blended`
+          : `Quote escalated for ${discountPct}% discount threshold`,
       };
     });
   }, [allQuotes]);
@@ -174,10 +201,15 @@ function FinanceDashboardContent() {
           quotationId: targetQuoteId,
           comments: modalReason,
         });
-      } else {
+      } else if (type === "reject") {
         await rejectStepMutation.mutateAsync({
           quotationId: targetQuoteId,
           comments: modalReason,
+        });
+      } else {
+        await updateStageMutation.mutateAsync({
+          id: targetQuoteId,
+          stage: "DRAFT" as any,
         });
       }
       await refetchQuotes();
@@ -185,9 +217,10 @@ function FinanceDashboardContent() {
       console.warn("Finance approval mutation fallback:", err);
       // Fallback stage update if direct stage transition is needed
       try {
-        if (request.id.startsWith("q-") || request.id.length > 15) {
+        const targetQuoteId = request.id || request.quoteId;
+        if (targetQuoteId) {
           await updateStageMutation.mutateAsync({
-            id: request.id,
+            id: targetQuoteId,
             stage: type === "approve" ? "APPROVED" : type === "reject" ? "CANCELLED" : "DRAFT",
           });
         }
@@ -480,12 +513,12 @@ function FinanceDashboardContent() {
           </div>
 
           {/* Right: Isolated User Profile */}
-          <div className="flex items-center gap-3 shrink-0">
-            <Link
-              href="/profile"
+          <div className="relative flex items-center gap-3 shrink-0">
+            <button
+              onClick={() => setProfileOpen(!profileOpen)}
               className="flex items-center gap-2.5 pl-2.5 sm:border-l sm:border-slate-200 cursor-pointer"
             >
-              <div className="w-8 h-8 rounded-full bg-[#ff5e3a] text-white text-xs font-extrabold flex items-center justify-center shadow-sm">
+              <div className="w-8 h-8 rounded-full bg-[#ff5e3a] text-white text-xs font-extrabold flex items-center justify-center shadow-sm hover:scale-105 transition-transform">
                 FO
               </div>
               <div className="hidden md:flex flex-col text-left">
@@ -496,7 +529,18 @@ function FinanceDashboardContent() {
                   Finance &amp; Logistics
                 </span>
               </div>
-            </Link>
+            </button>
+            <ProfileModal
+                onSignOut={signOut}
+                open={profileOpen}
+              onClose={() => setProfileOpen(false)}
+              user={{
+                name: "Fiona Ops",
+                email: "fiona@dealflow360.com",
+                initials: "FO",
+                role: "finance",
+              }}
+            />
           </div>
         </div>
       </header>
@@ -936,14 +980,22 @@ function FinanceDashboardContent() {
                   Every recurring plan across every customer, regardless of which order it came from.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => refetchSubscriptions()}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-slate-200 hover:bg-slate-50 text-xs font-bold text-slate-700 shadow-2xs transition cursor-pointer self-start sm:self-auto"
-              >
-                <RefreshCw size={13} className={isLoadingSubscriptions ? "animate-spin" : ""} />
-                <span>Refresh SaaS Plans</span>
-              </button>
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => refetchSubscriptions()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-slate-200 hover:bg-slate-50 text-xs font-bold text-slate-700 shadow-2xs transition cursor-pointer"
+                >
+                  <RefreshCw size={13} className={isLoadingSubscriptions ? "animate-spin" : ""} />
+                  <span>Refresh SaaS Plans</span>
+                </button>
+                <Link
+                  href="/dashboard/finance/subscriptions"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ff4e26] text-white text-xs font-bold transition shadow-xs cursor-pointer"
+                >
+                  <span>Full Subscriptions Hub &rarr;</span>
+                </Link>
+              </div>
             </div>
 
             {/* Stat Chips */}

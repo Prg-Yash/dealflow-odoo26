@@ -7,10 +7,12 @@ import {
   type HeavyComputeJobData,
   type DataSyncJobData,
   type BackorderConsolidationJobData,
+  type SubscriptionReminderJobData,
 } from "./queues/index.js";
 import { processHeavyComputeJob } from "./processors/heavy-compute.processor.js";
 import { processDataSyncJob } from "./processors/data-sync.processor.js";
 import { processBackorderConsolidationJob } from "./processors/backorder.processor.js";
+import { processSubscriptionReminderJob } from "./processors/subscription-reminder.processor.js";
 import { startMetricsReporter, stopMetricsReporter } from "./services/metrics.service.js";
 import { startJobPoller, stopJobPoller } from "./services/job-poller.service.js";
 import { logger } from "./utils/logger.js";
@@ -54,6 +56,19 @@ const backorderWorker = new Worker<BackorderConsolidationJobData>(
   QUEUE_NAMES.BACKORDER_CONSOLIDATION,
   async (job: BullJob<BackorderConsolidationJobData>) => {
     return await processBackorderConsolidationJob(job);
+  },
+  {
+    connection: redisConnection,
+    concurrency: 2,
+    lockDuration: 30000,
+  }
+);
+
+// Initialize BullMQ Worker for Subscription Reminder Queue
+const subscriptionReminderWorker = new Worker<SubscriptionReminderJobData>(
+  QUEUE_NAMES.SUBSCRIPTION_REMINDER,
+  async (job: BullJob<SubscriptionReminderJobData>) => {
+    return await processSubscriptionReminderJob(job);
   },
   {
     connection: redisConnection,
@@ -107,6 +122,19 @@ dataSyncWorker.on("error", (err) => {
   logger.error("[DataSync] Worker encountered an unhandled error:", err);
 });
 
+// Worker Event Listeners: Subscription Reminder
+subscriptionReminderWorker.on("completed", (job, returnvalue) => {
+  logger.info(`[SubscriptionReminder] Job #${job.id} COMPLETED for ${returnvalue?.customerEmail || "subscriber"}`);
+});
+
+subscriptionReminderWorker.on("failed", (job, err) => {
+  logger.error(`[SubscriptionReminder] Job #${job?.id} FAILED: ${err.message}`);
+});
+
+subscriptionReminderWorker.on("error", (err) => {
+  logger.error("[SubscriptionReminder] Worker error:", err);
+});
+
 // Start periodic metrics collection and database reporting
 startMetricsReporter(ENV.METRICS_INTERVAL_MS);
 
@@ -135,6 +163,7 @@ async function gracefulShutdown(signal: string) {
       heavyComputeWorker.close(),
       dataSyncWorker.close(),
       backorderWorker.close(),
+      subscriptionReminderWorker.close(),
     ]);
     logger.info("BullMQ workers closed.");
 
@@ -148,23 +177,17 @@ async function gracefulShutdown(signal: string) {
     await prisma.$disconnect();
     logger.info("Prisma client disconnected.");
 
-    logger.info("Graceful shutdown completed. Exiting worker process.");
+    logger.info("Graceful shutdown completed successfully. Exiting process.");
     process.exit(0);
   } catch (error) {
-    logger.error("Error during graceful shutdown:", error);
+    logger.error("Error encountered during graceful shutdown:", error);
     process.exit(1);
   }
 }
 
-// Attach process termination hooks
-process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
-process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
-
-process.on("uncaughtException", (err) => {
-  logger.error("Uncaught exception detected:", err);
-  void gracefulShutdown("uncaughtException");
-});
-
-process.on("unhandledRejection", (reason) => {
-  logger.error("Unhandled promise rejection detected:", reason);
+// Register termination signal handlers
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("unhandledRejection", (reason: unknown) => {
+  logger.error("Unhandled Promise Rejection caught in worker root:", reason);
 });

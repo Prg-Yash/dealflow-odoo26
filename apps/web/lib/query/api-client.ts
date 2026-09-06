@@ -76,12 +76,12 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestOption
     if (typeof data === "string" && data.trim()) {
       errorMessage = data;
     } else if (data && typeof data === "object") {
-      if (typeof data.error === "string") {
-        errorMessage = data.error;
-      } else if (data.error && typeof data.error.message === "string") {
-        errorMessage = data.error.message;
-      } else if (typeof data.message === "string") {
+      if (typeof data.message === "string" && data.message.trim()) {
         errorMessage = data.message;
+      } else if (typeof data.error === "string" && data.error.trim()) {
+        errorMessage = data.error;
+      } else if (data.error && typeof data.error.message === "string" && data.error.message.trim()) {
+        errorMessage = data.error.message;
       }
     }
     throw new ApiError(errorMessage, response.status, data);

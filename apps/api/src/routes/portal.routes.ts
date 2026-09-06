@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { portalAuth } from "../middleware/portalAuth.js";
+import { requireAuth } from "../middleware/auth.middleware.js";
 import { validateBody } from "../middleware/validate.js";
 import {
   CreateQuotationCommentSchema,
@@ -14,6 +15,7 @@ export const portalRouter = Router();
 // 0. Active Quotations Directory for Portal Switcher (Dynamic Database Query, No Static Mocks)
 portalRouter.get(
   ["/", "/active-quotes", "/directory"],
+  requireAuth,
   portalController.listActiveQuotations
 );
 

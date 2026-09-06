@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -29,6 +29,12 @@ import {
   XCircle,
   Check,
   RefreshCw,
+  SlidersHorizontal,
+  ArrowRight,
+  CornerDownRight,
+  Percent,
+  Info,
+  Lock,
 } from "lucide-react";
 import {
   calculateQuotationRisk,
@@ -101,6 +107,7 @@ export function QuotationDetailView({
       setLines(quotation.lines);
     }
   }, [quotation?.lines]);
+
   const [selectedCatalogProductId, setSelectedCatalogProductId] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -113,11 +120,33 @@ export function QuotationDetailView({
   const [reviewerLineAdjustments, setReviewerLineAdjustments] = useState<Record<string, number>>({});
   const [isReviewing, setIsReviewing] = useState(false);
 
-  // Comments / Audit Note
-  const [commentText, setCommentText] = useState("");
-  const [isPostingComment, setIsPostingComment] = useState(false);
+  // Right-hand Panel Active Tab: 'chat' | 'trails'
+  const [activeSideTab, setActiveSideTab] = useState<"chat" | "trails">("chat");
+
+  // Real-Time Chat & Discussion State
+  const [chatMessage, setChatMessage] = useState("");
+  const [chatLineId, setChatLineId] = useState("");
+  const [isPostingChat, setIsPostingChat] = useState(false);
+  const [isApplyingDiscount, setIsApplyingDiscount] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
+  // Real-Time Polling: automatically refresh quotation discussion and status every 4 seconds
+  useEffect(() => {
+    if (!onRefresh) return;
+    const timer = setInterval(() => {
+      onRefresh();
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [onRefresh]);
+
+  // Auto-scroll chat to latest message
+  useEffect(() => {
+    if (activeSideTab === "chat" && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [activeSideTab, quotation?.comments?.length, quotation?.counterProposals?.length]);
 
   // Calculate live risk & margins
   const customerTierCeiling = quotation?.customer?.tier?.discountCeiling ?? 100.0;
@@ -138,6 +167,13 @@ export function QuotationDetailView({
   const liveRiskSummary = useMemo(() => {
     return calculateQuotationRisk(riskLines, DEFAULT_CATEGORY_DISCOUNT_THRESHOLD, customerTierCeiling);
   }, [riskLines, customerTierCeiling]);
+
+  // Detect active / latest customer counter-proposal
+  const activeCounterProposal = useMemo(() => {
+    if (!quotation?.counterProposals || quotation.counterProposals.length === 0) return null;
+    const pending = quotation.counterProposals.find((cp: any) => cp.status === "PENDING");
+    return pending || (rawStage === "NEGOTIATION" ? quotation.counterProposals[0] : null);
+  }, [quotation?.counterProposals, rawStage]);
 
   // Handle Add Product Line to Quotation
   const handleAddProduct = async () => {
@@ -176,7 +212,10 @@ export function QuotationDetailView({
   };
 
   // Handle Update Line
-  const handleUpdateLine = async (lineId: string, updates: { quantity?: number; discountPercent?: number; unitPrice?: number }) => {
+  const handleUpdateLine = async (
+    lineId: string,
+    updates: { quantity?: number; discountPercent?: number; unitPrice?: number }
+  ) => {
     setLines((prev) =>
       prev.map((l) => (l.id === lineId ? { ...l, ...updates } : l))
     );
@@ -215,20 +254,100 @@ export function QuotationDetailView({
     }
   };
 
-  // Handle Submit / Resubmit Quotation
+  // 1-Click Apply Customer Desired Discount to all line items in draft
+  const handleApplyCustomerDiscount = async (targetDiscount: number) => {
+    if (!isEditable || lines.length === 0) return;
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      setIsApplyingDiscount(true);
+      // Optimistically update local lines state
+      const updatedLines = lines.map((l) => ({
+        ...l,
+        discountPercent: targetDiscount,
+      }));
+      setLines(updatedLines);
+
+      // Persist discount update across all quotation lines
+      await Promise.all(
+        lines.map((l) =>
+          fetch(`${apiUrl}/api/quotations/${quotation.id}/lines/${l.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ discountPercent: targetDiscount }),
+          })
+        )
+      );
+
+      setActionSuccess(
+        `Applied customer target discount of ${targetDiscount}% across line items. Review the updated risk thermometer before submitting.`
+      );
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      setActionError(err.message || "Failed to apply customer discount across lines");
+    } finally {
+      setIsApplyingDiscount(false);
+    }
+  };
+
+  // Handle Submit / Resubmit Quotation (Routes through 3-Condition Risk Engine)
   const handleSubmitQuotation = async () => {
     setActionError(null);
     setActionSuccess(null);
     setIsSubmitting(true);
 
     try {
-      await api.post(`/api/quotations/${quotation.id}/submit`);
-      setActionSuccess("Quotation successfully submitted for approval routing.");
+      const resData = await api.post<any>(`/api/quotations/${quotation.id}/submit`);
+      const updatedQuote = resData?.data || resData;
+
+      if (updatedQuote?.stage === "APPROVED") {
+        setActionSuccess(
+          "Quotation Auto-Approved (Condition 1: 0 Hops). Terms are immediately available in the customer portal."
+        );
+      } else {
+        setActionSuccess("Quotation successfully submitted for approval routing.");
+      }
+
       if (onRefresh) onRefresh();
     } catch (err: any) {
       setActionError(err.message || "Failed to submit quotation");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Handle Send Chat / Discussion Message
+  const handlePostChatMessage = async (customMessage?: string) => {
+    const messageToSend = (customMessage || chatMessage).trim();
+    if (!messageToSend) return;
+
+    setActionError(null);
+    setIsPostingChat(true);
+
+    try {
+      const res = await fetch(`${apiUrl}/api/quotations/${quotation.id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          message: messageToSend,
+          quotationLineId: chatLineId || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || "Failed to send message");
+      }
+
+      setChatMessage("");
+      setChatLineId("");
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      setActionError(err.message || "Failed to send discussion message");
+    } finally {
+      setIsPostingChat(false);
     }
   };
 
@@ -262,10 +381,12 @@ export function QuotationDetailView({
     setIsReviewing(true);
 
     try {
-      const lineAdjustments = Object.entries(reviewerLineAdjustments).map(([lineId, discountPercent]) => ({
-        lineId,
-        discountPercent,
-      }));
+      const lineAdjustments = Object.entries(reviewerLineAdjustments).map(
+        ([lineId, discountPercent]) => ({
+          lineId,
+          discountPercent,
+        })
+      );
 
       await api.post(`/api/approvals/${quotation.id}/reject`, {
         comments: rejectComments.trim(),
@@ -282,7 +403,116 @@ export function QuotationDetailView({
     }
   };
 
-  // Combine audit events, comments, and counter-proposals into unified chronological trail
+  // Build Chronological Real-Time Discussion Feed (Strictly scoped to this quotation)
+  const chatFeed = useMemo(() => {
+    const items: Array<{
+      id: string;
+      date: Date;
+      type: "comment" | "counter" | "milestone";
+      authorName: string;
+      authorRole: string;
+      message: string;
+      lineDescription?: string;
+      proposedDiscount?: number;
+      badgeClass: string;
+      avatarBg: string;
+    }> = [];
+
+    // 1. Comments
+    (quotation?.comments || []).forEach((c: any) => {
+      const role = (c.authorRole || c.author?.role || "USER").toUpperCase();
+      let badgeClass = "bg-slate-100 text-slate-700 border-slate-200";
+      let avatarBg = "bg-slate-700 text-white";
+
+      if (role === "CUSTOMER") {
+        badgeClass = "bg-orange-50 text-[#ff5e3a] border-orange-200";
+        avatarBg = "bg-[#ff5e3a] text-white";
+      } else if (role === "SALES_REP") {
+        badgeClass = "bg-blue-50 text-[#0066cc] border-blue-200";
+        avatarBg = "bg-[#0066cc] text-white";
+      } else if (role === "SALES_MANAGER") {
+        badgeClass = "bg-purple-50 text-purple-700 border-purple-200";
+        avatarBg = "bg-purple-700 text-white";
+      } else if (role === "FINANCE_OPS" || role === "FINANCE") {
+        badgeClass = "bg-emerald-50 text-emerald-700 border-emerald-200";
+        avatarBg = "bg-emerald-700 text-white";
+      }
+
+      items.push({
+        id: `c-${c.id}`,
+        date: new Date(c.createdAt),
+        type: "comment",
+        authorName:
+          c.author?.name ||
+          (role === "CUSTOMER" ? quotation.customer?.name : "Representative") ||
+          "User",
+        authorRole: role,
+        message: c.message || c.content || "",
+        lineDescription: c.quotationLine?.description,
+        proposedDiscount: c.proposedDiscountPercent,
+        badgeClass,
+        avatarBg,
+      });
+    });
+
+    // 2. Customer Counter-Proposals
+    (quotation?.counterProposals || []).forEach((cp: any) => {
+      const alreadyCommented = quotation.comments?.some((c: any) =>
+        c.message?.includes(`${cp.proposedDiscountPercent}% discount`)
+      );
+      if (!alreadyCommented) {
+        items.push({
+          id: `cp-${cp.id}`,
+          date: new Date(cp.createdAt),
+          type: "counter",
+          authorName: cp.respondedBy?.name || quotation.customer?.name || "Customer",
+          authorRole: "CUSTOMER",
+          message: `Customer Counter-Proposal: Requested ${cp.proposedDiscountPercent}% discount tier (Target Deal Total: ₹${Number(
+            cp.proposedGrandTotal || 0
+          ).toLocaleString()}). ${cp.customerNotes ? `Buyer Notes: "${cp.customerNotes}"` : ""}`,
+          proposedDiscount: cp.proposedDiscountPercent,
+          badgeClass: "bg-purple-50 text-purple-700 border-purple-200",
+          avatarBg: "bg-purple-600 text-white",
+        });
+      }
+    });
+
+    // 3. Significant Milestones from Audit Logs
+    (quotation?.auditLogs || []).forEach((log: any) => {
+      if (
+        log.action === "AUTO_APPROVED" ||
+        log.action.includes("APPROVED") ||
+        log.action.includes("REJECT") ||
+        log.action.includes("REVISION")
+      ) {
+        const alreadyInComments = quotation.comments?.some((c: any) =>
+          c.message?.toLowerCase().includes(log.action.toLowerCase().replace(/_/g, " "))
+        );
+        if (!alreadyInComments) {
+          items.push({
+            id: `log-${log.id}`,
+            date: new Date(log.createdAt),
+            type: "milestone",
+            authorName: log.actor?.name || "Compliance Engine",
+            authorRole: log.actorRole || "SYSTEM",
+            message: `${log.action.replace(/_/g, " ")}: ${
+              log.reason || "Workflow state progression recorded."
+            }`,
+            badgeClass: log.action.includes("APPROVED")
+              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+              : "bg-rose-50 text-rose-700 border-rose-200",
+            avatarBg: log.action.includes("APPROVED")
+              ? "bg-emerald-600 text-white"
+              : "bg-rose-600 text-white",
+          });
+        }
+      }
+    });
+
+    return items.sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [quotation]);
+
+  // Combine Audit Events & Workflow Steps for the Trails Tab
   const combinedTrails = useMemo(() => {
     const events: Array<{
       id: string;
@@ -298,10 +528,12 @@ export function QuotationDetailView({
     // 1. Audit Logs
     (quotation?.auditLogs || []).forEach((log: any) => {
       let badgeColor = "bg-slate-100 text-slate-700";
-      if (log.action.includes("APPROVED")) badgeColor = "bg-emerald-50 text-emerald-700 border-emerald-200";
+      if (log.action.includes("APPROVED"))
+        badgeColor = "bg-emerald-50 text-emerald-700 border-emerald-200";
       if (log.action.includes("REJECT") || log.action.includes("REVISION"))
         badgeColor = "bg-rose-50 text-rose-700 border-rose-200";
-      if (log.action.includes("SUBMITTED")) badgeColor = "bg-blue-50 text-blue-700 border-blue-200";
+      if (log.action.includes("SUBMITTED"))
+        badgeColor = "bg-blue-50 text-blue-700 border-blue-200";
 
       events.push({
         id: log.id,
@@ -322,24 +554,14 @@ export function QuotationDetailView({
         date: new Date(cp.createdAt),
         type: "counter",
         title: "Customer Counter-Proposal",
-        description: cp.comments || `Requested discount: ${cp.proposedDiscount || 0}%, target total: ₹${cp.requestedTotal || 0}`,
+        description:
+          cp.customerNotes ||
+          `Requested discount: ${cp.proposedDiscountPercent || 0}%, target total: ₹${Number(
+            cp.proposedGrandTotal || 0
+          ).toLocaleString()}`,
         actor: cp.respondedBy?.name || quotation.customer?.name || "Client",
         role: "CUSTOMER",
         badgeColor: "bg-purple-50 text-purple-700 border-purple-200",
-      });
-    });
-
-    // 3. Comments
-    (quotation?.comments || []).forEach((c: any) => {
-      events.push({
-        id: c.id,
-        date: new Date(c.createdAt),
-        type: "comment",
-        title: "Comment Added",
-        description: c.content,
-        actor: c.author?.name || "Collaborator",
-        role: c.author?.role || "USER",
-        badgeColor: "bg-amber-50 text-amber-700 border-amber-200",
       });
     });
 
@@ -352,12 +574,17 @@ export function QuotationDetailView({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-3 border-b border-slate-200">
         <div>
           <div className="flex items-center gap-2 mb-1 text-xs text-slate-500 font-medium">
-            <Link href={backHref} className="hover:text-[#0066cc] transition-colors flex items-center gap-1">
+            <Link
+              href={backHref}
+              className="hover:text-[#0066cc] transition-colors flex items-center gap-1"
+            >
               <ArrowLeft size={13} />
               <span>Back to Pipeline</span>
             </Link>
             <span>/</span>
-            <span className="text-slate-900 font-bold">{quotation.quoteNumber || quotation.id}</span>
+            <span className="text-slate-900 font-bold">
+              {quotation.quoteNumber || quotation.id}
+            </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
@@ -390,12 +617,29 @@ export function QuotationDetailView({
             )}
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Assigned Sales Rep: <strong>{quotation.salesRep?.user?.name || "Representative"}</strong> &bull; Client: <strong>{quotation.customer?.name || "Customer Org"}</strong> ({quotation.customer?.tier?.name || "Standard Tier"})
+            Assigned Sales Rep:{" "}
+            <strong>{quotation.salesRep?.user?.name || "Representative"}</strong> &bull; Client:{" "}
+            <strong>{quotation.customer?.name || "Customer Org"}</strong> (
+            {quotation.customer?.tier?.name || "Standard Tier"})
           </p>
         </div>
 
         {/* Global Action Tools */}
         <div className="flex items-center gap-2">
+          {/* In-page Discussion Indicator Chip */}
+          <button
+            type="button"
+            onClick={() => setActiveSideTab("chat")}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border text-xs font-semibold shadow-xs transition cursor-pointer ${
+              activeSideTab === "chat"
+                ? "bg-orange-50 border-orange-200 text-[#ff5e3a]"
+                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            <MessageSquare size={13} className="text-[#ff5e3a]" />
+            <span>Discussion ({chatFeed.length})</span>
+          </button>
+
           {onRefresh && (
             <button
               type="button"
@@ -415,7 +659,11 @@ export function QuotationDetailView({
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0066cc] hover:bg-[#0052a3] text-white text-xs font-bold shadow-md shadow-[#0066cc]/25 transition cursor-pointer disabled:opacity-50"
             >
               {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-              <span>{approvalStatus === "REVISION_REQUESTED" ? "Resubmit Proposal" : "Submit for Approval"}</span>
+              <span>
+                {approvalStatus === "REVISION_REQUESTED"
+                  ? "Resubmit Proposal"
+                  : "Submit for Approval"}
+              </span>
             </button>
           )}
         </div>
@@ -441,7 +689,8 @@ export function QuotationDetailView({
         <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs font-medium text-amber-800 flex items-center gap-2 shadow-xs">
           <Clock size={16} className="text-amber-600 shrink-0" />
           <span>
-            This quotation is currently locked in <strong>Read-Only</strong> view awaiting management approval sign-off.
+            This quotation is currently locked in <strong>Read-Only</strong> view awaiting management
+            approval sign-off.
           </span>
         </div>
       )}
@@ -483,7 +732,11 @@ export function QuotationDetailView({
                 onClick={handleApproveStep}
                 className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-extrabold shadow-md shadow-emerald-500/25 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                {isReviewing ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} strokeWidth={3} />}
+                {isReviewing ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Check size={14} strokeWidth={3} />
+                )}
                 <span>Approve Step</span>
               </button>
             </div>
@@ -598,13 +851,64 @@ export function QuotationDetailView({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* ── LEFT: PRODUCT LINE ITEMS TABLE (8 cols) ── */}
-        <div className="lg:col-span-8 space-y-6">
+        {/* ── LEFT: PRODUCT LINE ITEMS TABLE (7 cols) ── */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* Active Customer Counter-Proposal Notice & 1-Click Apply */}
+          {activeCounterProposal && (
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 text-slate-900 shadow-xs space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <div className="p-1.5 rounded-xl bg-[#ff5e3a] text-white shrink-0">
+                    <SlidersHorizontal size={16} />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black text-slate-900">
+                        Customer Counter-Proposal Active
+                      </span>
+                      <span className="px-2 py-0.2 rounded-full bg-orange-200 text-[#ff5e3a] text-[10px] font-extrabold">
+                        {activeCounterProposal.proposedDiscountPercent}% Desired Tier
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Client requested <strong>{activeCounterProposal.proposedDiscountPercent}%</strong> discount tier (Target Total: <strong>₹{Number(activeCounterProposal.proposedGrandTotal || 0).toLocaleString()}</strong>).
+                      {activeCounterProposal.customerNotes && (
+                        <span className="italic block text-slate-500 mt-0.5">
+                          &ldquo;{activeCounterProposal.customerNotes}&rdquo;
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                {isEditable && (
+                  <button
+                    type="button"
+                    disabled={isApplyingDiscount || isSaving}
+                    onClick={() =>
+                      handleApplyCustomerDiscount(activeCounterProposal.proposedDiscountPercent)
+                    }
+                    className="shrink-0 px-3.5 py-1.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-bold transition shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    {isApplyingDiscount ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={13} />
+                    )}
+                    <span>Apply {activeCounterProposal.proposedDiscountPercent}% Discount</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <Package size={18} className="text-[#0066cc]" />
-                <h2 className="text-base font-bold text-slate-900">Quotation Line Items ({lines.length})</h2>
+                <h2 className="text-base font-bold text-slate-900">
+                  Quotation Line Items ({lines.length})
+                </h2>
               </div>
 
               {/* Add Product Dropdown for Editable Mode */}
@@ -639,14 +943,14 @@ export function QuotationDetailView({
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
                   <tr>
-                    <th className="py-3 px-4 min-w-[200px]">Product / Deliverable</th>
-                    <th className="py-3 px-3 w-16 text-center">Qty</th>
-                    <th className="py-3 px-3 w-24 text-right">Unit Price</th>
-                    <th className="py-3 px-3 w-20 text-center">Discount</th>
-                    <th className="py-3 px-3 w-20 text-center">Ceiling</th>
-                    <th className="py-3 px-3 w-24 text-center">Status</th>
-                    <th className="py-3 px-4 w-28 text-right">Net Total</th>
-                    {isEditable && <th className="py-3 px-3 w-10 text-center"></th>}
+                    <th className="py-3 px-4 min-w-[180px]">Product / Deliverable</th>
+                    <th className="py-3 px-2 w-14 text-center">Qty</th>
+                    <th className="py-3 px-2 w-20 text-right">Unit Price</th>
+                    <th className="py-3 px-2 w-20 text-center">Disc %</th>
+                    <th className="py-3 px-2 w-16 text-center">Ceiling</th>
+                    <th className="py-3 px-2 w-20 text-center">Status</th>
+                    <th className="py-3 px-3 w-24 text-right">Net Total</th>
+                    {isEditable && <th className="py-3 px-2 w-8 text-center"></th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-800">
@@ -661,53 +965,61 @@ export function QuotationDetailView({
                       const calc = liveRiskSummary.lines[idx];
                       const ceiling = calc?.lineCeiling ?? DEFAULT_CATEGORY_DISCOUNT_THRESHOLD;
                       const isOver = item.discountPercent > ceiling;
-                      const overage = isOver ? Math.round((item.discountPercent - ceiling) * 10) / 10 : 0;
-                      const netAmount = item.unitPrice * item.quantity * (1 - item.discountPercent / 100);
+                      const overage = isOver
+                        ? Math.round((item.discountPercent - ceiling) * 10) / 10
+                        : 0;
+                      const netAmount =
+                        item.unitPrice * item.quantity * (1 - item.discountPercent / 100);
 
                       return (
                         <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
                           <td className="py-3.5 px-4 font-semibold text-slate-900">
                             <div>{item.description || item.product?.name || "Product Item"}</div>
                             <div className="text-[11px] text-slate-400 font-normal">
-                              {item.product?.category?.name || "Category"} &bull; SKU: {item.product?.sku || "N/A"}
+                              {item.product?.category?.name || "Category"} &bull; SKU:{" "}
+                              {item.product?.sku || "N/A"}
                             </div>
                           </td>
 
-                          <td className="py-3.5 px-3 text-center">
+                          <td className="py-3.5 px-2 text-center">
                             {isEditable ? (
                               <input
                                 type="number"
                                 min={1}
                                 value={item.quantity}
                                 onChange={(e) =>
-                                  handleUpdateLine(item.id, { quantity: parseInt(e.target.value) || 1 })
+                                  handleUpdateLine(item.id, {
+                                    quantity: parseInt(e.target.value) || 1,
+                                  })
                                 }
-                                className="w-14 px-1.5 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
+                                className="w-12 px-1 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
                               />
                             ) : (
                               <span className="font-bold">{item.quantity}</span>
                             )}
                           </td>
 
-                          <td className="py-3.5 px-3 text-right">
+                          <td className="py-3.5 px-2 text-right">
                             {isEditable ? (
                               <input
                                 type="number"
                                 min={0}
                                 value={item.unitPrice}
                                 onChange={(e) =>
-                                  handleUpdateLine(item.id, { unitPrice: parseFloat(e.target.value) || 0 })
+                                  handleUpdateLine(item.id, {
+                                    unitPrice: parseFloat(e.target.value) || 0,
+                                  })
                                 }
-                                className="w-20 px-1.5 py-1 text-right font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
+                                className="w-18 px-1 py-1 text-right font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
                               />
                             ) : (
                               <span className="font-bold">₹{item.unitPrice.toLocaleString()}</span>
                             )}
                           </td>
 
-                          <td className="py-3.5 px-3 text-center">
+                          <td className="py-3.5 px-2 text-center">
                             {isEditable ? (
-                              <div className="inline-flex items-center gap-1">
+                              <div className="inline-flex items-center gap-0.5">
                                 <input
                                   type="number"
                                   min={0}
@@ -718,20 +1030,20 @@ export function QuotationDetailView({
                                       discountPercent: parseFloat(e.target.value) || 0,
                                     })
                                   }
-                                  className="w-14 px-1.5 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
+                                  className="w-12 px-1 py-1 text-center font-bold bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-[#0066cc]"
                                 />
-                                <span className="text-slate-400 font-semibold">%</span>
+                                <span className="text-slate-400 font-semibold text-[11px]">%</span>
                               </div>
                             ) : (
                               <span className="font-bold">{item.discountPercent}%</span>
                             )}
                           </td>
 
-                          <td className="py-3.5 px-3 text-center text-slate-500 font-medium">
+                          <td className="py-3.5 px-2 text-center text-slate-500 font-medium">
                             {ceiling}%
                           </td>
 
-                          <td className="py-3.5 px-3 text-center">
+                          <td className="py-3.5 px-2 text-center">
                             {isOver ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
                                 OVER (+{overage}%)
@@ -743,12 +1055,12 @@ export function QuotationDetailView({
                             )}
                           </td>
 
-                          <td className="py-3.5 px-4 text-right font-bold text-slate-900">
+                          <td className="py-3.5 px-3 text-right font-bold text-slate-900">
                             ₹{Math.round(netAmount).toLocaleString()}
                           </td>
 
                           {isEditable && (
-                            <td className="py-3.5 px-3 text-center">
+                            <td className="py-3.5 px-2 text-center">
                               <button
                                 type="button"
                                 onClick={() => handleDeleteLine(item.id)}
@@ -769,84 +1081,297 @@ export function QuotationDetailView({
           </div>
         </div>
 
-        {/* ── RIGHT: QUOTATION TRAILS & TIMELINE (4 cols) ── */}
-        <div className="lg:col-span-4 space-y-6">
-          {/* Timeline Box */}
-          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <History size={18} className="text-[#0066cc]" />
-                <h3 className="text-sm font-bold text-slate-900">Quotation Trails</h3>
-              </div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Audit Timeline
-              </span>
+        {/* ── RIGHT: IN-PAGE CLICKUP-STYLE DISCUSSION & TRAILS (5 cols) ── */}
+        <div className="lg:col-span-5 space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden flex flex-col h-[640px]">
+            {/* Tab Header Switcher */}
+            <div className="flex items-center border-b border-slate-200 bg-slate-50/80 p-1.5 gap-1">
+              <button
+                type="button"
+                onClick={() => setActiveSideTab("chat")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  activeSideTab === "chat"
+                    ? "bg-white text-slate-900 shadow-xs border border-slate-200"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                }`}
+              >
+                <MessageSquare
+                  size={14}
+                  className={activeSideTab === "chat" ? "text-[#ff5e3a]" : "text-slate-400"}
+                />
+                <span>Deal Discussion</span>
+                {chatFeed.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-orange-100 text-[10px] text-[#ff5e3a] font-bold">
+                    {chatFeed.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSideTab("trails")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  activeSideTab === "trails"
+                    ? "bg-white text-slate-900 shadow-xs border border-slate-200"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                }`}
+              >
+                <History
+                  size={14}
+                  className={activeSideTab === "trails" ? "text-[#0066cc]" : "text-slate-400"}
+                />
+                <span>Governance Trails</span>
+                {combinedTrails.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-slate-200 text-[10px] text-slate-700 font-bold">
+                    {combinedTrails.length}
+                  </span>
+                )}
+              </button>
             </div>
 
-            {/* Approval Steps Checklist */}
-            {activeApprovalRequest?.steps && activeApprovalRequest.steps.length > 0 && (
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  Sequential Review Workflow
-                </span>
-                <div className="space-y-1.5">
-                  {activeApprovalRequest.steps.map((step: any) => (
-                    <div
-                      key={step.id}
-                      className="flex items-center justify-between text-xs p-1.5 rounded-lg bg-white border border-slate-100"
-                    >
-                      <div className="flex items-center gap-2">
-                        {step.status === "APPROVED" ? (
-                          <CheckCircle2 size={14} className="text-emerald-500" />
-                        ) : step.status === "REVISION_REQUESTED" ? (
-                          <XCircle size={14} className="text-rose-500" />
-                        ) : (
-                          <Clock size={14} className="text-amber-500" />
-                        )}
-                        <span className="font-semibold text-slate-800">
-                          Step {step.stepNumber}: {step.level === "SALES_MANAGER" ? "Sales Manager" : "Finance Ops"}
-                        </span>
+            {/* ── TAB 1: DEAL DISCUSSION & REAL-TIME CHAT ── */}
+            {activeSideTab === "chat" && (
+              <div className="flex flex-col flex-1 overflow-hidden">
+                {/* Real-Time Stakeholder Info Bar */}
+                <div className="px-4 py-2.5 bg-[#f8fafc] border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span className="font-semibold text-slate-700">Real-Time Stakeholder Thread</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400">Syncs live across all roles</span>
+                </div>
+
+                {/* Messages Scroll Area */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50">
+                  {chatFeed.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400 space-y-2">
+                      <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                        <MessageSquare size={18} />
                       </div>
-                      <span
-                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                          step.status === "APPROVED"
-                            ? "bg-emerald-50 text-emerald-700"
-                            : step.status === "REVISION_REQUESTED"
-                            ? "bg-rose-50 text-rose-700"
-                            : "bg-amber-50 text-amber-700"
+                      <p className="text-xs font-medium">No messages in this quotation thread yet.</p>
+                      <p className="text-[11px] text-slate-400">
+                        Messages sent here are visible to the Sales Rep, Client, and Approvers in real time.
+                      </p>
+                    </div>
+                  ) : (
+                    chatFeed.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`p-3 rounded-2xl border text-xs space-y-1.5 transition ${
+                          msg.authorRole === "CUSTOMER"
+                            ? "bg-white border-orange-200 shadow-2xs"
+                            : msg.authorRole === "SALES_REP"
+                            ? "bg-white border-blue-200 shadow-2xs"
+                            : msg.authorRole === "SALES_MANAGER"
+                            ? "bg-purple-50/70 border-purple-200 shadow-2xs"
+                            : msg.authorRole === "FINANCE_OPS" || msg.authorRole === "FINANCE"
+                            ? "bg-emerald-50/70 border-emerald-200 shadow-2xs"
+                            : "bg-slate-100 border-slate-200"
                         }`}
                       >
-                        {step.status}
-                      </span>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${msg.avatarBg}`}
+                            >
+                              {msg.authorName.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="font-bold text-slate-900">{msg.authorName}</span>
+                            <span
+                              className={`px-2 py-0.2 rounded-full text-[9px] font-extrabold uppercase border ${msg.badgeClass}`}
+                            >
+                              {msg.authorRole}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-400">
+                            {msg.date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        </div>
+
+                        <p className="text-slate-800 leading-relaxed font-medium pl-8">
+                          {msg.message}
+                        </p>
+
+                        {/* Optional Line Reference Tag */}
+                        {msg.lineDescription && (
+                          <div className="pl-8 pt-0.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-semibold border border-slate-200">
+                              <Tag size={10} />
+                              <span>{msg.lineDescription}</span>
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Quick Reply Chips */}
+                <div className="px-3 pt-2 pb-1 bg-white border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePostChatMessage("Customer requested discount applied and updated in draft proposal.")
+                    }
+                    className="px-2.5 py-1 rounded-full bg-slate-100 hover:bg-orange-50 hover:text-[#ff5e3a] text-slate-600 text-[10px] font-semibold transition shrink-0 cursor-pointer"
+                  >
+                    + Applied discount
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePostChatMessage("Proposal submitted for manager approval review.")
+                    }
+                    className="px-2.5 py-1 rounded-full bg-slate-100 hover:bg-blue-50 hover:text-[#0066cc] text-slate-600 text-[10px] font-semibold transition shrink-0 cursor-pointer"
+                  >
+                    + Sent for review
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePostChatMessage("Terms approved and locked. Ready for client e-signature.")
+                    }
+                    className="px-2.5 py-1 rounded-full bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-600 text-[10px] font-semibold transition shrink-0 cursor-pointer"
+                  >
+                    + Terms approved
+                  </button>
+                </div>
+
+                {/* Message Composer */}
+                <div className="p-3 bg-white border-t border-slate-200 space-y-2">
+                  {lines.length > 0 && (
+                    <div className="flex items-center justify-between text-[11px]">
+                      <select
+                        value={chatLineId}
+                        onChange={(e) => setChatLineId(e.target.value)}
+                        className="bg-slate-50 border border-slate-200 text-slate-700 rounded-lg px-2 py-1 text-[11px] outline-none cursor-pointer max-w-[200px]"
+                      >
+                        <option value="">Attach Line Item (Optional)...</option>
+                        {lines.map((l) => (
+                          <option key={l.id} value={l.id}>
+                            {l.description || l.product?.name}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="text-[10px] text-slate-400">Enter to send &bull; Shift+Enter for newline</span>
                     </div>
-                  ))}
+                  )}
+
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      rows={2}
+                      value={chatMessage}
+                      onChange={(e) => setChatMessage(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          handlePostChatMessage();
+                        }
+                      }}
+                      placeholder="Type message or reply to customer & approvers..."
+                      className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 outline-none focus:border-[#ff5e3a] resize-none"
+                    />
+
+                    <button
+                      type="button"
+                      disabled={isPostingChat || !chatMessage.trim()}
+                      onClick={() => handlePostChatMessage()}
+                      className="p-2.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white transition shadow-xs cursor-pointer disabled:opacity-50 shrink-0"
+                    >
+                      {isPostingChat ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : (
+                        <Send size={16} />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* Chronological Event Feed */}
-            <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-              {combinedTrails.length === 0 ? (
-                <div className="text-xs text-slate-400 py-4 text-center">
-                  No audit trail events recorded yet.
-                </div>
-              ) : (
-                combinedTrails.map((ev) => (
-                  <div key={ev.id} className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase ${ev.badgeColor}`}>
-                        {ev.title}
-                      </span>
-                      <span className="text-[10px] text-slate-400">{ev.date.toLocaleDateString()}</span>
-                    </div>
-                    <p className="text-slate-700 leading-relaxed font-medium">{ev.description}</p>
-                    <div className="text-[10px] text-slate-400 pt-0.5 font-normal">
-                      By <strong>{ev.actor}</strong> ({ev.role})
+            {/* ── TAB 2: GOVERNANCE TRAILS & AUDIT WORKFLOW ── */}
+            {activeSideTab === "trails" && (
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50">
+                {/* Approval Steps Checklist */}
+                {activeApprovalRequest?.steps && activeApprovalRequest.steps.length > 0 && (
+                  <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                      Sequential Review Workflow
+                    </span>
+                    <div className="space-y-1.5">
+                      {activeApprovalRequest.steps.map((step: any) => (
+                        <div
+                          key={step.id}
+                          className="flex items-center justify-between text-xs p-2 rounded-lg bg-slate-50 border border-slate-100"
+                        >
+                          <div className="flex items-center gap-2">
+                            {step.status === "APPROVED" ? (
+                              <CheckCircle2 size={14} className="text-emerald-500" />
+                            ) : step.status === "REVISION_REQUESTED" ? (
+                              <XCircle size={14} className="text-rose-500" />
+                            ) : (
+                              <Clock size={14} className="text-amber-500" />
+                            )}
+                            <span className="font-semibold text-slate-800">
+                              Step {step.stepNumber}:{" "}
+                              {step.level === "SALES_MANAGER" ? "Sales Manager" : "Finance Ops"}
+                            </span>
+                          </div>
+                          <span
+                            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                              step.status === "APPROVED"
+                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                : step.status === "REVISION_REQUESTED"
+                                ? "bg-rose-50 text-rose-700 border border-rose-200"
+                                : "bg-amber-50 text-amber-700 border border-amber-200"
+                            }`}
+                          >
+                            {step.status}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))
-              )}
-            </div>
+                )}
+
+                {/* Chronological Event Feed */}
+                <div className="space-y-2.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                    Audit Log Timeline
+                  </span>
+                  {combinedTrails.length === 0 ? (
+                    <div className="text-xs text-slate-400 py-6 text-center">
+                      No audit trail events recorded yet.
+                    </div>
+                  ) : (
+                    combinedTrails.map((ev) => (
+                      <div
+                        key={ev.id}
+                        className="p-3 rounded-xl bg-white border border-slate-200 space-y-1 text-xs shadow-2xs"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase border ${ev.badgeColor}`}
+                          >
+                            {ev.title}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {ev.date.toLocaleDateString()}
+                          </span>
+                        </div>
+                        <p className="text-slate-700 leading-relaxed font-medium">
+                          {ev.description}
+                        </p>
+                        <div className="text-[10px] text-slate-400 pt-0.5 font-normal">
+                          By <strong>{ev.actor}</strong> ({ev.role})
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -858,7 +1383,9 @@ export function QuotationDetailView({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <XCircle size={20} className="text-rose-600" />
-                <h3 className="text-base font-extrabold text-slate-900">Request Quotation Revision</h3>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  Request Quotation Revision
+                </h3>
               </div>
               <button
                 type="button"
@@ -870,7 +1397,8 @@ export function QuotationDetailView({
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Specify feedback and optionally adjust product line discounts before returning this quotation to the sales representative.
+              Specify feedback and optionally adjust product line discounts before returning this
+              quotation to the sales representative.
             </p>
 
             {/* Optional Line Discount Adjuster */}
@@ -880,7 +1408,10 @@ export function QuotationDetailView({
               </label>
               <div className="max-h-40 overflow-y-auto space-y-1.5 border border-slate-200 rounded-xl p-2 bg-slate-50">
                 {lines.map((l) => (
-                  <div key={l.id} className="flex items-center justify-between text-xs py-1 px-2 bg-white rounded-lg border border-slate-100">
+                  <div
+                    key={l.id}
+                    className="flex items-center justify-between text-xs py-1 px-2 bg-white rounded-lg border border-slate-100"
+                  >
                     <span className="font-semibold text-slate-800 truncate max-w-[200px]">
                       {l.description || l.product?.name}
                     </span>
@@ -937,7 +1468,11 @@ export function QuotationDetailView({
                 onClick={handleRejectStep}
                 className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                {isReviewing ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                {isReviewing ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Send size={14} />
+                )}
                 <span>Send Revision Request</span>
               </button>
             </div>

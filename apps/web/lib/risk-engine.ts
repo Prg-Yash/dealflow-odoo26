@@ -71,6 +71,11 @@ export interface CalculatedRiskSummary {
   hasCategoryBreach: boolean;
   requiresApproval: boolean;
   classification: ApprovalClassification;
+  requiresManagerApproval: boolean;
+  requiresFinanceApproval: boolean;
+  approvalType: "NONE" | "SALES_MANAGER" | "DUAL_APPROVAL";
+  approvalLabel: string;
+  escalationHops: 0 | 1 | 2;
   approvalReason?: string;
   isEmpty: boolean;
   errorMessage?: string;
@@ -126,7 +131,16 @@ export function getApprovalClassification(
 export function calculateQuotationRisk(
   lines: RiskLineItem[],
   customCategoryThreshold = DEFAULT_CATEGORY_DISCOUNT_THRESHOLD,
-  customerTierCeiling = 100.0
+  customerTierCeiling = 100.0,
+  customBlendedThreshold = DEFAULT_BLENDED_DISCOUNT_THRESHOLD,
+  customDiscountRules?: Array<{
+    minDiscountPercent?: number;
+    maxDiscountPercent?: number;
+    minBlendedRiskScore?: number;
+    maxBlendedRiskScore?: number;
+    requiresManagerApproval?: boolean;
+    requiresFinanceApproval?: boolean;
+  }>
 ): CalculatedRiskSummary {
   if (!lines || lines.length === 0) {
     const defaultClassification = getApprovalClassification(0, 0);
@@ -145,6 +159,11 @@ export function calculateQuotationRisk(
       hasCategoryBreach: false,
       requiresApproval: false,
       classification: defaultClassification,
+      requiresManagerApproval: false,
+      requiresFinanceApproval: false,
+      approvalType: "NONE",
+      approvalLabel: "Within Standard Approval Limits",
+      escalationHops: 0,
       isEmpty: true,
       errorMessage: "No products in quotation. Add at least one product to calculate thresholds.",
     };
@@ -221,10 +240,22 @@ export function calculateQuotationRisk(
 
   const rawBlendedScore = totalOrderValue > 0 ? totalWeightedOverage / totalOrderValue : 0;
   const blendedScore = Math.round(rawBlendedScore * 10) / 10;
-  const isBlendedBreached = blendedScore > 10.0;
+  const isBlendedBreached = blendedScore > customBlendedThreshold;
 
   const classification = getApprovalClassification(blendedScore, totalDiscountPercent);
   const requiresApproval = classification.condition !== 1;
+  const requiresManagerApproval = classification.requiresManager;
+  const requiresFinanceApproval = classification.requiresFinance;
+
+  let approvalType: "NONE" | "SALES_MANAGER" | "DUAL_APPROVAL" = "NONE";
+  let escalationHops: 0 | 1 | 2 = 0;
+  if (classification.condition === 3) {
+    approvalType = "DUAL_APPROVAL";
+    escalationHops = 2;
+  } else if (classification.condition === 2) {
+    approvalType = "SALES_MANAGER";
+    escalationHops = 1;
+  }
 
   return {
     lines: calculatedLines,
@@ -241,6 +272,11 @@ export function calculateQuotationRisk(
     hasCategoryBreach,
     requiresApproval,
     classification,
+    requiresManagerApproval,
+    requiresFinanceApproval,
+    approvalType,
+    approvalLabel: classification.label,
+    escalationHops,
     approvalReason: classification.description,
     isEmpty: false,
   };

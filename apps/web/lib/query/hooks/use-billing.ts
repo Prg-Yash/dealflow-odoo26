@@ -17,7 +17,7 @@ export interface InvoiceData {
   issueDate: string;
   dueDate: string;
   customerId: string;
-  customer?: { id: string; name: string; email: string };
+  customer?: { id: string; name: string; email: string; companyName?: string };
   quotationId?: string | null;
   subscriptionId?: string | null;
   lines?: Array<{
@@ -25,7 +25,10 @@ export interface InvoiceData {
     description: string;
     quantity: number;
     unitPrice: number;
-    netAmount: number;
+    totalAmount: number;
+    discountPercent?: number;
+    isRecurring?: boolean;
+    product?: { name: string; sku: string };
   }>;
   payments?: Array<{
     id: string;
@@ -38,6 +41,16 @@ export interface InvoiceData {
   createdAt: string;
 }
 
+export interface SubscriptionLineData {
+  id: string;
+  quantity: number;
+  unitPrice: number;
+  discountPercent: number;
+  recurringAmount: number;
+  product?: { id: string; name: string; sku: string; basePrice: number; costPrice: number };
+  variant?: { id: string; attributeName: string; attributeValue: string };
+}
+
 export interface SubscriptionData {
   id: string;
   subscriptionNumber: string;
@@ -48,17 +61,29 @@ export interface SubscriptionData {
   nextBillingDate: string;
   currentMrr: number;
   currentArr: number;
+  autoRenew: boolean;
+  notes?: string | null;
   customerId: string;
+  customer?: { id: string; name: string; email: string; companyName?: string; tier?: { name: string } };
   quotationId?: string | null;
-  customer?: { id: string; name: string; email: string };
-  lines?: Array<{
+  quotation?: {
     id: string;
-    quantity: number;
-    unitPrice: number;
-    recurringAmount: number;
-    product?: { name: string; sku: string };
-  }>;
+    quoteNumber: string;
+    title?: string;
+    lines?: Array<{
+      id: string;
+      itemType: "HARDWARE" | "SERVICE" | "SUBSCRIPTION";
+      quantity: number;
+      unitPrice: number;
+      netPrice: number;
+      description?: string | null;
+      product?: { id: string; name: string; sku: string };
+    }>;
+  };
+  lines?: SubscriptionLineData[];
+  invoices?: InvoiceData[];
   createdAt: string;
+  updatedAt: string;
 }
 
 /**
@@ -100,6 +125,91 @@ export function useSubscription(id: string) {
     queryKey: queryKeys.billing.subscriptionDetail(id),
     queryFn: () => api.get<SubscriptionData>(`/api/subscriptions/${id}`),
     enabled: Boolean(id),
+  });
+}
+
+/**
+ * Mutation: Create a new Subscription Plan / Schedule (Admin / Finance)
+ */
+export function useCreateSubscription() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body: {
+      customerId: string;
+      productId: string;
+      variantId?: string | null;
+      planName?: string;
+      billingInterval?: "MONTHLY" | "QUARTERLY" | "ANNUALLY";
+      unitPrice: number;
+      quantity?: number;
+      discountPercent?: number;
+      startDate?: string;
+      notes?: string;
+      autoRenew?: boolean;
+      enableReminder?: boolean;
+    }) => api.post<SubscriptionData>("/api/subscriptions", body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.billing.subscriptions() });
+    },
+  });
+}
+
+/**
+ * Mutation: Modify subscription details, billing schedule, or pause/resume
+ */
+export function useModifySubscription() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      id,
+      body,
+    }: {
+      id: string;
+      body: {
+        billingInterval?: "MONTHLY" | "QUARTERLY" | "ANNUALLY";
+        status?: "ACTIVE" | "PAUSED" | "CANCELLED" | "EXPIRED";
+        nextBillingDate?: string;
+        autoRenew?: boolean;
+        notes?: string;
+        quantity?: number;
+        unitPrice?: number;
+        discountPercent?: number;
+      };
+    }) => api.patch<SubscriptionData>(`/api/subscriptions/${id}`, body),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.billing.subscriptionDetail(variables.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.billing.subscriptions() });
+    },
+  });
+}
+
+/**
+ * Mutation: Trigger/Schedule BullMQ renewal reminder
+ */
+export function useScheduleReminder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      subscriptionId,
+      reminderDaysBefore = 7,
+      manualTrigger = true,
+    }: {
+      subscriptionId: string;
+      reminderDaysBefore?: number;
+      manualTrigger?: boolean;
+    }) =>
+      api.post(`/api/subscriptions/${subscriptionId}/schedule-reminder`, {
+        reminderDaysBefore,
+        manualTrigger,
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.billing.subscriptionDetail(variables.subscriptionId),
+      });
+    },
   });
 }
 

@@ -18,7 +18,7 @@ import { useQuotations } from "../../../../../lib/query";
 import { useDashboardAuth } from "../../../layout";
 
 export default function QuotationsListPage() {
-  const { user } = useDashboardAuth();
+  const { user, signOut } = useDashboardAuth();
   const [viewMode, setViewMode] = useState<"kanban" | "table">("kanban");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStage, setSelectedStage] = useState<string>(() => {
@@ -124,6 +124,7 @@ export default function QuotationsListPage() {
     <div className="min-h-screen bg-[#f8fafc] text-[#0f172a] font-sans antialiased">
       {/* Role-Aware Navigation */}
       <SalesNav
+        onSignOut={signOut}
         activeTab="quotations"
         userName={user?.name || "Sales Representative"}
         userInitials={userInitials}
@@ -177,7 +178,7 @@ export default function QuotationsListPage() {
 
             <Link
               href="/dashboard/sale-ref/quotations/new"
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0066cc] hover:bg-[#0052a3] text-white text-xs font-bold shadow-md shadow-[#0066cc]/25 active:translate-y-0.5 transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-bold shadow-md shadow-[#ff5e3a]/25 active:translate-y-0.5 transition-all cursor-pointer"
             >
               <Plus size={15} strokeWidth={2.5} />
               <span>+ New Quotation</span>
@@ -217,7 +218,7 @@ export default function QuotationsListPage() {
               placeholder="Search by quote number (e.g. QT-2026-0001) or customer organization..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-[#f8fafc] border border-slate-200 focus:border-[#0066cc] focus:ring-2 focus:ring-[#0066cc]/20 rounded-xl text-xs text-[#0f172a] placeholder:text-slate-400 outline-none transition-all"
+              className="w-full pl-10 pr-4 py-2 bg-[#f8fafc] border border-slate-200 focus:border-[#ff5e3a] focus:ring-2 focus:ring-[#ff5e3a]/20 rounded-xl text-xs text-[#0f172a] placeholder:text-slate-400 outline-none transition-all"
             />
           </div>
 
@@ -230,7 +231,7 @@ export default function QuotationsListPage() {
                 onClick={() => setSelectedStage(stage)}
                 className={`px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all cursor-pointer ${
                   selectedStage === stage
-                    ? "bg-[#0066cc] text-white shadow-xs"
+                    ? "bg-[#ff5e3a] text-white shadow-xs"
                     : "bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100"
                 }`}
               >
@@ -243,7 +244,7 @@ export default function QuotationsListPage() {
         {/* ── EMPTY STATE IF NO QUOTATIONS EXIST AT ALL ── */}
         {!isLoading && displayQuotations.length === 0 ? (
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-12 text-center max-w-lg mx-auto space-y-4">
-            <div className="w-16 h-16 rounded-2xl bg-blue-50 border border-blue-200 text-[#0066cc] flex items-center justify-center mx-auto shadow-xs">
+            <div className="w-16 h-16 rounded-2xl bg-orange-50 border border-orange-200 text-[#ff5e3a] flex items-center justify-center mx-auto shadow-xs">
               <FileText size={32} />
             </div>
             <div className="space-y-1">
@@ -258,7 +259,7 @@ export default function QuotationsListPage() {
             <div className="pt-2">
               <Link
                 href="/dashboard/sale-ref/quotations/new"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0066cc] hover:bg-[#0052a3] text-white text-xs font-bold shadow-md shadow-[#0066cc]/25 transition cursor-pointer"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-bold shadow-md shadow-[#ff5e3a]/25 transition cursor-pointer"
               >
                 <Plus size={16} strokeWidth={2.5} />
                 <span>+ Create Quotation Now</span>
@@ -270,7 +271,7 @@ export default function QuotationsListPage() {
           <div className="space-y-4">
             {isLoading ? (
               <div className="py-16 flex flex-col items-center justify-center gap-2 text-xs text-slate-400">
-                <Loader2 size={20} className="animate-spin text-[#0066cc]" />
+                <Loader2 size={20} className="animate-spin text-[#ff5e3a]" />
                 <span>Loading your quotations pipeline...</span>
               </div>
             ) : (
@@ -311,10 +312,10 @@ export default function QuotationsListPage() {
                               <Link
                                 key={q.rawId}
                                 href={targetLink}
-                                className="block bg-white rounded-xl p-3.5 border border-slate-200/90 shadow-xs hover:shadow-md hover:border-[#0066cc]/40 hover:-translate-y-0.5 transition-all text-left group cursor-pointer"
+                                className="block bg-white rounded-xl p-3.5 border border-slate-200/90 shadow-xs hover:shadow-md hover:border-[#ff5e3a]/40 hover:-translate-y-0.5 transition-all text-left group cursor-pointer"
                               >
                                 <div className="flex items-start justify-between gap-1 mb-1.5">
-                                  <span className="text-[11px] font-mono font-bold text-slate-400 group-hover:text-[#0066cc] transition-colors">
+                                  <span className="text-[11px] font-mono font-bold text-slate-400 group-hover:text-[#ff5e3a] transition-colors">
                                     {q.id}
                                   </span>
                                   <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
@@ -322,7 +323,7 @@ export default function QuotationsListPage() {
                                   </span>
                                 </div>
 
-                                <div className="font-bold text-slate-900 text-sm leading-snug group-hover:text-[#0066cc] transition-colors">
+                                <div className="font-bold text-slate-900 text-sm leading-snug group-hover:text-[#ff5e3a] transition-colors">
                                   {q.customerOrg}
                                 </div>
 
@@ -361,7 +362,7 @@ export default function QuotationsListPage() {
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden text-left">
             {isLoading ? (
               <div className="py-12 flex items-center justify-center gap-2 text-xs text-slate-400">
-                <Loader2 size={16} className="animate-spin text-[#0066cc]" />
+                <Loader2 size={16} className="animate-spin text-[#ff5e3a]" />
                 <span>Fetching live quotations...</span>
               </div>
             ) : (
@@ -385,7 +386,7 @@ export default function QuotationsListPage() {
                       return (
                         <tr key={q.rawId} className="hover:bg-slate-50/80 transition-colors">
                           <td className="py-4 px-5 font-mono font-bold text-slate-900">
-                            <Link href={targetLink} className="hover:text-[#0066cc] transition-colors">
+                            <Link href={targetLink} className="hover:text-[#ff5e3a] transition-colors">
                               {q.id}
                             </Link>
                           </td>
@@ -430,14 +431,14 @@ export default function QuotationsListPage() {
                                 <Link
                                   href={`/portal?token=${q.portalToken}`}
                                   target="_blank"
-                                  className="px-2 py-1 rounded-lg border border-slate-200 text-slate-600 hover:text-[#0066cc] text-[11px] font-semibold"
+                                  className="px-2 py-1 rounded-lg border border-slate-200 text-slate-600 hover:text-[#ff5e3a] text-[11px] font-semibold"
                                 >
                                   Portal
                                 </Link>
                               )}
                               <Link
                                 href={targetLink}
-                                className="inline-flex items-center gap-1 text-[#0066cc] hover:text-[#0052a3] font-bold text-xs"
+                                className="inline-flex items-center gap-1 text-[#ff5e3a] hover:text-[#ea4e28] font-bold text-xs"
                               >
                                 <span>Open</span>
                                 <ArrowUpRight size={13} />

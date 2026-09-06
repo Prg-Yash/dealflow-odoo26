@@ -117,10 +117,10 @@ export const UpdateDiscountApprovalRuleSchema = z
 export const CreateProductRecommendationBaseSchema = z.object({
   sourceProductId: z.string().min(1, "Source product ID is required"),
   recommendedProductId: z.string().min(1, "Recommended product ID is required"),
-  coPurchaseScore: z.number().min(0).default(1.0),
-  promotionalTag: z.string().optional(),
-  minMarginThreshold: z.number().min(0).max(100).default(20.0),
-  isActive: z.boolean().default(true),
+  coPurchaseScore: z.number().min(0).optional().default(1.0),
+  promotionalTag: z.string().nullable().optional(),
+  minMarginThreshold: z.number().min(0).max(100).optional().default(20.0),
+  isActive: z.boolean().optional().default(true),
 });
 
 export const CreateProductRecommendationSchema = CreateProductRecommendationBaseSchema.refine(
@@ -128,7 +128,15 @@ export const CreateProductRecommendationSchema = CreateProductRecommendationBase
   { message: "Source and recommended products cannot be the same" }
 );
 
-export const UpdateProductRecommendationSchema = CreateProductRecommendationSchema;
+export const UpdateProductRecommendationSchema = CreateProductRecommendationBaseSchema.partial().refine(
+  (data) => {
+    if (data.sourceProductId && data.recommendedProductId) {
+      return data.sourceProductId !== data.recommendedProductId;
+    }
+    return true;
+  },
+  { message: "Source and recommended products cannot be the same" }
+);
 
 export type CreatePriceListInput = z.infer<typeof CreatePriceListSchema>;
 export type UpdatePriceListInput = z.infer<typeof UpdatePriceListSchema>;

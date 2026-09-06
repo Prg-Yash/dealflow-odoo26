@@ -12,7 +12,7 @@ export default function QuotationDetailPage() {
   const routeParams = useParams();
   const quoteId = (routeParams?.id as string) || "";
 
-  const { user } = useDashboardAuth();
+  const { user, signOut } = useDashboardAuth();
   const { data: quotation, isLoading, isError, refetch } = useQuotation(quoteId, {
     enabled: Boolean(quoteId),
   });
@@ -21,16 +21,16 @@ export default function QuotationDetailPage() {
   const userInitials = user?.name
     ? user.name
         .split(" ")
-        .map((p) => p[0])
+        .map((n) => n[0])
         .join("")
-        .slice(0, 2)
         .toUpperCase()
+        .slice(0, 2)
     : "SR";
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center gap-3">
-        <Loader2 size={28} className="animate-spin text-[#0066cc]" />
+        <Loader2 size={28} className="animate-spin text-[#ff5e3a]" />
         <span className="text-xs text-slate-500 font-medium">Loading quotation details...</span>
       </div>
     );
@@ -44,7 +44,7 @@ export default function QuotationDetailPage() {
         </div>
         <h2 className="text-base font-bold text-slate-900">Quotation Not Found</h2>
         <p className="text-xs text-slate-500 mt-1 max-w-sm">
-          The requested quotation could not be located in this organization or is not assigned to your account.
+          The requested quotation could not be located in this workspace or you do not have permission to view it.
         </p>
         <div className="mt-5 flex items-center gap-3">
           <button
@@ -60,7 +60,7 @@ export default function QuotationDetailPage() {
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0066cc] text-white text-xs font-bold shadow-xs hover:bg-[#0052a3] transition"
           >
             <ArrowLeft size={13} />
-            <span>Back to Quotations List</span>
+            <span>Back to Quotations</span>
           </Link>
         </div>
       </div>
@@ -71,6 +71,7 @@ export default function QuotationDetailPage() {
     <div className="min-h-screen bg-[#f8fafc] text-[#0f172a] font-sans antialiased">
       {/* Role-Aware Navigation Bar */}
       <SalesNav
+        onSignOut={signOut}
         activeTab="quotations"
         userName={user?.name || "Sales Representative"}
         userInitials={userInitials}

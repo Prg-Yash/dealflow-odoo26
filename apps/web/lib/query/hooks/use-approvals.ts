@@ -182,17 +182,39 @@ export function useAcceptCounterProposal() {
 }
 
 /**
- * Mutation: Reject customer counter-proposal
+ * Mutation: Approve quotation step (Manager or Finance Ops)
  */
-export function useRejectCounterProposal() {
+export function useApproveQuotation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, comments }: { id: string; comments?: string }) =>
+      api.post(`/api/quotations/${id}/approve`, { comments }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.quotations.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.approvals.all });
+      if (variables?.id) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.quotations.detail(variables.id) });
+      }
+    },
+  });
+}
+
+/**
+ * Mutation: Reject quotation step (Manager or Finance Ops)
+ */
+export function useRejectQuotation() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
-      api.post(`/api/counter-proposals/${id}/reject`, { reason }),
-    onSuccess: () => {
+      api.post(`/api/quotations/${id}/reject`, { reason }),
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.quotations.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.approvals.all });
+      if (variables?.id) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.quotations.detail(variables.id) });
+      }
     },
   });
 }

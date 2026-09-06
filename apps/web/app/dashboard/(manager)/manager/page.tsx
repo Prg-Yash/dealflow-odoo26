@@ -18,7 +18,8 @@ import {
   Search,
   SlidersHorizontal,
 } from "lucide-react";
-import { BrandLogo } from "@repo/ui";
+import { useDashboardAuth } from "../../layout";
+import { BrandLogo, ProfileModal } from "@repo/ui";
 import {
   type ManagerApprovalRequest,
   type DealAnomalyRecord,
@@ -32,10 +33,14 @@ import {
   useUpdateQuotationStage,
   useApproveStep,
   useRejectStep,
+  useApproveQuotation,
+  useRejectQuotation,
 } from "../../../../lib/query";
 
 export default function ManagerDashboardPage() {
+  const { signOut } = useDashboardAuth();
   const [activeView, setActiveView] = useState<"approvals" | "telemetry" | "team">("approvals");
+  const [profileOpen, setProfileOpen] = useState(false);
 
   // Live TanStack Query Hooks (Database Driven)
   const { data: allQuotes, isLoading: isLoadingQuotes, refetch: refetchQuotes } = useQuotations();
@@ -86,6 +91,8 @@ export default function ManagerDashboardPage() {
         status = "APPROVED";
       }
 
+      const hasFinanceStep = q.requiresFinanceApproval || q.approvalRequest?.steps?.some((s: any) => s.level === "FINANCE");
+
       return {
         id: q.id,
         quoteId: q.quoteNumber || q.id,
@@ -108,7 +115,7 @@ export default function ManagerDashboardPage() {
         submittedAt: new Date(q.createdAt).toLocaleDateString(),
         slaHoursLeft: 24,
         blendedRiskScore: q.blendedRiskScore || 15,
-        escalationLevel: q.requiresFinanceApproval ? "SALES_MANAGER_AND_FINANCE" : "SALES_MANAGER",
+        escalationLevel: hasFinanceStep ? "SALES_MANAGER_AND_FINANCE" : "SALES_MANAGER",
         pdfFileName: `${q.quoteNumber || "Quote"}-Exec.pdf`,
         pdfFileSize: "1.2 MB",
         pdfHash: "sha256-verified",
@@ -264,10 +271,15 @@ export default function ManagerDashboardPage() {
           quotationId: targetQuoteId,
           comments: modalReason,
         });
-      } else {
+      } else if (type === "reject") {
         await rejectStepMutation.mutateAsync({
           quotationId: targetQuoteId,
           comments: modalReason,
+        });
+      } else {
+        await updateStageMutation.mutateAsync({
+          id: targetQuoteId,
+          stage: "DRAFT" as any,
         });
       }
       await refetchQuotes();
@@ -276,9 +288,10 @@ export default function ManagerDashboardPage() {
       console.warn("Approval mutation fallback:", err);
       // Fallback update stage if approval step routing is in custom state
       try {
-        if (request.quoteId) {
+        const targetQuoteId = request.id || request.quoteId;
+        if (targetQuoteId) {
           await updateStageMutation.mutateAsync({
-            id: request.quoteId,
+            id: targetQuoteId,
             stage: newStatus === "APPROVED" ? "APPROVED" : "DRAFT",
           });
         }
@@ -288,11 +301,16 @@ export default function ManagerDashboardPage() {
       await refetchQuotes();
     }
 
-    setModalSuccessMsg(`Decision logged: ${request.quoteId} is now ${newStatus.replace("_", " ")}.`);
+    const isDual = request.escalationLevel === "SALES_MANAGER_AND_FINANCE";
+    setModalSuccessMsg(
+      type === "approve" && isDual
+        ? `Step 1 (Sales Manager) Approved for ${request.quoteId}! Forwarded to Finance Operations.`
+        : `Decision logged: ${request.quoteId} is now ${newStatus.replace("_", " ")}.`
+    );
     setTimeout(() => {
       setActiveModalRequest(null);
       setModalSuccessMsg(null);
-    }, 1200);
+    }, 1500);
   };
 
   const handleAnomalyAction = (id: string, actionType: "escalate" | "nudge") => {
@@ -381,12 +399,12 @@ export default function ManagerDashboardPage() {
           </div>
 
           {/* Right: Manager Profile */}
-          <div className="flex items-center gap-3 shrink-0">
-            <Link
-              href="/profile"
+          <div className="relative flex items-center gap-3 shrink-0">
+            <button
+              onClick={() => setProfileOpen(!profileOpen)}
               className="flex items-center gap-2.5 pl-2.5 sm:border-l sm:border-slate-200 cursor-pointer"
             >
-              <div className="w-8 h-8 rounded-full bg-[#ff5e3a] text-white text-xs font-extrabold flex items-center justify-center shadow-sm">
+              <div className="w-8 h-8 rounded-full bg-[#ff5e3a] text-white text-xs font-extrabold flex items-center justify-center shadow-sm hover:scale-105 transition-transform">
                 EV
               </div>
               <div className="hidden md:flex flex-col text-left">
@@ -397,7 +415,18 @@ export default function ManagerDashboardPage() {
                   Sales Director
                 </span>
               </div>
-            </Link>
+            </button>
+            <ProfileModal
+                onSignOut={signOut}
+                open={profileOpen}
+              onClose={() => setProfileOpen(false)}
+              user={{
+                name: "Elena Vance",
+                email: "elena@dealflow360.com",
+                initials: "EV",
+                role: "manager",
+              }}
+            />
           </div>
         </div>
       </header>
