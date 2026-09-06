@@ -249,9 +249,27 @@ export default function DashboardLayout({
     );
   }
 
-  // 2. Unauthorized Screen (Clean Redirect in progress)
+  // 2. Unauthorized Screen (Clean branded redirect screen)
   if (authStatus === "unauthorized") {
-    return null;
+    return (
+      <div className="min-h-screen w-full bg-[#0a0f1d] flex flex-col items-center justify-center p-4 antialiased">
+        <div className="w-full max-w-md p-8 rounded-2xl bg-[#0f172a]/80 border border-slate-800/80 shadow-2xl backdrop-blur-xl flex flex-col items-center text-center">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-[#ff5e3a] to-[#ff8f6b] flex items-center justify-center text-white font-extrabold text-2xl shadow-lg shadow-[#ff5e3a]/25 mb-4">
+            DF
+          </div>
+          <h2 className="text-base font-bold text-white tracking-tight mb-1">
+            Session Expired or Not Logged In
+          </h2>
+          <p className="text-xs text-slate-400 mb-5">
+            Redirecting to DealFlow 360 login...
+          </p>
+          <div className="flex items-center gap-2 text-xs text-[#ff5e3a] font-semibold">
+            <Loader2 size={16} className="animate-spin" />
+            <span>Taking you to login</span>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // 3. Authenticated: Render Child Dashboard Views
