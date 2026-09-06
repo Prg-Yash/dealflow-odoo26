@@ -41,6 +41,7 @@ import {
 import { portalRouter } from "./routes/portal.routes.js";
 import { counterProposalRouter } from "./routes/counter-proposal.routes.js";
 import { approvalRouter } from "./routes/approval.routes.js";
+import { twoFactorRouter } from "./routes/two-factor.routes.js";
 import { errorHandler } from "./middleware/error.js";
 
 const app = express();
@@ -148,6 +149,7 @@ app.use(["/api/jobs", "/jobs"], jobRouter);
 app.use(["/api/portal", "/portal"], portalRouter);
 app.use(["/api/counter-proposals", "/counter-proposals"], counterProposalRouter);
 app.use(["/api/approvals", "/approvals"], approvalRouter);
+app.use(["/api/2fa", "/2fa"], twoFactorRouter);
 
 // Demo Background Job Trigger (Interacts with @repo/db)
 app.post(["/api/jobs/trigger", "/jobs/trigger"], async (req: Request, res: Response) => {

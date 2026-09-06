@@ -1,5 +1,5 @@
 import { betterAuth } from "better-auth";
-import { bearer } from "better-auth/plugins";
+import { bearer, twoFactor } from "better-auth/plugins";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prisma } from "@repo/db";
 import { ENV } from "../config/env.js";
@@ -7,7 +7,12 @@ import { sendVerificationEmail, sendResetPasswordEmail } from "../services/email
 import { hashPassword, verifyPassword } from "./passwords.js";
 
 export const auth = betterAuth({
-  plugins: [bearer()],
+  plugins: [
+    bearer(),
+    twoFactor({
+      issuer: "DealFlow 360",
+    }),
+  ],
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),

@@ -161,3 +161,25 @@ export function useResendInvitation() {
     },
   });
 }
+
+export interface User2FAStatusData {
+  totpEnabled: boolean;
+  whatsappEnabled: boolean;
+  whatsappPhoneNumber: string | null;
+  whatsappVerified: boolean;
+  maskedPhone: string | null;
+}
+
+/**
+ * Hook to fetch current user's 2FA status
+ */
+export function use2FAStatus() {
+  return useQuery({
+    queryKey: ["auth", "2fa-status"],
+    queryFn: async () => {
+      const res = await api.get<{ success: boolean; data: User2FAStatusData }>("/api/2fa/status");
+      return res.data;
+    },
+    staleTime: 1000 * 30, // 30 seconds
+  });
+}

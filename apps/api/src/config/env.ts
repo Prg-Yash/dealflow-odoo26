@@ -22,4 +22,28 @@ export const ENV = {
     (process.env.SMTP_USER
       ? `Workspace Auth <${process.env.SMTP_USER}>`
       : "Workspace Auth <noreply@example.com>"),
+  // Meta WhatsApp Business Cloud API Configuration
+  WHATSAPP_API_TOKEN:
+    process.env.WHATSAPP_API_TOKEN ||
+    process.env.META_WHATSAPP_API_TOKEN ||
+    process.env.WHATSAPP_ACCESS_TOKEN ||
+    process.env.WHATSAPP_TOKEN ||
+    process.env.META_ACCESS_TOKEN ||
+    "",
+  WHATSAPP_PHONE_NUMBER_ID:
+    process.env.WHATSAPP_PHONE_NUMBER_ID ||
+    process.env.WHATSAPP_PHONE_ID ||
+    process.env.META_PHONE_NUMBER_ID ||
+    "",
+  WHATSAPP_BUSINESS_ACCOUNT_ID:
+    process.env.WHATSAPP_BUSINESS_ACCOUNT_ID ||
+    process.env.WHATSAPP_WABA_ID ||
+    process.env.WHATSAPP_ACCOUNT_ID ||
+    "",
+  WHATSAPP_OTP_TEMPLATE_NAME:
+    process.env.WHATSAPP_OTP_TEMPLATE_NAME ||
+    process.env.WHATSAPP_TEMPLATE_NAME ||
+    process.env.WHATSAPP_TEMPLATE ||
+    "dealflow_auth_verification_template",
+  WHATSAPP_API_VERSION: process.env.WHATSAPP_API_VERSION || "v21.0",
 } as const;
