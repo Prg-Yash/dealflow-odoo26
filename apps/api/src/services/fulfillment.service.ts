@@ -881,7 +881,7 @@ export async function listFulfillmentOrders(
     orderBy: { createdAt: "desc" },
     include: {
       quotation: {
-        select: { id: true, quoteNumber: true, title: true, stage: true },
+        include: { customer: true },
       },
       shipments: {
         include: {
@@ -1242,14 +1242,25 @@ export async function updateShipmentStatus(
       },
     });
 
-    const allDelivered = allShipments.every(
-      (s) => s.status === ShipmentStatus.DELIVERED
-    );
+    const allDispatchedOrDelivered =
+      allShipments.length > 0 &&
+      allShipments.every(
+        (s) => s.id === shipment.id ? (nextStatus === ShipmentStatus.SHIPPED || nextStatus === ShipmentStatus.DELIVERED) : (s.status === ShipmentStatus.SHIPPED || s.status === ShipmentStatus.DELIVERED)
+      );
 
-    if (allDelivered && openBackorders === 0) {
+    if (allDispatchedOrDelivered && openBackorders === 0) {
       await tx.fulfillmentOrder.update({
         where: { id: shipment.fulfillmentOrderId },
         data: { status: FulfillmentStatus.FULFILLED },
+      });
+    } else if (
+      allShipments.some(
+        (s) => s.id === shipment.id ? (nextStatus === ShipmentStatus.SHIPPED || nextStatus === ShipmentStatus.DELIVERED) : (s.status === ShipmentStatus.SHIPPED || s.status === ShipmentStatus.DELIVERED)
+      )
+    ) {
+      await tx.fulfillmentOrder.update({
+        where: { id: shipment.fulfillmentOrderId },
+        data: { status: FulfillmentStatus.PARTIALLY_FULFILLED },
       });
     }
 

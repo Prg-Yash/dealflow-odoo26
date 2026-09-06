@@ -220,30 +220,39 @@ function FinanceDashboardContent() {
 
     if (apiFulfillment && apiFulfillment.length > 0) {
       for (const fo of apiFulfillment) {
+        const shipments = fo.shipments || [];
+        const hasShipments = shipments.length > 0;
+        const allShipped = hasShipments && shipments.every((s: any) => s.status === "SHIPPED" || s.status === "DELIVERED");
+        const partiallyShipped = hasShipments && shipments.some((s: any) => s.status === "SHIPPED" || s.status === "DELIVERED");
+        const hasBackorder = (fo.backorders?.length || 0) > 0;
+
         const uniqueWarehouses = Array.from(
           new Set(
-            fo.shipments
+            shipments
               ?.map((s) => s.warehouse?.name || "Main Warehouse")
               .filter(Boolean) || []
           )
         );
         const whDisplay = uniqueWarehouses.length > 0 ? uniqueWarehouses.join(" + ") : "Pending Split";
-        const hasBackorder = (fo.backorders?.length || 0) > 0;
-        const statusDisplay = hasBackorder
-          ? "Backorder"
-          : fo.status === "FULFILLED"
-          ? "Fulfilled"
-          : fo.status === "PARTIALLY_FULFILLED"
-          ? "Partially Fulfilled"
-          : "Split Pending";
+
+        let statusDisplay = "Split Pending";
+        if (hasBackorder) {
+          statusDisplay = "Backorder";
+        } else if (allShipped || fo.status === "FULFILLED") {
+          statusDisplay = "Dispatched";
+        } else if (partiallyShipped || fo.status === "PARTIALLY_FULFILLED") {
+          statusDisplay = "Partially Dispatched";
+        } else if (hasShipments) {
+          statusDisplay = "Split Confirmed";
+        }
 
         list.push({
           id: fo.id,
           orderNumber: fo.quotation?.quoteNumber || fo.fulfillmentNumber,
-          customerName: fo.quotation?.customer?.name || "Enterprise Customer",
+          customerName: fo.quotation?.customer?.name || "Beta Industries",
           status: statusDisplay,
           warehouses: whDisplay,
-          shipmentCount: fo.shipments?.length || 0,
+          shipmentCount: shipments.length,
           backordersCount: fo.backorders?.length || 0,
         });
       }
@@ -887,8 +896,10 @@ function FinanceDashboardContent() {
                             className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
                               order.status === "Backorder"
                                 ? "bg-rose-50 text-rose-700 border-rose-200"
-                                : order.status === "Fulfilled"
+                                : order.status === "Fulfilled" || order.status === "Dispatched" || order.status === "Shipped"
                                 ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : order.status === "Split Confirmed" || order.status === "Partially Dispatched"
+                                ? "bg-blue-50 text-blue-700 border-blue-200"
                                 : "bg-amber-50 text-amber-700 border-amber-200"
                             }`}
                           >

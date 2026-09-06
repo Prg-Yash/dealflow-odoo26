@@ -292,8 +292,9 @@ export default function FulfillmentDetailPage({ params }: { params?: { id?: stri
         carrier: "FedEx Express Freight",
         trackingNumber: `TRK-${Math.floor(10000000 + Math.random() * 90000000)}`,
       });
-      refetchFO();
-      showToast("Shipment dispatched (SHIPPED)! Inventory deducted & hybrid invoice triggered.");
+      await refetchFO();
+      await refetchPreview();
+      showToast("Shipment dispatched (SHIPPED)! Inventory deducted & physical goods invoice generated.");
     } catch (err: any) {
       showToast(`Shipment update: ${err.message || "Dispatched successfully."}`);
     }

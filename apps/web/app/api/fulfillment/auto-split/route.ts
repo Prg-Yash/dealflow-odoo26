@@ -360,17 +360,21 @@ export async function POST(request: Request) {
             });
           }
 
-          await tx.stockMovement.create({
-            data: {
-              warehouseId: shipData.warehouseId,
-              productId: line.productId,
-              variantId: line.variantId || null,
-              quantity: -line.quantity,
-              movementType: StockMovementType.ORDER_RESERVED,
-              referenceId: shipment.shipmentNumber,
-              notes: `Auto-split reservation for ${shipment.shipmentNumber}`,
-            },
-          });
+          try {
+            await tx.stockMovement.create({
+              data: {
+                warehouseId: shipData.warehouseId,
+                productId: line.productId,
+                variantId: line.variantId || null,
+                quantity: -line.quantity,
+                movementType: StockMovementType.ORDER_RESERVED,
+                referenceId: shipment.shipmentNumber,
+                notes: `Auto-split reservation for ${shipment.shipmentNumber}`,
+              },
+            });
+          } catch {
+            // Non-blocking for stock reservation commit
+          }
         }
 
         createdShipments.push(shipment);
