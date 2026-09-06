@@ -438,26 +438,27 @@ function AdminInventoryPageContent() {
     }
   }, []);
 
-  // Classify Products according to Phase 2/3 Schema
-  const hardwareProducts = productsList.filter((p) => {
+  // Classify Products strictly according to Category Type (with unit fallback only if category type is unset)
+  const getProductCategoryType = (p: any): "HARDWARE" | "SUBSCRIPTION" | "SERVICE" => {
     const cat = categoriesList.find((c) => c.id === p.categoryId);
-    const catType = (p.category as any)?.type || cat?.type;
-    return catType === "HARDWARE" || p.unitType === "UNIT" || p.unit === "UNIT" || !catType;
-  });
+    const catType = ((p.category as any)?.type || cat?.type)?.toUpperCase();
+    if (catType === "SUBSCRIPTION") return "SUBSCRIPTION";
+    if (catType === "SERVICE") return "SERVICE";
+    if (catType === "HARDWARE") return "HARDWARE";
 
-  const subscriptionProducts = productsList.filter((p) => {
-    const cat = categoriesList.find((c) => c.id === p.categoryId);
-    const catType = (p.category as any)?.type || cat?.type;
-    const unit = p.unitType || p.unit;
-    return catType === "SUBSCRIPTION" || unit === "MONTH" || unit === "YEAR" || unit === "USER_MONTH" || unit === "SEAT";
-  });
+    const unit = (p.unitType || p.unit || "").toUpperCase();
+    if (unit === "MONTH" || unit === "YEAR" || unit === "USER_MONTH" || unit === "SEAT") {
+      return "SUBSCRIPTION";
+    }
+    if (unit === "HOUR" || unit === "PROJECT") {
+      return "SERVICE";
+    }
+    return "HARDWARE";
+  };
 
-  const serviceProducts = productsList.filter((p) => {
-    const cat = categoriesList.find((c) => c.id === p.categoryId);
-    const catType = (p.category as any)?.type || cat?.type;
-    const unit = p.unitType || p.unit;
-    return catType === "SERVICE" || unit === "HOUR" || unit === "PROJECT";
-  });
+  const hardwareProducts = productsList.filter((p) => getProductCategoryType(p) === "HARDWARE");
+  const subscriptionProducts = productsList.filter((p) => getProductCategoryType(p) === "SUBSCRIPTION");
+  const serviceProducts = productsList.filter((p) => getProductCategoryType(p) === "SERVICE");
 
   // Filtered Products by current tab and search
   const currentTabProducts =

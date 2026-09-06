@@ -1336,8 +1336,40 @@ export function CustomerNegotiationPortal({
                       </div>
                     </div>
 
-                    {/* Grid Layout of Quotations */}
-                    {displayLayout === "grid" ? (
+                    {/* Empty State vs Grid / Table Layout of Quotations */}
+                    {filteredQuotations.length === 0 ? (
+                      <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-xs flex flex-col items-center justify-center gap-3">
+                        <div className="w-12 h-12 rounded-2xl bg-orange-50 text-[#ff5e3a] flex items-center justify-center">
+                          <FileText size={24} />
+                        </div>
+                        <div className="space-y-1">
+                          <h3 className="text-sm font-bold text-slate-900">
+                            {customerQuotations.length === 0
+                              ? "No Quotations Found"
+                              : "No Quotations Found"}
+                          </h3>
+                          <p className="text-xs text-slate-500 max-w-sm">
+                            {customerQuotations.length === 0
+                              ? "There are no proposals or quotations assigned to your customer account at this time."
+                              : "No proposals match your current filter criteria."}
+                          </p>
+                        </div>
+                        {(searchQuery || statusFilter !== "ALL" || timePeriodFilter !== "ALL") && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSearchQuery("");
+                              setStatusFilter("ALL");
+                              setTimePeriodFilter("ALL");
+                            }}
+                            className="mt-2 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-orange-50 hover:bg-orange-100 text-[#ff5e3a] text-xs font-semibold border border-orange-200 transition cursor-pointer"
+                          >
+                            <RotateCcw size={12} />
+                            <span>Reset Filters</span>
+                          </button>
+                        )}
+                      </div>
+                    ) : displayLayout === "grid" ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {filteredQuotations.map((q) => (
                           <div
@@ -1430,6 +1462,27 @@ export function CustomerNegotiationPortal({
                 )}
 
                 {/* ── SUB-VIEW B: DETAIL QUOTATION & NEGOTIATION ── */}
+                {viewMode === "detail" && !quotation && (
+                  <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-xs flex flex-col items-center justify-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-orange-50 text-[#ff5e3a] flex items-center justify-center">
+                      <FileText size={24} />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-bold text-slate-900">No Quotation Selected</h3>
+                      <p className="text-xs text-slate-500 max-w-sm">
+                        Please select a quotation from the catalog list to review details.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("list")}
+                      className="mt-2 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#ff5e3a] hover:bg-[#ea4e28] text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+                    >
+                      <ArrowLeft size={12} />
+                      <span>Back to Proposals Catalog</span>
+                    </button>
+                  </div>
+                )}
                 {viewMode === "detail" && quotation && (
                   <div className="space-y-6">
                     {/* Proposal Header Banner */}
@@ -2483,46 +2536,19 @@ export function CustomerNegotiationPortal({
                           </span>
                         </div>
                       )}
-                      <div>
-                        <span className="text-slate-400 block">Customer Tier &amp; Ceiling</span>
-                        <span className="font-semibold text-emerald-600">
-                          {quotation.customer?.tier?.name || "Standard Tier"} &bull;{" "}
-                          {quotation.customer?.tier?.discountCeiling || 10}% policy ceiling
-                        </span>
-                      </div>
                     </div>
                   </div>
 
-                  {/* Connected Organizations & Admins Summary */}
+                  {/* Connected Organization Summary */}
                   <div className="bg-[#f8fafc] border border-slate-200 p-5 rounded-2xl space-y-3">
                     <span className="text-xs font-bold uppercase text-slate-500">
-                      Connected Vendor &amp; Admins Network
+                      Connected Vendor Organization
                     </span>
                     <div className="space-y-2.5 text-xs">
                       <div>
                         <span className="text-slate-400 block">Connected Organization</span>
                         <span className="font-bold text-slate-900 text-sm">
                           {quotation.organization?.name || "DealFlow 360 Enterprise"}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block">
-                          Connected Admins &amp; Sales Directors
-                        </span>
-                        <span className="font-semibold text-blue-600 flex items-center gap-1.5 mt-0.5">
-                          <Users size={14} />
-                          <span>
-                            {quotation.organization?._count?.users ||
-                              quotation.organization?._count?.salesManagers ||
-                              1}{" "}
-                            Active Administrators / Directors Connected
-                          </span>
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block">Settlement Currency</span>
-                        <span className="font-semibold text-slate-800">
-                          {quotation.organization?.currency || "INR"}
                         </span>
                       </div>
                       <div>
