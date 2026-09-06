@@ -88,20 +88,10 @@ export function middleware(request: NextRequest) {
         const currentSegment = pathname.split("/")[2]; // e.g. "admin", "manager", "sale-ref", "finance"
         const allowedSegment = targetDashboard.split("/")[2];
 
-        if (demoRole === "admin") {
-          // Admin can access any internal dashboard segment, but if hitting base /dashboard, redirect to /dashboard/admin
-          if (!currentSegment) {
-            const url = request.nextUrl.clone();
-            url.pathname = targetDashboard;
-            return NextResponse.redirect(url);
-          }
-        } else {
-          // Non-admin internal staff are locked to their specific segment
-          if (!currentSegment || (allowedSegment && currentSegment !== allowedSegment)) {
-            const url = request.nextUrl.clone();
-            url.pathname = targetDashboard;
-            return NextResponse.redirect(url);
-          }
+        if (!currentSegment || (allowedSegment && currentSegment !== allowedSegment)) {
+          const url = request.nextUrl.clone();
+          url.pathname = targetDashboard;
+          return NextResponse.redirect(url);
         }
       }
     }
