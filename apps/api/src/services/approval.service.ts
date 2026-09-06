@@ -643,7 +643,7 @@ export async function rejectStep(params: {
         metadata: {
           stepNumber: currentStep.stepNumber,
           level: currentStep.level,
-          lineAdjustments: lineAdjustments || [],
+          lineAdjustments: (lineAdjustments || []) as any,
         },
       },
     });
