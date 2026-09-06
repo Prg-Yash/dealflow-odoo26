@@ -128,7 +128,7 @@ export default function ManagerDashboardPage() {
       anomalyType: "Stalled Deal" as const,
       idleDays: s.daysInactive || 0,
       actionStatus: "flagged" as const,
-      details: `Inactive for ${s.daysInactive || 0} days (threshold: ${s.thresholdDays || 7}d) — Stage: ${s.stage}`,
+      details: `Inactive for ${s.daysInactive || 0} days (+${Math.max(0, (s.daysInactive || 0) - (s.thresholdDays || 7))} days over ${s.thresholdDays || 7}d limit) — Stage: ${s.stage}`,
     })),
     ...slippageList.map((sl: any) => ({
       id: sl.fulfillmentOrderId || "slip-" + Math.random(),

@@ -440,7 +440,7 @@ export const INITIAL_DEAL_ANOMALIES: DealAnomalyRecord[] = [
     anomalyType: "Stalled Deal",
     idleDays: 11,
     actionStatus: "flagged",
-    details: "Stalled in Negotiation for 11 days without client interaction",
+    details: "Inactive for 11 days (+4 days over 7d limit) — Stage: DRAFT",
   },
   {
     id: "ANOM-04",
