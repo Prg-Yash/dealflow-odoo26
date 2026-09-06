@@ -2340,9 +2340,47 @@ export function CustomerNegotiationPortal({
               </button>
             </div>
 
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/90 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-xs text-slate-900 leading-tight">
+                  {selectedLineForComment.product?.name || selectedLineForComment.description || "Quotation Line Item"}
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700 font-mono">
+                  {selectedLineForComment.itemType || "ITEM"}
+                </span>
+              </div>
+              {selectedLineForComment.description && selectedLineForComment.description !== selectedLineForComment.product?.name && (
+                <div className="text-[11px] text-slate-500">
+                  {selectedLineForComment.description}
+                </div>
+              )}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] pt-1.5 border-t border-slate-200">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase block">Quantity</span>
+                  <span className="font-bold text-slate-900">{selectedLineForComment.quantity || 1}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase block">Unit Price</span>
+                  <span className="font-bold text-slate-900">
+                    ₹{Number(selectedLineForComment.unitPrice || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase block">Discount</span>
+                  <span className="font-bold text-emerald-600">{selectedLineForComment.discountPercent || 0}%</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase block">Net Price</span>
+                  <span className="font-bold text-slate-900">
+                    ₹{Number(selectedLineForComment.netPrice || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+            </div>
+
             <form onSubmit={handleSubmitLineComment} className="space-y-4">
               <textarea
-                rows={4}
+                rows={3}
                 required
                 value={lineCommentMessage}
                 onChange={(e) => setLineCommentMessage(e.target.value)}
