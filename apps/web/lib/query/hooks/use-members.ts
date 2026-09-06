@@ -102,28 +102,10 @@ export function useCreateInvitation() {
       territory?: string;
       expiryDays?: number;
     }) => api.post<InvitationData>("/api/invitations", body),
-
-    ...createOptimisticMutationOptions<
-      { email: string; role: string; department?: string; territory?: string },
-      InvitationData[]
-    >({
-      queryClient,
-      queryKey: ["invitations"],
-      updateFn: (oldList, variables) => {
-        const optimisticInvite: InvitationData = {
-          id: `temp-${Date.now()}`,
-          email: variables.email,
-          role: variables.role,
-          status: "PENDING",
-          token: `inv-${Date.now()}`,
-          department: variables.department ?? null,
-          territory: variables.territory ?? null,
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-          createdAt: new Date().toISOString(),
-        };
-        return optimisticAppendItem(oldList, optimisticInvite, "start");
-      },
-    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invitations"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.users.list() });
+    },
   });
 }
 

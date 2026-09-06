@@ -3,6 +3,7 @@ import { prisma, UserRole, InvitationStatus } from "@repo/db";
 import { ENV } from "../config/env.js";
 import { sendInvitationEmail } from "./email.service.js";
 import { auth } from "../lib/auth.js";
+import { AppError } from "../middleware/error.js";
 
 interface CreateInvitationParams {
   email: string;
@@ -32,7 +33,7 @@ export async function createInvitation({
   });
 
   if (!org) {
-    throw new Error("Organization not found.");
+    throw new AppError(404, "NOT_FOUND", "Organization not found.");
   }
 
   // 2. Fetch inviter info
@@ -47,7 +48,11 @@ export async function createInvitation({
   });
 
   if (existingUser && existingUser.organizationId === organizationId) {
-    throw new Error(`User with email '${normalizedEmail}' is already an active member of this organization.`);
+    throw new AppError(
+      400,
+      "MEMBER_EXISTS",
+      `The email '${normalizedEmail}' is already a member of this team.`
+    );
   }
 
   // 4. Revoke or mark prior pending invitations for this email + org as EXPIRED
@@ -330,7 +335,10 @@ export async function acceptInvitation({
 
 export async function listInvitations(organizationId: string) {
   return prisma.invitation.findMany({
-    where: { organizationId },
+    where: {
+      organizationId,
+      role: { not: UserRole.CUSTOMER },
+    },
     include: {
       invitedBy: {
         select: {
