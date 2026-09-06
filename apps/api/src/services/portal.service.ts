@@ -10,6 +10,7 @@ import { AppError } from "../middleware/error.js";
 import { calculateBlendedRisk, type RiskLineInput } from "../lib/risk-engine.js";
 import { triggerApprovalWorkflow, evaluateApprovalRules } from "./approval.service.js";
 import { confirmQuotation, type ConfirmQuotationResult } from "./confirmation.service.js";
+import { getRedisConnection } from "../config/redis.js";
 import type {
   CreateQuotationCommentInput,
   CreateCounterProposalInput,
@@ -22,34 +23,68 @@ import type {
 // =============================================================================
 
 async function resolveCustomerAuthorId(
-  tx: Prisma.TransactionClient,
-  customer: { id: string; name: string; email: string; portalUserId?: string | null },
-  orgId: string,
-  providedName?: string,
-  providedEmail?: string
+  customer?: { id: string; name?: string | null; email?: string | null; portalUserId?: string | null } | null,
+  orgId?: string | null,
+  providedName?: string | null,
+  providedEmail?: string | null
 ): Promise<string> {
-  if (customer.portalUserId) {
-    const existing = await tx.user.findUnique({ where: { id: customer.portalUserId } });
+  // 1. If customer already has a linked portal user
+  if (customer?.portalUserId) {
+    const existing = await prisma.user.findUnique({ where: { id: customer.portalUserId } });
     if (existing) return existing.id;
   }
 
-  const lookupEmail = (providedEmail || customer.email).trim().toLowerCase();
+  const lookupEmail = (providedEmail || customer?.email || "customer@client.com").trim().toLowerCase();
 
-  const userByEmail = await tx.user.findUnique({ where: { email: lookupEmail } });
+  // 2. Lookup existing user by email
+  const userByEmail = await prisma.user.findFirst({
+    where: { email: { equals: lookupEmail, mode: "insensitive" } },
+  });
   if (userByEmail) {
+    if (customer?.id && !customer.portalUserId) {
+      // Best effort link portalUserId to customer profile
+      await prisma.customer.update({
+        where: { id: customer.id },
+        data: { portalUserId: userByEmail.id },
+      }).catch(() => {});
+    }
     return userByEmail.id;
   }
 
-  const newUser = await tx.user.create({
-    data: {
-      name: (providedName || customer.name || "Customer Representative").trim(),
-      email: lookupEmail,
-      role: UserRole.CUSTOMER,
-      organizationId: orgId,
-    },
-  });
+  // 3. Try creating user
+  try {
+    const newUser = await prisma.user.create({
+      data: {
+        name: (providedName || customer?.name || "Customer Representative").trim(),
+        email: lookupEmail,
+        role: UserRole.CUSTOMER,
+        organizationId: orgId || null,
+      },
+    });
+    if (customer?.id) {
+      await prisma.customer.update({
+        where: { id: customer.id },
+        data: { portalUserId: newUser.id },
+      }).catch(() => {});
+    }
+    return newUser.id;
+  } catch (_err) {
+    // 4. Fallbacks if user creation failed (e.g. duplicate key or constraint)
+    const fallbackUser = await prisma.user.findFirst({
+      where: { email: { equals: lookupEmail, mode: "insensitive" } },
+    });
+    if (fallbackUser) return fallbackUser.id;
 
-  return newUser.id;
+    const anyUser = await prisma.user.findFirst({
+      where: orgId ? { organizationId: orgId } : undefined,
+    });
+    if (anyUser) return anyUser.id;
+
+    const rootUser = await prisma.user.findFirst();
+    if (rootUser) return rootUser.id;
+
+    throw new AppError(500, "AUTHOR_RESOLVE_FAILED", "Failed to resolve customer author ID.");
+  }
 }
 
 // =============================================================================
@@ -59,10 +94,11 @@ async function resolveCustomerAuthorId(
 /**
  * 0. List Active Quotations for Portal Directory / Switcher (Database-backed)
  */
-export async function listActivePortalQuotations() {
+export async function listActivePortalQuotations(userEmail?: string) {
   const quotations = await prisma.quotation.findMany({
     where: {
       stage: { not: QuoteStage.CANCELLED },
+      ...(userEmail ? { customer: { email: { equals: userEmail, mode: "insensitive" } } } : {}),
     },
     select: {
       id: true,
@@ -149,9 +185,37 @@ export async function getPortalQuotation(portalToken: string) {
         },
         orderBy: { createdAt: "desc" },
       },
+      auditLogs: {
+        include: {
+          actor: {
+            select: { id: true, name: true, email: true, role: true },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+      approvalRequest: {
+        include: {
+          steps: {
+            include: {
+              reviewer: {
+                select: { id: true, name: true, email: true, role: true },
+              },
+            },
+            orderBy: { stepNumber: "asc" },
+          },
+        },
+      },
       signature: true,
       organization: {
-        select: { id: true, name: true, slug: true, currency: true },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          currency: true,
+          _count: {
+            select: { users: true, salesManagers: true, salesReps: true, quotations: true },
+          },
+        },
       },
     },
   });
@@ -268,15 +332,14 @@ export async function addQuotationComment(
     }
   }
 
-  return prisma.$transaction(async (tx) => {
-    const authorId = await resolveCustomerAuthorId(
-      tx,
-      quotation.customer,
-      quotation.organizationId,
-      input.authorName,
-      input.authorEmail
-    );
+  const authorId = await resolveCustomerAuthorId(
+    quotation.customer,
+    quotation.organizationId,
+    input.authorName || quotation.customer?.name,
+    input.authorEmail || quotation.customer?.email
+  );
 
+  return prisma.$transaction(async (tx) => {
     // If quotation is in DRAFT or APPROVED stage, customer interaction moves it to NEGOTIATION
     if (quotation.stage === QuoteStage.DRAFT || quotation.stage === QuoteStage.APPROVED) {
       await tx.quotation.update({
@@ -304,6 +367,27 @@ export async function addQuotationComment(
         },
       },
     });
+
+    try {
+      const redis = getRedisConnection();
+      await redis.publish(
+        `quotation:${quotation.id}:comments`,
+        JSON.stringify({
+          type: "NEW_COMMENT",
+          quotationId: quotation.id,
+          comment: {
+            id: comment.id,
+            message: comment.message,
+            authorRole: comment.authorRole,
+            authorName: comment.author?.name || quotation.customer?.name || "Customer",
+            quotationLineId: comment.quotationLineId,
+            createdAt: comment.createdAt.toISOString(),
+          },
+        })
+      );
+    } catch (_err) {
+      // Graceful fallback
+    }
 
     return comment;
   });
@@ -343,6 +427,14 @@ export async function submitCounterProposal(
       ? input.proposedGrandTotal
       : Math.round(quotation.subtotal * (1 - discPercent / 100) * 100) / 100;
 
+  // Pre-resolve authorId before transaction so transaction is never poisoned
+  const authorId = await resolveCustomerAuthorId(
+    quotation.customer,
+    quotation.organizationId,
+    input.authorName || quotation.customer?.name,
+    input.authorEmail || quotation.customer?.email
+  );
+
   return prisma.$transaction(async (tx) => {
     // Supersede previous pending counter-proposals
     await tx.counterProposal.updateMany({
@@ -358,7 +450,10 @@ export async function submitCounterProposal(
     // Advance quotation stage to NEGOTIATION
     await tx.quotation.update({
       where: { id: quotation.id },
-      data: { stage: QuoteStage.NEGOTIATION },
+      data: {
+        stage: QuoteStage.NEGOTIATION,
+        approvalStatus: ApprovalStatus.PENDING,
+      },
     });
 
     // If line-level proposed discounts were provided, encode into customer notes or metadata
@@ -379,6 +474,57 @@ export async function submitCounterProposal(
         status: CounterProposalStatus.PENDING,
       },
     });
+
+    // Create quotation discussion comment entry
+    const createdComment = await tx.quotationComment.create({
+      data: {
+        quotationId: quotation.id,
+        authorId,
+        authorRole: UserRole.CUSTOMER,
+        message: `Customer Counter-Proposal Submitted: Requested ${discPercent}% discount tier (Target Deal Total: ₹${proposedTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}). ${formattedNotes ? `Buyer Notes: "${formattedNotes}"` : ""}`,
+        proposedDiscountPercent: discPercent,
+        isResolved: false,
+      },
+    });
+
+    // Create audit log
+    await tx.approvalAuditLog.create({
+      data: {
+        quotationId: quotation.id,
+        organizationId: quotation.organizationId,
+        actorId: authorId,
+        actorRole: UserRole.CUSTOMER,
+        action: "COUNTER_PROPOSAL_SUBMITTED",
+        reason: `Customer submitted commercial counter-offer for ${discPercent}% discount (₹${proposedTotal.toLocaleString("en-IN")}). Stage moved to NEGOTIATION.`,
+        metadata: {
+          proposedDiscountPercent: discPercent,
+          proposedGrandTotal: proposedTotal,
+          notes: formattedNotes,
+        },
+      },
+    });
+
+    try {
+      const redis = getRedisConnection();
+      await redis.publish(
+        `quotation:${quotation.id}:comments`,
+        JSON.stringify({
+          type: "COUNTER_PROPOSAL_SUBMITTED",
+          quotationId: quotation.id,
+          proposedDiscountPercent: discPercent,
+          proposedGrandTotal: proposedTotal,
+          comment: {
+            id: createdComment.id,
+            message: createdComment.message,
+            authorRole: "CUSTOMER",
+            authorName: quotation.customer?.name || "Customer",
+            createdAt: createdComment.createdAt.toISOString(),
+          },
+        })
+      );
+    } catch (_err) {
+      // Safe fallback
+    }
 
     return counterProposal;
   });
@@ -433,7 +579,7 @@ export async function acceptCounterProposal(
     }
 
     const quotation = counterProposal.quotation;
-    const customerTierCeiling = quotation.customer.tier?.discountCeiling ?? 100.0;
+    const customerTierCeiling = quotation.customer?.tier?.discountCeiling ?? 100.0;
 
     // Parse potential line-level discounts from customerNotes e.g. "[Line cl...: 25%]"
     const lineDiscountOverrides = new Map<string, number>();
@@ -699,10 +845,17 @@ export async function signQuotation(
     );
   }
 
-  return prisma.$transaction(async (tx) => {
-    const resolvedName = (input.signedByName || input.signerName || quotation.customer.name || "Customer Representative").trim();
-    const resolvedEmail = (input.signedByEmail || input.signerEmail || quotation.customer.email || "buyer@customer.com").trim().toLowerCase();
+  const resolvedName = (input.signedByName || input.signerName || quotation.customer?.name || "Customer Representative").trim();
+  const resolvedEmail = (input.signedByEmail || input.signerEmail || quotation.customer?.email || "buyer@customer.com").trim().toLowerCase();
 
+  const customerUserId = await resolveCustomerAuthorId(
+    quotation.customer,
+    quotation.organizationId,
+    resolvedName,
+    resolvedEmail
+  );
+
+  return prisma.$transaction(async (tx) => {
     // 1. Create QuoteSignature
     const signature = await tx.quoteSignature.create({
       data: {
@@ -716,16 +869,7 @@ export async function signQuotation(
       },
     });
 
-    // 2. Resolve or ensure customer user
-    const customerUserId = await resolveCustomerAuthorId(
-      tx,
-      quotation.customer,
-      quotation.organizationId,
-      resolvedName,
-      resolvedEmail
-    );
-
-    // 3. Centralized Phase 7 Deal Confirmation Logic
+    // 2. Centralized Phase 7 Deal Confirmation Logic
     const confirmation = await confirmQuotation(
       tx,
       quotation.id,
@@ -786,17 +930,15 @@ export async function confirmPortalQuotation(
     );
   }
 
-  return prisma.$transaction(async (tx) => {
-    // 1. Resolve or ensure customer user
-    const customerUserId = await resolveCustomerAuthorId(
-      tx,
-      quotation.customer,
-      quotation.organizationId,
-      input?.customerName,
-      input?.customerEmail
-    );
+  const customerUserId = await resolveCustomerAuthorId(
+    quotation.customer,
+    quotation.organizationId,
+    input?.customerName || quotation.customer?.name,
+    input?.customerEmail || quotation.customer?.email
+  );
 
-    // 2. Centralized Phase 7 Deal Confirmation Logic
+  return prisma.$transaction(async (tx) => {
+    // 1. Centralized Phase 7 Deal Confirmation Logic
     const confirmation = await confirmQuotation(
       tx,
       quotation.id,

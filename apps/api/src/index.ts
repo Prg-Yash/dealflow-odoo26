@@ -40,6 +40,7 @@ import {
 } from "./routes/deal-health.routes.js";
 import { portalRouter } from "./routes/portal.routes.js";
 import { counterProposalRouter } from "./routes/counter-proposal.routes.js";
+import { approvalRouter } from "./routes/approval.routes.js";
 import { errorHandler } from "./middleware/error.js";
 
 const app = express();
@@ -50,6 +51,7 @@ const allowedOrigins = [
   "http://127.0.0.1:3000",
   "http://localhost:3001",
   "http://localhost:4000",
+  "http://localhost:8081", // Expo dev server
 ];
 
 // CORS Middleware with credentials enabled for cross-origin cookies & headers
@@ -74,6 +76,12 @@ app.use(
       "Origin",
       "x-portal-token",
       "x-customer-email",
+      "Cache-Control",
+      "Pragma",
+      "Expires",
+      "cache-control",
+      "pragma",
+      "expires",
     ],
     exposedHeaders: ["Set-Cookie"],
   })
@@ -139,6 +147,7 @@ app.use(["/api/deal-health", "/deal-health"], dealHealthRouter);
 app.use(["/api/jobs", "/jobs"], jobRouter);
 app.use(["/api/portal", "/portal"], portalRouter);
 app.use(["/api/counter-proposals", "/counter-proposals"], counterProposalRouter);
+app.use(["/api/approvals", "/approvals"], approvalRouter);
 
 // Demo Background Job Trigger (Interacts with @repo/db)
 app.post(["/api/jobs/trigger", "/jobs/trigger"], async (req: Request, res: Response) => {

@@ -7,12 +7,14 @@
       }
     ],
     "strictNullChecks": true,
+    "ignoreDeprecations": "6.0",
     "declaration": false,
     "declarationMap": false,
-    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     }
   },
   "include": [
@@ -22,5 +24,7 @@
     "next.config.js",
     ".next/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules"
+  ]
 }

@@ -7,6 +7,7 @@ export const CreateQuotationSchema = z.object({
   customerName: z.string().optional(),
   companyName: z.string().optional(),
   customerPhone: z.string().optional(),
+  tierId: z.string().optional(),
   title: z.string().min(1, "Title is required"),
   salesRepId: z.string().optional(),
   quoteNumber: z.string().optional(),
@@ -51,7 +52,15 @@ export const QuotationQuerySchema = z.object({
   salesRepId: z.string().optional(),
 });
 
+export const CreateQuotationStaffCommentSchema = z.object({
+  message: z.string().min(1, "Message cannot be empty"),
+  quotationLineId: z.string().optional().nullable(),
+  proposedDiscountPercent: z.number().min(0).max(100).optional().nullable(),
+});
+
 export type CreateQuotationInput = z.infer<typeof CreateQuotationSchema>;
 export type CreateQuotationLineInput = z.infer<typeof CreateQuotationLineSchema>;
 export type UpdateQuotationLineInput = z.infer<typeof UpdateQuotationLineSchema>;
 export type QuotationQueryInput = z.infer<typeof QuotationQuerySchema>;
+export type CreateQuotationStaffCommentInput = z.infer<typeof CreateQuotationStaffCommentSchema>;
+

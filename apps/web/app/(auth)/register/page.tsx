@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -18,13 +18,13 @@ import {
   ArrowLeftRight,
 } from "lucide-react";
 import { AuthCard, useToast } from "@repo/ui";
-import { signUp } from "../../../lib/auth-client";
+import { signIn } from "../../../lib/auth-client";
 import { setStoredRole } from "../../../lib/roles";
 import { isValidEmail, isValidPassword, isValidName } from "../../../lib/validation";
 
 type SignupMode = "customer" | "admin";
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
@@ -99,42 +99,38 @@ export default function RegisterPage() {
     try {
       if (mode === "customer") {
         // 1. Call Backend Customer Registration API
-        try {
-          const res = await fetch(`${apiUrl}/api/customer/register`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              name: fullName.trim(),
-              email: email.trim().toLowerCase(),
-              password,
-              companyName: companyName.trim() || undefined,
-              phone: phone.trim() || undefined,
-            }),
-          });
-
-          if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            if (data.message) {
-              throw new Error(data.message);
-            }
-          }
-        } catch (apiErr: any) {
-          if (apiErr.message && !apiErr.message.includes("fetch")) {
-            console.warn("API registration returned note:", apiErr.message);
-          }
-        }
-
-        // 2. Sign in or initialize Better Auth session
-        try {
-          await signUp.email({
+        const res = await fetch(`${apiUrl}/api/customer/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            name: fullName.trim(),
             email: email.trim().toLowerCase(),
             password,
-            name: fullName.trim(),
+            companyName: companyName.trim() || undefined,
+            phone: phone.trim() || undefined,
+          }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.message || data.error || "Customer registration failed. Please try again.");
+        }
+
+        // 2. Sign in with Better Auth credentials to establish active browser session
+        try {
+          await signIn.email({
+            email: email.trim().toLowerCase(),
+            password,
           });
         } catch (authErr) {
-          console.warn("Better Auth sign up completed or fallback to demo:", authErr);
+          console.warn("Sign-in session note:", authErr);
         }
+
+        toast.success(
+          "Account Created",
+          "Welcome to the DealFlow 360 Customer Portal!"
+        );
 
         // 3. Set stored role to customer and redirect to customer portal
         document.cookie = `demo_role=customer; path=/; max-age=86400; SameSite=Lax`;
@@ -142,41 +138,37 @@ export default function RegisterPage() {
         router.push("/portal");
       } else {
         // Admin Mode: Call Backend Admin Registration API
-        try {
-          const res = await fetch(`${apiUrl}/api/admin/register`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              name: fullName.trim(),
-              email: email.trim().toLowerCase(),
-              password,
-              organizationName: companyName.trim() || "Apex Enterprise Technologies Inc",
-              currency: currency || "INR",
-            }),
-          });
-
-          if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            if (data.message) {
-              throw new Error(data.message);
-            }
-          }
-        } catch (apiErr: any) {
-          if (apiErr.message && !apiErr.message.includes("fetch")) {
-            console.warn("Admin API registration note:", apiErr.message);
-          }
-        }
-
-        try {
-          await signUp.email({
+        const res = await fetch(`${apiUrl}/api/admin/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            name: fullName.trim(),
             email: email.trim().toLowerCase(),
             password,
-            name: fullName.trim(),
+            organizationName: companyName.trim() || "Apex Enterprise Technologies Inc",
+            currency: currency || "INR",
+          }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.message || data.error || "Admin workspace creation failed. Please try again.");
+        }
+
+        try {
+          await signIn.email({
+            email: email.trim().toLowerCase(),
+            password,
           });
         } catch (authErr) {
-          console.warn("Better Auth admin sign up fallback:", authErr);
+          console.warn("Admin sign-in session note:", authErr);
         }
+
+        toast.success(
+          "Workspace Created",
+          "Welcome to your Admin Workspace!"
+        );
 
         // Set stored role to admin and redirect to admin workspace
         document.cookie = `demo_role=admin; path=/; max-age=86400; SameSite=Lax`;
@@ -465,5 +457,13 @@ export default function RegisterPage() {
         </div>
       </form>
     </AuthCard>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <RegisterForm />
+    </Suspense>
   );
 }

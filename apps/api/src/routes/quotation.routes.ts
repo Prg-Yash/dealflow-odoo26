@@ -6,10 +6,12 @@ import { validateBody } from "../middleware/validate.js";
 import * as controller from "../controllers/quotation.controller.js";
 import { createFulfillmentOrder } from "../controllers/fulfillment.controller.js";
 import { confirmQuotation } from "../controllers/billing.controller.js";
+import * as approvalController from "../controllers/approval.controller.js";
 import {
   CreateQuotationSchema,
   CreateQuotationLineSchema,
   UpdateQuotationLineSchema,
+  CreateQuotationStaffCommentSchema,
 } from "../schemas/quotation.schema.js";
 
 export const quotationRouter = Router();
@@ -27,6 +29,12 @@ const SALES_ROLES = [
   UserRole.SALES_REP,
   UserRole.SALES_MANAGER,
   UserRole.ADMIN,
+];
+
+const APPROVER_ROLES = [
+  UserRole.ADMIN,
+  UserRole.SALES_MANAGER,
+  UserRole.FINANCE_OPS,
 ];
 
 // Quotation list and details
@@ -76,17 +84,25 @@ quotationRouter.patch(
   controller.updateQuotationStage
 );
 
-// Approval actions (step advancement for Sales Manager and Finance Ops)
+// Approve or reject quotation steps
 quotationRouter.post(
   "/:id/approve",
-  requireRole(UserRole.SALES_MANAGER, UserRole.FINANCE_OPS, UserRole.ADMIN),
-  controller.approveQuotation
+  requireRole(...APPROVER_ROLES),
+  approvalController.approveQuotationStep
 );
 
 quotationRouter.post(
   "/:id/reject",
-  requireRole(UserRole.SALES_MANAGER, UserRole.FINANCE_OPS, UserRole.ADMIN),
-  controller.rejectQuotation
+  requireRole(...APPROVER_ROLES),
+  approvalController.rejectQuotationStep
+);
+
+// Quotation comments & discussion thread
+quotationRouter.post(
+  "/:id/comments",
+  requireRole(...STAFF_ROLES),
+  validateBody(CreateQuotationStaffCommentSchema),
+  controller.addQuotationComment
 );
 
 // Live upsell & cross-sell suggestions panel
@@ -95,6 +111,7 @@ quotationRouter.get(
   requireRole(UserRole.SALES_REP, UserRole.SALES_MANAGER, UserRole.ADMIN),
   controller.getUpsellSuggestions
 );
+
 
 // Create fulfillment order on APPROVED or CONFIRMED quotation
 quotationRouter.post(
@@ -109,4 +126,5 @@ quotationRouter.post(
   requireRole(...STAFF_ROLES),
   confirmQuotation
 );
+
 

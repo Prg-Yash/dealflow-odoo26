@@ -72,7 +72,10 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestOption
   }
 
   if (!response.ok || (data && typeof data === "object" && data.success === false)) {
-    const errorMessage = data?.message || data?.error || `Request failed with status ${response.status}`;
+    const errorMessage =
+      data?.message
+      || (typeof data?.error === "string" ? data.error : data?.error?.message)
+      || `Request failed with status ${response.status}`;
     throw new ApiError(errorMessage, response.status, data);
   }
 

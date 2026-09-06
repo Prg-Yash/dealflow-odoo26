@@ -86,6 +86,17 @@ export const getUpsellSuggestions = asyncHandler(async (req: TenantRequest, res:
   return res.json({ success: true, data: suggestions });
 });
 
+export const addQuotationComment = asyncHandler(async (req: TenantRequest, res: Response) => {
+  const comment = await quotationService.addQuotationComment(
+    req.orgId,
+    req.user!.id,
+    req.user!.role,
+    req.params.id as string,
+    req.body
+  );
+  return res.status(201).json({ success: true, data: comment });
+});
+
 export const updateQuotationStage = asyncHandler(async (req: TenantRequest, res: Response) => {
   const updatedQuotation = await quotationService.updateQuotationStage(
     req.orgId,

@@ -12,7 +12,7 @@ import {
 } from "../services/invitation.service.js";
 
 export const createInvitation = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { email, role, metadata } = req.body;
+  const { email, role, metadata, department, territory, expiryDays } = req.body;
 
   if (!email || typeof email !== "string" || !email.includes("@")) {
     throw new AppError(400, "BAD_REQUEST", "A valid email address is required.");
@@ -26,12 +26,20 @@ export const createInvitation = asyncHandler(async (req: AuthRequest, res: Respo
     );
   }
 
+  // Merge top-level department/territory into metadata so the frontend's
+  // flat shape ({ email, role, department, territory, expiryDays }) is
+  // compatible with the service's metadata-based contract.
+  const mergedMetadata: Record<string, any> = { ...(metadata || {}) };
+  if (department) mergedMetadata.department = department;
+  if (territory) mergedMetadata.territory = territory;
+  if (expiryDays !== undefined) mergedMetadata.expiryDays = expiryDays;
+
   const result = await createInvitationService({
     email,
     role,
     organizationId: req.user!.organizationId!,
     invitedById: req.user!.id,
-    metadata: metadata || {},
+    metadata: mergedMetadata,
   });
 
   return res.status(201).json({

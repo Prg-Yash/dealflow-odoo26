@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, type ReactNode, type ComponentType } from 
 import { Search, Bell, X, ArrowRight } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
 import { NotificationModal } from "./notification-modal";
+import { ProfileModal } from "./profile-modal";
 
 export interface NavTabItem {
   id: string;
@@ -16,6 +17,7 @@ export interface SalesNavProps {
   userInitials?: string;
   userName?: string;
   roleLabel?: string;
+  onSignOut?: () => void;
   className?: string;
   linkComponent?: ComponentType<{ href: string; className?: string; children: ReactNode }>;
 }
@@ -55,10 +57,12 @@ export function SalesNav({
   userInitials = "SJ",
   userName = "Sarah Jenkins",
   roleLabel = "Sales Rep",
+  onSignOut,
   className = "",
   linkComponent: LinkComp,
 }: SalesNavProps) {
   const [notifOpen, setNotifOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
@@ -213,15 +217,29 @@ export function SalesNav({
             </button>
 
             {/* User Avatar + Role Badge */}
-            <NavLink href="/profile" linkComponent={LinkComp} className="flex items-center gap-2 pl-2 border-l border-slate-200 cursor-pointer">
-              <div className="w-8 h-8 rounded-full bg-[#ff5e3a] flex items-center justify-center text-white text-xs font-extrabold shadow-sm shadow-[#ff5e3a]/25">
-                {userInitials}
-              </div>
-              <div className="hidden xl:flex flex-col text-left">
-                <span className="text-xs font-bold text-slate-900 leading-tight">{userName}</span>
-                <span className="text-[10px] text-slate-500 font-medium">{roleLabel}</span>
-              </div>
-            </NavLink>
+            <div className="relative">
+              <button onClick={() => setProfileOpen(!profileOpen)} className="flex items-center gap-2 px-2.5 border-l border-slate-200 cursor-pointer">
+                <div className="w-8 h-8 rounded-full bg-[#ff5e3a] flex items-center justify-center text-white text-xs font-extrabold shadow-sm shadow-[#ff5e3a]/25 hover:scale-105 transition-transform">
+                  {userInitials}
+                </div>
+                <div className="hidden xl:flex flex-col text-left">
+                  <span className="text-xs font-bold text-slate-900 leading-tight">{userName}</span>
+                  <span className="text-[10px] text-slate-500 font-medium">{roleLabel}</span>
+                </div>
+              </button>
+              
+              <ProfileModal
+                open={profileOpen}
+                onClose={() => setProfileOpen(false)}
+                user={{
+                  name: userName || "User",
+                  email: "",
+                  initials: userInitials,
+                  role: roleLabel === "Sales Rep" ? "sales_rep" : roleLabel === "Manager" ? "manager" : "customer",
+                }}
+                onSignOut={onSignOut || (() => {})}
+              />
+            </div>
           </div>
         </div>
       </header>

@@ -156,13 +156,14 @@ export default function AdminTeamPage() {
         territory: inviteTerritory.trim() || undefined,
         expiryDays: inviteExpiryDays,
       });
-    } catch (err) {
-      console.warn("Invite created with optimistic local state:", err);
-    }
 
-    setLocalInvitations([newInvite, ...invitationsList]);
-    setIsInviteModalOpen(false);
-    showToast(`Invitation sent to ${newInvite.email} with role ${newInvite.role}!`);
+      setLocalInvitations([newInvite, ...invitationsList]);
+      setIsInviteModalOpen(false);
+      showToast(`Invitation sent to ${newInvite.email} with role ${newInvite.role}!`);
+    } catch (err: any) {
+      console.error("Failed to invite member:", err);
+      showToast(err?.message || "Failed to send invitation. Please try again.");
+    }
 
     // Reset Form
     setInviteEmail("");
